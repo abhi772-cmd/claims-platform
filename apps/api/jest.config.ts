@@ -23,6 +23,9 @@ const config: Config = {
   collectCoverageFrom: ['src/**/*.ts', '!src/**/*.spec.ts', '!src/main.ts'],
   coverageDirectory: 'coverage',
   testTimeout: 15000,
+  // No unit specs yet (alongside-source *.spec.ts will land per-module
+  // starting in sprint 1). Don't fail CI for the empty case.
+  passWithNoTests: true,
 };
 
 export default config;

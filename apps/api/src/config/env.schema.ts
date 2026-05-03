@@ -13,7 +13,9 @@ const BooleanLike = z.preprocess((v) => {
 export const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   MODE: z.enum(['api', 'worker']).default('api'),
-  PORT: z.coerce.number().int().positive().default(3001),
+  // 0 is a valid value meaning "auto-assigned" — used by tests that call
+  // app.init() without listen(). Reject negatives only.
+  PORT: z.coerce.number().int().nonnegative().default(3001),
 
   DATABASE_URL: NonEmptyString,
   DATABASE_URL_MIGRATOR: NonEmptyString,
