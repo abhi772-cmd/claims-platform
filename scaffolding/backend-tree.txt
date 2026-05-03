@@ -1,0 +1,102 @@
+apps/api/
+├── src/
+│   ├── main.ts
+│   ├── app.module.ts
+│   ├── config/
+│   │   ├── configuration.ts
+│   │   ├── env.schema.ts
+│   │   └── secrets.ts
+│   ├── common/
+│   │   ├── decorators/
+│   │   │   ├── current-user.decorator.ts
+│   │   │   ├── tenant-id.decorator.ts
+│   │   │   └── redacted-logger.decorator.ts
+│   │   ├── filters/
+│   │   │   ├── domain-exception.filter.ts
+│   │   │   └── http-exception.filter.ts
+│   │   ├── guards/
+│   │   │   ├── jwt-auth.guard.ts
+│   │   │   ├── tenant.guard.ts
+│   │   │   └── roles.guard.ts
+│   │   ├── interceptors/
+│   │   │   ├── tenant.interceptor.ts
+│   │   │   ├── audit.interceptor.ts
+│   │   │   ├── correlation-id.interceptor.ts
+│   │   │   └── timing.interceptor.ts
+│   │   ├── pipes/
+│   │   │   └── zod-validation.pipe.ts
+│   │   ├── errors/
+│   │   │   ├── domain-error.ts
+│   │   │   └── error-titles.ts
+│   │   └── prisma/
+│   │       ├── prisma.module.ts
+│   │       ├── prisma.service.ts
+│   │       └── tenant-context.service.ts
+│   ├── modules/
+│   │   ├── auth/
+│   │   ├── tenant/
+│   │   ├── user/
+│   │   ├── patient/
+│   │   ├── policy/
+│   │   ├── pmjay-beneficiary/
+│   │   ├── case/
+│   │   ├── preauth/
+│   │   ├── enhancement/
+│   │   ├── discharge/
+│   │   ├── claim/
+│   │   ├── query/
+│   │   ├── settlement/
+│   │   ├── analytics/
+│   │   ├── document/
+│   │   ├── notification/
+│   │   ├── audit/
+│   │   ├── admin/
+│   │   ├── consent/
+│   │   ├── realtime/
+│   │   └── health/
+│   ├── integrations/
+│   │   ├── nhcx/
+│   │   │   ├── crypto/
+│   │   │   ├── messages/
+│   │   │   ├── callbacks/
+│   │   │   ├── workers/
+│   │   │   └── headers/
+│   │   ├── pmjay/
+│   │   │   ├── api/
+│   │   │   ├── modes/
+│   │   │   ├── flows/MP/
+│   │   │   ├── flow-engine/
+│   │   │   ├── packages/
+│   │   │   ├── assist/
+│   │   │   └── health/
+│   │   ├── abdm/
+│   │   ├── openai/
+│   │   ├── textguru/
+│   │   ├── nodemailer/
+│   │   └── shared/
+│   ├── queue/
+│   │   ├── queue.module.ts
+│   │   ├── queue.service.ts
+│   │   ├── job-types.ts
+│   │   └── workers/
+│   ├── database/
+│   │   ├── postgres-extensions.sql
+│   │   ├── rls-policies.sql
+│   │   ├── partitions.sql
+│   │   └── functions.sql
+│   └── types/express/index.d.ts
+├── prisma/
+│   ├── schema.prisma
+│   ├── migrations/
+│   └── seed.ts
+├── test/
+│   ├── integration/
+│   ├── contract/
+│   ├── fixtures/
+│   └── jest-e2e.json
+├── nest-cli.json
+├── tsconfig.json
+├── tsconfig.build.json
+├── jest.config.ts
+├── package.json
+└── README.md
