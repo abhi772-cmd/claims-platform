@@ -1,0 +1,13 @@
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+
+# Generated files (do not show in diffs by default)
+pnpm-lock.yaml linguist-generated=true -diff
+**/prisma/migrations/**/*.sql linguist-language=SQL
+packages/error-codes/src/codes.ts linguist-generated=true
