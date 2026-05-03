@@ -3,8 +3,9 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import argon2 from 'argon2';
+import { verify } from 'argon2';
 
+import { type JwtPayload } from './jwt.strategy.js';
 import {
   AccountLockedError,
   InvalidCredentialsError,
@@ -14,7 +15,6 @@ import {
 } from '../../common/errors/auth-errors.js';
 import { PrismaService } from '../../common/prisma/prisma.service.js';
 import { type AppConfig } from '../../config/configuration.js';
-import { type JwtPayload } from './jwt.strategy.js';
 
 const FAILED_ATTEMPTS_LIMIT = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000;
@@ -59,7 +59,7 @@ export class AuthService {
         });
         if (!user) {
           // Argon2 verify on a dummy hash to keep response time uniform.
-          await argon2.verify(DUMMY_ARGON2_HASH, input.password).catch(() => false);
+          await verify(DUMMY_ARGON2_HASH, input.password).catch(() => false);
           throw new InvalidCredentialsError();
         }
 
@@ -67,7 +67,7 @@ export class AuthService {
           throw new AccountLockedError();
         }
 
-        const ok = await argon2.verify(user.passwordHash, input.password);
+        const ok = await verify(user.passwordHash, input.password);
         if (!ok) {
           const attempts = user.failedLoginAttempts + 1;
           const shouldLock = attempts >= FAILED_ATTEMPTS_LIMIT;

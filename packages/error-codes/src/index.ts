@@ -1,3 +1,3 @@
-export { ErrorCodes, ErrorHttpStatus, type ErrorCode } from './codes.js';
-export { ErrorPresentations, type ErrorPresentation, type ErrorSeverity } from './titles.js';
-export { type ProblemDetails } from './types.js';
+export { ErrorCodes, ErrorHttpStatus, type ErrorCode } from './codes';
+export { ErrorPresentations, type ErrorPresentation, type ErrorSeverity } from './titles';
+export { type ProblemDetails } from './types';

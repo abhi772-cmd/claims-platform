@@ -1,4 +1,4 @@
-import { type ErrorCode } from './codes.js';
+import { type ErrorCode } from './codes';
 
 export type ErrorSeverity = 'info' | 'warning' | 'error' | 'critical';
 

@@ -1,8 +1,8 @@
+import { ErrorCodes } from '@claims/error-codes';
 import { createParamDecorator, type ExecutionContext } from '@nestjs/common';
 import { type Request } from 'express';
 
 import { DomainError } from '../errors/domain-error.js';
-import { ErrorCodes } from '@claims/error-codes';
 
 // Returns the tenant-scoped Prisma transaction set by TenantInterceptor.
 // Throws if used on a route that didn't go through the interceptor.

@@ -11,7 +11,7 @@
 // IMPORTANT: this seed runs against the migrator role (DATABASE_URL_MIGRATOR)
 // and uses the platform_admin GUC so RLS is honoured at write time too.
 
-import argon2 from 'argon2';
+import { argon2id, hash } from 'argon2';
 import { Prisma, PrismaClient } from '@prisma/client';
 
 const TENANT_SLUG = 'digisparsh-dev';
@@ -193,8 +193,8 @@ async function seed(): Promise<void> {
         }
       }
 
-      const passwordHash = await argon2.hash(ADMIN_INITIAL_PASSWORD, {
-        type: argon2.argon2id,
+      const passwordHash = await hash(ADMIN_INITIAL_PASSWORD, {
+        type: argon2id,
         timeCost: 3,
         memoryCost: 65536,
         parallelism: 4,

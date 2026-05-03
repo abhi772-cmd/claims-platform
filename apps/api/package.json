@@ -7,7 +7,7 @@
     "dev": "nest start --watch",
     "dev:worker": "MODE=worker nest start --watch",
     "build": "nest build",
-    "start": "node dist/main.js",
+    "start": "node dist/apps/api/src/main.js",
     "lint": "eslint src test --ext .ts",
     "typecheck": "tsc --noEmit",
     "test": "jest",

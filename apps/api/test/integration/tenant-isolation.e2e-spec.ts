@@ -8,7 +8,8 @@
 //      even claims_migrator cannot cross tenants when the GUC is set.
 //   4. audit_log UPDATE/DELETE are silently denied (append-only).
 
-import { Prisma, PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 
 import { makePrisma, startPostgres, type PgHandles } from '../setup/postgres-container.js';
 

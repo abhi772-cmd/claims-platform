@@ -2,9 +2,9 @@ import { generateKeyPairSync } from 'node:crypto';
 
 import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import argon2 from 'argon2';
-import cookieParser from 'cookie-parser';
 import { Prisma, PrismaClient } from '@prisma/client';
+import { argon2id, hash } from 'argon2';
+import cookieParser from 'cookie-parser';
 import request from 'supertest';
 
 import { AppModule } from '../../src/app.module.js';
@@ -46,7 +46,7 @@ describe('Auth login flow', () => {
     process.env['CORS_ORIGIN'] = 'http://localhost:3000';
 
     // Seed a tenant + role + admin user via the migrator role.
-    const passwordHash = await argon2.hash(ADMIN_PASSWORD, { type: argon2.argon2id });
+    const passwordHash = await hash(ADMIN_PASSWORD, { type: argon2id });
     await migrator.$transaction(async (tx) => {
       await tx.$executeRaw(
         Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
@@ -126,9 +126,9 @@ describe('Auth login flow', () => {
     const login = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email: ADMIN_EMAIL, password: ADMIN_PASSWORD });
-    const cookieHeader = (login.headers['set-cookie'] as unknown as string[]).map(
-      (c) => c.split(';')[0],
-    );
+    const cookieHeader = (login.headers['set-cookie'] as unknown as string[])
+      .map((c) => c.split(';')[0])
+      .filter((c): c is string => Boolean(c));
 
     const res = await request(app.getHttpServer())
       .get('/auth/me')

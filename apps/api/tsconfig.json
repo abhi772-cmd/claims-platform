@@ -5,7 +5,7 @@
     "moduleResolution": "NodeNext",
     "target": "ES2022",
     "outDir": "./dist",
-    "rootDir": "./",
+    "rootDir": "../..",
     "noEmit": false,
     "incremental": true,
     "tsBuildInfoFile": "./.tsbuildinfo",

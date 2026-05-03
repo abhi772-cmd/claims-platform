@@ -1,3 +1,4 @@
+import { type LoginRequest, LoginRequestSchema, type LoginResponse, type MeResponse } from '@claims/contracts';
 import {
   Body,
   Controller,
@@ -10,7 +11,6 @@ import {
   HttpCode,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { type LoginRequest, LoginRequestSchema, type LoginResponse, type MeResponse } from '@claims/contracts';
 import { type CookieOptions, type Request, type Response } from 'express';
 
 import { AuthService } from './auth.service.js';

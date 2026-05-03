@@ -2,12 +2,12 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 
+import { PrismaModule } from './common/prisma/prisma.module.js';
+import { loadConfig } from './config/configuration.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthModule } from './modules/health/health.module.js';
-import { PrismaModule } from './common/prisma/prisma.module.js';
 import { TenantModule } from './modules/tenant/tenant.module.js';
 import { UserModule } from './modules/user/user.module.js';
-import { loadConfig } from './config/configuration.js';
 
 @Module({
   imports: [

@@ -1,3 +1,4 @@
+import { ErrorCodes, ErrorHttpStatus, ErrorPresentations, type ProblemDetails } from '@claims/error-codes';
 import {
   ArgumentsHost,
   Catch,
@@ -5,7 +6,6 @@ import {
   HttpException,
   Logger,
 } from '@nestjs/common';
-import { ErrorCodes, ErrorHttpStatus, ErrorPresentations, type ProblemDetails } from '@claims/error-codes';
 import { type Request, type Response } from 'express';
 import { ZodError } from 'zod';
 
@@ -55,8 +55,8 @@ export class DomainExceptionFilter implements ExceptionFilter {
       const errors: Record<string, string[]> = {};
       for (const issue of exception.issues) {
         const path = issue.path.join('.') || '_root';
-        if (!errors[path]) errors[path] = [];
-        errors[path].push(issue.message);
+        const bucket = errors[path] ?? (errors[path] = []);
+        bucket.push(issue.message);
       }
       const presentation = ErrorPresentations[ErrorCodes.VALIDATION_FAILED];
       return cleanProblem({
