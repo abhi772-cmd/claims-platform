@@ -16,7 +16,6 @@
     "emitDecoratorMetadata": false,
     "strict": true,
     "plugins": [{ "name": "next" }],
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./*"],
       "@claims/contracts": ["../../packages/contracts/src/index.ts"],
