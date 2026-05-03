@@ -19,7 +19,7 @@ describe('Auth login flow', () => {
   let migrator: PrismaClient;
 
   const TENANT_SLUG = 'tenant-auth-test';
-  const ADMIN_EMAIL = 'admin-login@tenant-auth-test';
+  const ADMIN_EMAIL = 'admin-login@tenant-auth-test.local';
   const ADMIN_PASSWORD = 'CorrectHorseBattery!2026';
 
   beforeAll(async () => {
