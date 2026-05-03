@@ -1,0 +1,54 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { LoggerModule } from 'nestjs-pino';
+
+import { AuthModule } from './modules/auth/auth.module.js';
+import { HealthModule } from './modules/health/health.module.js';
+import { PrismaModule } from './common/prisma/prisma.module.js';
+import { TenantModule } from './modules/tenant/tenant.module.js';
+import { UserModule } from './modules/user/user.module.js';
+import { loadConfig } from './config/configuration.js';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      cache: true,
+      load: [() => loadConfig(process.env)],
+    }),
+    LoggerModule.forRoot({
+      pinoHttp: {
+        level: process.env['LOG_LEVEL'] ?? 'info',
+        // PII redaction. Add new sensitive paths here as the surface grows.
+        redact: {
+          paths: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'res.headers["set-cookie"]',
+            '*.password',
+            '*.passwordHash',
+            '*.refreshToken',
+            '*.accessToken',
+            '*.aadhaar',
+            '*.abhaId',
+            '*.policyNumber',
+            '*.mobile',
+            '*.email',
+            '*.mfaSecret',
+          ],
+          censor: '[redacted]',
+        },
+        transport:
+          process.env['NODE_ENV'] === 'development'
+            ? { target: 'pino-pretty', options: { singleLine: true } }
+            : undefined,
+      },
+    }),
+    PrismaModule,
+    HealthModule,
+    TenantModule,
+    UserModule,
+    AuthModule,
+  ],
+})
+export class AppModule {}
