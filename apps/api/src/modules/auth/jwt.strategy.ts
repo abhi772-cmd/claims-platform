@@ -4,8 +4,8 @@ import { PassportStrategy } from '@nestjs/passport';
 import { type Request } from 'express';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
-import { ACCESS_COOKIE_NAME } from './cookie.constants.js';
-import { type AppConfig } from '../../config/configuration.js';
+import { ACCESS_COOKIE_NAME } from './cookie.constants';
+import { type AppConfig } from '../../config/configuration';
 
 export interface JwtPayload {
   sub: string;

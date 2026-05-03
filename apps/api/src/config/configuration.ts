@@ -1,4 +1,4 @@
-import { EnvSchema, type Env } from './env.schema.js';
+import { EnvSchema, type Env } from './env.schema';
 
 export class ConfigError extends Error {
   constructor(public readonly issues: unknown) {

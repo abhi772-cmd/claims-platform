@@ -1,5 +1,14 @@
 {
   "extends": "../../tsconfig.base.json",
+  "ts-node": {
+    "transpileOnly": true,
+    "files": true,
+    "compilerOptions": {
+      "module": "CommonJS",
+      "moduleResolution": "Node",
+      "verbatimModuleSyntax": false
+    }
+  },
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",

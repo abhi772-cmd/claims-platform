@@ -13,14 +13,14 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { type CookieOptions, type Request, type Response } from 'express';
 
-import { AuthService } from './auth.service.js';
-import { ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME } from './cookie.constants.js';
-import { JwtAuthGuard } from './jwt-auth.guard.js';
-import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
-import { RefreshTokenInvalidError } from '../../common/errors/auth-errors.js';
-import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
-import { type AppConfig } from '../../config/configuration.js';
-import { UserService } from '../user/user.service.js';
+import { AuthService } from './auth.service';
+import { ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME } from './cookie.constants';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { RefreshTokenInvalidError } from '../../common/errors/auth-errors';
+import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
+import { type AppConfig } from '../../config/configuration';
+import { UserService } from '../user/user.service';
 
 @Controller('auth')
 export class AuthController {
@@ -99,9 +99,16 @@ export class AuthController {
 
   private cookieOptions(): CookieOptions {
     const sameSite = this.config.get('COOKIE_SAMESITE', { infer: true });
+    // Coerce defensively — process.env round-trips strings even when our schema
+    // declares boolean, and a truthy string ("false") would silently turn on Secure.
+    const secureRaw: unknown = this.config.get('COOKIE_SECURE', { infer: true });
+    const secure =
+      typeof secureRaw === 'boolean'
+        ? secureRaw
+        : String(secureRaw).toLowerCase() === 'true';
     return {
       httpOnly: true,
-      secure: this.config.get('COOKIE_SECURE', { infer: true }),
+      secure,
       sameSite,
       domain: this.config.get('COOKIE_DOMAIN', { infer: true }),
       path: '/',

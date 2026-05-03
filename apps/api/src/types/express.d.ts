@@ -17,8 +17,11 @@ declare global {
       sessionId: string;
     }
 
+    // Passport assigns the strategy validate() return value to req.user.
+    // We extend that so our typed AuthenticatedUser is what controllers see.
+    interface User extends AuthenticatedUser {}
+
     interface Request {
-      authUser?: AuthenticatedUser;
       tenantId?: string;
       tenantPrisma?: TenantPrisma;
       correlationId?: string;

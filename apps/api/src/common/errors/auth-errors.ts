@@ -1,6 +1,6 @@
 import { ErrorCodes } from '@claims/error-codes';
 
-import { DomainError } from './domain-error.js';
+import { DomainError } from './domain-error';
 
 export class InvalidCredentialsError extends DomainError {
   constructor() {

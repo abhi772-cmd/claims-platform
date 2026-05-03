@@ -11,7 +11,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { Prisma } from '@prisma/client';
 
-import { makePrisma, startPostgres, type PgHandles } from '../setup/postgres-container.js';
+import { makePrisma, startPostgres, type PgHandles } from '../setup/postgres-container';
 
 jest.setTimeout(120_000);
 

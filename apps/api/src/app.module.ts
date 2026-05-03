@@ -2,18 +2,23 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 
-import { PrismaModule } from './common/prisma/prisma.module.js';
-import { loadConfig } from './config/configuration.js';
-import { AuthModule } from './modules/auth/auth.module.js';
-import { HealthModule } from './modules/health/health.module.js';
-import { TenantModule } from './modules/tenant/tenant.module.js';
-import { UserModule } from './modules/user/user.module.js';
+import { PrismaModule } from './common/prisma/prisma.module';
+import { loadConfig } from './config/configuration';
+import { AuthModule } from './modules/auth/auth.module';
+import { HealthModule } from './modules/health/health.module';
+import { TenantModule } from './modules/tenant/tenant.module';
+import { UserModule } from './modules/user/user.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
+      // Disable Nest's own dotenv loader and use loadConfig as the single source
+      // of truth so config.get() returns the Zod-parsed typed values
+      // (e.g. boolean false), not raw strings from process.env.
+      ignoreEnvFile: true,
+      ignoreEnvVars: true,
       load: [() => loadConfig(process.env)],
     }),
     LoggerModule.forRoot({

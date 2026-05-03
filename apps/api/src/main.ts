@@ -5,9 +5,9 @@ import { NestFactory } from '@nestjs/core';
 import cookieParser from 'cookie-parser';
 import { Logger } from 'nestjs-pino';
 
-import { AppModule } from './app.module.js';
-import { DomainExceptionFilter } from './common/filters/domain-exception.filter.js';
-import { type AppConfig } from './config/configuration.js';
+import { AppModule } from './app.module';
+import { DomainExceptionFilter } from './common/filters/domain-exception.filter';
+import { type AppConfig } from './config/configuration';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });

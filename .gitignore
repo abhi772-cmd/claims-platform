@@ -47,3 +47,10 @@ test-results/
 
 # Docker volumes (local data)
 infra/docker-compose/data/
+
+# Smoke-test artifacts (do NOT commit — these contain secrets/state)
+.api-boot.log
+.web-boot.log
+.claims_app_password.tmp
+apps/api/prisma/_bootstrap-*.sql
+apps/api/prisma/_wake.sql

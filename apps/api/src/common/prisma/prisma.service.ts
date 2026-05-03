@@ -2,8 +2,8 @@ import { Injectable, type OnModuleDestroy, type OnModuleInit, Logger } from '@ne
 import { ConfigService } from '@nestjs/config';
 import { Prisma, PrismaClient } from '@prisma/client';
 
-import { type AppConfig } from '../../config/configuration.js';
-import { type TenantPrisma } from '../../types/express.js';
+import { type AppConfig } from '../../config/configuration';
+import { type TenantPrisma } from '../../types/express';
 
 export type TenantRole = 'tenant' | 'platform_admin';
 

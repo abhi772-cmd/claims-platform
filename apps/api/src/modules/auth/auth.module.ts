@@ -3,13 +3,13 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 
-import { AuthController } from './auth.controller.js';
-import { AuthService } from './auth.service.js';
-import { JwtAuthGuard } from './jwt-auth.guard.js';
-import { JwtStrategy } from './jwt.strategy.js';
-import { type AppConfig } from '../../config/configuration.js';
-import { TenantModule } from '../tenant/tenant.module.js';
-import { UserModule } from '../user/user.module.js';
+import { AuthController } from './auth.controller';
+import { AuthService } from './auth.service';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { JwtStrategy } from './jwt.strategy';
+import { type AppConfig } from '../../config/configuration';
+import { TenantModule } from '../tenant/tenant.module';
+import { UserModule } from '../user/user.module';
 
 @Module({
   imports: [

@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 
-import { TenantService } from './tenant.service.js';
+import { TenantService } from './tenant.service';
 
 @Module({
   providers: [TenantService],

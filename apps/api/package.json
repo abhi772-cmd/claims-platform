@@ -4,8 +4,8 @@
   "private": true,
   "description": "Claims platform NestJS API",
   "scripts": {
-    "dev": "nest start --watch",
-    "dev:worker": "MODE=worker nest start --watch",
+    "dev": "ts-node --transpile-only -r tsconfig-paths/register src/main.ts",
+    "dev:worker": "cross-env MODE=worker ts-node --transpile-only -r tsconfig-paths/register src/main.ts",
     "build": "nest build",
     "start": "node dist/apps/api/src/main.js",
     "lint": "eslint src test --ext .ts",
@@ -60,6 +60,7 @@
     "ts-loader": "9.5.1",
     "ts-node": "10.9.2",
     "tsconfig-paths": "4.2.0",
+    "tsx": "4.16.2",
     "typescript": "5.4.5"
   }
 }

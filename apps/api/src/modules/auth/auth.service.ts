@@ -5,16 +5,16 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { verify } from 'argon2';
 
-import { type JwtPayload } from './jwt.strategy.js';
+import { type JwtPayload } from './jwt.strategy';
 import {
   AccountLockedError,
   InvalidCredentialsError,
   RefreshTokenInvalidError,
   RefreshTokenReuseDetectedError,
   TenantDisabledError,
-} from '../../common/errors/auth-errors.js';
-import { PrismaService } from '../../common/prisma/prisma.service.js';
-import { type AppConfig } from '../../config/configuration.js';
+} from '../../common/errors/auth-errors';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { type AppConfig } from '../../config/configuration';
 
 const FAILED_ATTEMPTS_LIMIT = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000;

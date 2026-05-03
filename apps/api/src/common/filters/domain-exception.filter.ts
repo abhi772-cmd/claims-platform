@@ -9,7 +9,7 @@ import {
 import { type Request, type Response } from 'express';
 import { ZodError } from 'zod';
 
-import { DomainError } from '../errors/domain-error.js';
+import { DomainError } from '../errors/domain-error';
 
 @Catch()
 export class DomainExceptionFilter implements ExceptionFilter {

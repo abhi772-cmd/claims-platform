@@ -7,9 +7,9 @@ import { argon2id, hash } from 'argon2';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 
-import { AppModule } from '../../src/app.module.js';
-import { DomainExceptionFilter } from '../../src/common/filters/domain-exception.filter.js';
-import { startPostgres, type PgHandles } from '../setup/postgres-container.js';
+import { AppModule } from '../../src/app.module';
+import { DomainExceptionFilter } from '../../src/common/filters/domain-exception.filter';
+import { startPostgres, type PgHandles } from '../setup/postgres-container';
 
 jest.setTimeout(120_000);
 
