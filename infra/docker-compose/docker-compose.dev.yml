@@ -1,0 +1,69 @@
+version: '3.9'
+
+# Local dev stack for the claims platform.
+# - postgres on host port 5433 to avoid clashes with any existing local Postgres
+# - redis 7
+# - mailhog for SMTP capture
+# - pgadmin for DB inspection
+#
+# Volumes are local. Reset state with: pnpm infra:down && rm -rf infra/docker-compose/data
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: claims-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+      CLAIMS_MIGRATOR_PASSWORD: ${CLAIMS_MIGRATOR_PASSWORD:-claims_migrator_dev}
+      CLAIMS_APP_PASSWORD: ${CLAIMS_APP_PASSWORD:-claims_app_dev}
+    ports:
+      - '5433:5432'
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: claims-redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - ./data/redis:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: claims-mailhog
+    restart: unless-stopped
+    ports:
+      - '1025:1025'
+      - '8025:8025'
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: claims-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: dev@example.com
+      PGADMIN_DEFAULT_PASSWORD: dev
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - '5050:80'
+    volumes:
+      - ./data/pgadmin:/var/lib/pgadmin
+    depends_on:
+      postgres:
+        condition: service_healthy
