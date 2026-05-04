@@ -55,7 +55,11 @@ describe('Auth login flow', () => {
         data: { slug: TENANT_SLUG, displayName: 'Auth Test', lifecycleState: 'IN_SETUP' },
       });
       const role = await tx.role.create({
-        data: { tenantId: tenant.id, name: 'tenant_admin', permissions: ['user.invite'] },
+        data: {
+          tenantId: tenant.id,
+          name: 'tenant_admin',
+          permissions: ['user.invite', 'audit.view'],
+        },
       });
       const user = await tx.user.create({
         data: {

@@ -12,6 +12,8 @@ export interface JwtPayload {
   tid: string;
   rl: 'tenant' | 'platform_admin';
   rs: string[];
+  // Effective permission set — short field name keeps JWT small.
+  pm: string[];
   sid: string;
 }
 
@@ -41,6 +43,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       tenantId: payload.tid,
       role: payload.rl,
       roles: payload.rs,
+      permissions: payload.pm,
       sessionId: payload.sid,
     };
   }
