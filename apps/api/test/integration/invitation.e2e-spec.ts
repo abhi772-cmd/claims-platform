@@ -191,6 +191,10 @@ describe('Slice B — invitation lifecycle', () => {
         lastName: 'McTest',
         roles: ['insurance_desk_executive'],
       });
+    if (res.status !== 201) {
+      // eslint-disable-next-line no-console
+      console.error('invite failed status=', res.status, 'body=', JSON.stringify(res.body));
+    }
     expect(res.status).toBe(201);
     expect(res.body.user.status).toBe('invited');
 
