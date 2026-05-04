@@ -1,0 +1,31 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["DOM", "DOM.Iterable", "ES2022"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "preserve",
+    "allowJs": false,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "incremental": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "experimentalDecorators": false,
+    "emitDecoratorMetadata": false,
+    "strict": true,
+    "plugins": [{ "name": "next" }],
+    "paths": {
+      "@/*": ["./*"],
+      "@claims/contracts": ["../../packages/contracts/src/index.ts"],
+      "@claims/contracts/*": ["../../packages/contracts/src/*"],
+      "@claims/error-codes": ["../../packages/error-codes/src/index.ts"],
+      "@claims/error-codes/*": ["../../packages/error-codes/src/*"],
+      "@claims/ui-tokens": ["../../packages/ui-tokens/src/index.ts"],
+      "@claims/ui-tokens/*": ["../../packages/ui-tokens/src/*"]
+    }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", ".next"]
+}

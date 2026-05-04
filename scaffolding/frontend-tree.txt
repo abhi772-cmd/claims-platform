@@ -1,0 +1,131 @@
+apps/web/
+├── app/
+│   ├── layout.tsx
+│   ├── page.tsx
+│   ├── globals.css
+│   ├── (auth)/
+│   │   ├── layout.tsx
+│   │   ├── login/page.tsx
+│   │   ├── reset-password/page.tsx
+│   │   └── doctor-sign/[token]/page.tsx
+│   ├── (dashboard)/
+│   │   ├── layout.tsx
+│   │   ├── dashboard/page.tsx
+│   │   ├── cases/
+│   │   │   ├── page.tsx
+│   │   │   ├── new/page.tsx
+│   │   │   └── [caseId]/
+│   │   │       ├── page.tsx
+│   │   │       ├── timeline/page.tsx
+│   │   │       └── documents/page.tsx
+│   │   ├── preauth/
+│   │   │   ├── page.tsx
+│   │   │   └── [preauthId]/
+│   │   │       ├── page.tsx
+│   │   │       ├── edit/page.tsx
+│   │   │       ├── queries/[queryId]/page.tsx
+│   │   │       └── pmjay-assist/page.tsx
+│   │   ├── enhancement/
+│   │   ├── discharge/
+│   │   ├── claim/
+│   │   ├── settlement/
+│   │   │   ├── page.tsx
+│   │   │   └── [claimId]/page.tsx
+│   │   ├── analytics/
+│   │   │   ├── page.tsx
+│   │   │   ├── denials/page.tsx
+│   │   │   ├── tat/page.tsx
+│   │   │   ├── ar-ageing/page.tsx
+│   │   │   ├── pmjay-packages/page.tsx
+│   │   │   └── cash-forecast/page.tsx
+│   │   ├── admin/
+│   │   │   ├── users/
+│   │   │   ├── roles/
+│   │   │   ├── payers/
+│   │   │   ├── packages/
+│   │   │   └── document-checklists/
+│   │   └── profile/page.tsx
+│   ├── api/
+│   │   └── auth/callback/route.ts
+│   └── not-found.tsx
+├── components/
+│   ├── ui/
+│   │   ├── Button/
+│   │   ├── Card/
+│   │   ├── Input/
+│   │   ├── Select/
+│   │   ├── DatePicker/
+│   │   ├── DataTable/
+│   │   ├── Modal/
+│   │   ├── StatusBadge/
+│   │   ├── RailBadge/
+│   │   ├── SlaBadge/
+│   │   ├── EmptyState/
+│   │   ├── Skeleton/
+│   │   ├── Tabs/
+│   │   └── Toast/
+│   ├── forms/
+│   │   ├── PreauthForm/
+│   │   ├── ClaimForm/
+│   │   ├── EnhancementForm/
+│   │   ├── DischargeForm/
+│   │   ├── DocumentUploader/
+│   │   ├── PolicyLookupForm/
+│   │   ├── PmjayBeneficiaryForm/
+│   │   ├── PackageSelector/
+│   │   └── QueryResponseForm/
+│   ├── modals/
+│   │   ├── ErrorModal/
+│   │   ├── ConfirmModal/
+│   │   ├── DocumentPreviewModal/
+│   │   ├── PmjayAssistModal/
+│   │   └── ConsentModal/
+│   ├── feedback/
+│   │   ├── Toast/
+│   │   ├── ProgressBar/
+│   │   └── LoadingShimmer/
+│   ├── layouts/
+│   │   ├── AppShell/
+│   │   ├── PageHeader/
+│   │   └── PageContent/
+│   ├── data/
+│   │   ├── ClaimCard/
+│   │   ├── ClaimTimeline/
+│   │   ├── CaseSummary/
+│   │   ├── EobViewer/
+│   │   ├── DocumentChecklist/
+│   │   └── KeyValueGrid/
+│   └── icons/
+├── lib/
+│   ├── api/
+│   ├── auth/
+│   ├── claim/
+│   │   ├── status-labels.ts
+│   │   ├── status-colors.ts
+│   │   └── transitions.ts
+│   ├── hooks/
+│   │   ├── useErrorModal.ts
+│   │   ├── useToast.ts
+│   │   ├── useConfirm.ts
+│   │   ├── useSse.ts
+│   │   └── useDebounce.ts
+│   ├── state/
+│   │   ├── error-modal.store.ts
+│   │   ├── toast.store.ts
+│   │   └── tenant.store.ts
+│   ├── utils/
+│   ├── types/index.ts
+│   └── i18n/
+├── public/
+│   ├── images/
+│   └── fonts/
+├── styles/tokens.css
+├── __tests__/
+│   ├── unit/
+│   └── e2e/playwright/
+├── next.config.js
+├── tailwind.config.ts
+├── postcss.config.js
+├── tsconfig.json
+├── package.json
+└── README.md

@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-typecheck:
+    name: Lint and type-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.11.1
+          cache: pnpm
+      # First commits do not have a pnpm-lock.yaml yet. Once the user runs
+      # `pnpm install` locally and commits the lockfile, switch this back to
+      # `--frozen-lockfile` so CI catches drift.
+      - run: pnpm install
+      - name: Generate Prisma client
+        working-directory: apps/api
+        env:
+          DATABASE_URL_MIGRATOR: postgresql://placeholder:placeholder@localhost:5432/placeholder
+        run: pnpm prisma generate
+      - run: pnpm lint
+      - run: pnpm typecheck
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.11.1
+          cache: pnpm
+      # First commits do not have a pnpm-lock.yaml yet. Once the user runs
+      # `pnpm install` locally and commits the lockfile, switch this back to
+      # `--frozen-lockfile` so CI catches drift.
+      - run: pnpm install
+      - name: Generate Prisma client
+        working-directory: apps/api
+        env:
+          DATABASE_URL_MIGRATOR: postgresql://placeholder:placeholder@localhost:5432/placeholder
+        run: pnpm prisma generate
+      - run: pnpm test
+
+  integration-tests:
+    name: Integration tests (RLS canary + auth)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9.7.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.11.1
+          cache: pnpm
+      # First commits do not have a pnpm-lock.yaml yet. Once the user runs
+      # `pnpm install` locally and commits the lockfile, switch this back to
+      # `--frozen-lockfile` so CI catches drift.
+      - run: pnpm install
+      - name: Generate Prisma client
+        working-directory: apps/api
+        env:
+          DATABASE_URL_MIGRATOR: postgresql://placeholder:placeholder@localhost:5432/placeholder
+        run: pnpm prisma generate
+      - name: Run integration tests
+        working-directory: apps/api
+        run: pnpm test:integration

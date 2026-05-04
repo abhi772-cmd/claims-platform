@@ -1,0 +1,34 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "ts-node": {
+    "transpileOnly": true,
+    "files": true,
+    "compilerOptions": {
+      "module": "CommonJS",
+      "moduleResolution": "Node",
+      "verbatimModuleSyntax": false
+    }
+  },
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "outDir": "./dist",
+    "rootDir": "../..",
+    "noEmit": false,
+    "incremental": true,
+    "tsBuildInfoFile": "./.tsbuildinfo",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@common/*": ["./src/common/*"],
+      "@modules/*": ["./src/modules/*"],
+      "@config/*": ["./src/config/*"],
+      "@claims/contracts": ["../../packages/contracts/src/index.ts"],
+      "@claims/contracts/*": ["../../packages/contracts/src/*"],
+      "@claims/error-codes": ["../../packages/error-codes/src/index.ts"],
+      "@claims/error-codes/*": ["../../packages/error-codes/src/*"]
+    }
+  },
+  "include": ["src/**/*", "test/**/*", "prisma/seed.ts"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,160 @@
+// Walking-skeleton schema. Tenant + auth surface only.
+// Business modules (case, claim, claim_event, integration_message, etc.)
+// land in subsequent sprints — see docs/03-data-model.md for the full plan.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL_MIGRATOR")
+}
+
+enum TenantLifecycleState {
+  CONTRACTED
+  PROVISIONING
+  IN_SETUP
+  PILOT
+  LIVE
+  SUSPENDED
+  CHURNED
+}
+
+enum UserStatus {
+  invited
+  active
+  suspended
+  deactivated
+}
+
+model Tenant {
+  id              String               @id @default(uuid()) @db.Uuid
+  slug            String               @unique
+  displayName     String
+  lifecycleState  TenantLifecycleState @default(IN_SETUP)
+  logoUrl         String?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+
+  users User[]
+  roles Role[]
+
+  @@map("tenant")
+}
+
+// Roles can be tenant-scoped (most cases) or platform-wide (platform_admin
+// has tenantId = NULL). The runtime queries with the platform_admin GUC
+// when handling pre-tenant flows like login.
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String?  @db.Uuid
+  name        String
+  permissions Json     @default("[]")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant    Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles UserRole[]
+
+  @@unique([tenantId, name])
+  @@map("role")
+}
+
+model User {
+  id                  String     @id @default(uuid()) @db.Uuid
+  tenantId            String     @db.Uuid
+  email               String     @unique
+  mobile              String?
+  passwordHash        String
+  status              UserStatus @default(active)
+  firstName           String
+  lastName            String
+  designation         String?
+  mfaEnabled          Boolean    @default(false)
+  mfaSecret           String?
+  mustChangePassword  Boolean    @default(false)
+  failedLoginAttempts Int        @default(0)
+  lockedUntil         DateTime?
+  lastLoginAt         DateTime?
+  lastLoginIp         String?
+  lastLoginUserAgent  String?
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+
+  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles UserRole[]
+  sessions  Session[]
+
+  @@index([tenantId, status])
+  @@map("user")
+}
+
+model UserRole {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  userId    String   @db.Uuid
+  roleId    String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([tenantId])
+  @@map("user_role")
+}
+
+model Session {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @db.Uuid
+  userId           String    @db.Uuid
+  refreshTokenHash String    @unique
+  userAgent        String?
+  ipAddress        String?
+  createdAt        DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@map("session")
+}
+
+// Audit pointer for refresh-token reuse detection. When we rotate a refresh
+// token we record the previous hash here. If it ever shows up again, it's
+// reuse — we kill all of that user's sessions (D-001 behaviour from
+// docs/14 §refresh-token-rotation).
+model SessionTokenHistory {
+  id               String   @id @default(uuid()) @db.Uuid
+  sessionId        String   @db.Uuid
+  userId           String   @db.Uuid
+  refreshTokenHash String   @unique
+  rotatedAt        DateTime @default(now())
+
+  @@index([userId])
+  @@map("session_token_history")
+}
+
+// Append-only via RLS (see migration). Application code that tries to
+// UPDATE or DELETE rows is silently rejected.
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @db.Uuid
+  occurredAt   DateTime @default(now())
+  actorUserId  String?  @db.Uuid
+  actorType    String
+  action       String
+  resourceType String
+  resourceId   String?
+  before       Json?
+  after        Json?
+  ipAddress    String?
+  userAgent    String?
+  correlationId String?
+
+  @@index([tenantId, resourceType, resourceId])
+  @@index([tenantId, occurredAt])
+  @@map("audit_log")
+}

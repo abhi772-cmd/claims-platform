@@ -1,0 +1,37 @@
+{
+  "name": "@claims/root",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DigiSparsh Claims Platform monorepo",
+  "engines": {
+    "node": ">=20.11.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.7.0",
+  "scripts": {
+    "dev:api": "pnpm --filter @claims/api dev",
+    "dev:web": "pnpm --filter @claims/web dev",
+    "dev:worker": "pnpm --filter @claims/api dev:worker",
+    "build": "pnpm -r --filter \"./apps/*\" --filter \"./packages/*\" build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:integration": "pnpm --filter @claims/api test:integration",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml}\"",
+    "db:migrate": "pnpm --filter @claims/api db:migrate",
+    "db:migrate:deploy": "pnpm --filter @claims/api db:migrate:deploy",
+    "db:seed": "pnpm --filter @claims/api db:seed",
+    "db:reset": "pnpm --filter @claims/api db:reset",
+    "infra:up": "docker compose -f infra/docker-compose/docker-compose.dev.yml up -d",
+    "infra:down": "docker compose -f infra/docker-compose/docker-compose.dev.yml down",
+    "infra:logs": "docker compose -f infra/docker-compose/docker-compose.dev.yml logs -f"
+  },
+  "devDependencies": {
+    "@claims/eslint-config": "workspace:*",
+    "@types/node": "20.12.7",
+    "eslint": "8.57.0",
+    "prettier": "3.2.5",
+    "typescript": "5.4.5"
+  }
+}

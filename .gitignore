@@ -1,0 +1,56 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Coverage
+coverage/
+.nyc_output/
+
+# Prisma generated
+**/prisma/generated/
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+.DS_Store
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Test artifacts
+playwright-report/
+test-results/
+
+# Docker volumes (local data)
+infra/docker-compose/data/
+
+# Smoke-test artifacts (do NOT commit — these contain secrets/state)
+.api-boot.log
+.web-boot.log
+.claims_app_password.tmp
+apps/api/prisma/_bootstrap-*.sql
+apps/api/prisma/_wake.sql
