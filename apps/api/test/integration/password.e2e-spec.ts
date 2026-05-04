@@ -198,10 +198,12 @@ describe('Slice C — password policy + reset + change', () => {
   it('reset complete rejects breached password → 422 AUTH_PASSWORD_BREACHED', async () => {
     const raw = 'TEST-RESET-RAW-TOKEN-BREACHED-1234567890abc';
     await plantResetTokenForUser(raw);
-    // "P@ssword123" is in our common-passwords.txt seed list.
+    // "Welcome@2024" is in our common-passwords.txt seed list and is exactly
+    // 12 chars (clears the wire-schema min length so the policy gets a chance
+    // to check the breach list).
     const res = await request(app.getHttpServer())
       .post('/auth/password-reset/complete')
-      .send({ token: raw, password: 'P@ssword123' });
+      .send({ token: raw, password: 'Welcome@2024' });
     expect(res.status).toBe(422);
     expect(res.body.code).toBe('AUTH_PASSWORD_BREACHED');
   });
