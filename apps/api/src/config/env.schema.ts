@@ -60,6 +60,10 @@ export const EnvSchema = z.object({
   // Invitation flow
   INVITE_TOKEN_TTL_HOURS: z.coerce.number().int().positive().default(168), // 7 days
   INVITE_RESEND_LIMIT_PER_DAY: z.coerce.number().int().positive().default(3),
+
+  // Password reset flow (Slice C)
+  PASSWORD_RESET_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(30),
+  PASSWORD_RESET_RATE_LIMIT_PER_DAY: z.coerce.number().int().positive().default(5),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

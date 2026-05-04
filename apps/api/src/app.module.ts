@@ -9,6 +9,7 @@ import { AuditModule } from './modules/audit';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
 import { NotificationModule } from './modules/notification';
+import { PasswordModule } from './modules/password';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { UserModule } from './modules/user/user.module';
 
@@ -56,6 +57,7 @@ import { UserModule } from './modules/user/user.module';
     SecurityModule,
     AuditModule,
     NotificationModule,
+    PasswordModule,
     HealthModule,
     TenantModule,
     UserModule,

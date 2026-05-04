@@ -1,22 +1,25 @@
 'use client';
 
-import { type InvitePreview, type PasswordPolicyDescriptor } from '@claims/contracts';
+import {
+  type PasswordPolicyDescriptor,
+  type PasswordResetVerifyResponse,
+} from '@claims/contracts';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { PasswordStrengthMeter } from '../../../../components/password/PasswordStrengthMeter';
 import { AuthApi } from '../../../../lib/api/auth.api';
-import { apiRequest } from '../../../../lib/api/client';
 
 interface PageProps {
   params: { token: string };
 }
 
-export default function AcceptInvitePage({ params }: PageProps): JSX.Element {
+export default function ResetPasswordPage({ params }: PageProps): JSX.Element {
   const router = useRouter();
   const { showApiError, showError } = useErrorModal();
-  const [preview, setPreview] = useState<InvitePreview | null>(null);
+  const [verified, setVerified] = useState<PasswordResetVerifyResponse | null>(null);
   const [policy, setPolicy] = useState<PasswordPolicyDescriptor | null>(null);
   const [loading, setLoading] = useState(true);
   const [password, setPassword] = useState('');
@@ -25,13 +28,10 @@ export default function AcceptInvitePage({ params }: PageProps): JSX.Element {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      apiRequest<InvitePreview>(`/auth/invite/${encodeURIComponent(params.token)}`),
-      AuthApi.passwordPolicy(),
-    ])
-      .then(([p, pol]) => {
+    Promise.all([AuthApi.verifyPasswordReset(params.token), AuthApi.passwordPolicy()])
+      .then(([v, pol]) => {
         if (!cancelled) {
-          setPreview(p);
+          setVerified(v);
           setPolicy(pol);
         }
       })
@@ -48,21 +48,14 @@ export default function AcceptInvitePage({ params }: PageProps): JSX.Element {
 
   async function onSubmit(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
-    if (password.length < 12) {
-      showError('AUTH_PASSWORD_TOO_WEAK', 'Password must be at least 12 characters.');
-      return;
-    }
     if (password !== confirm) {
       showError('VALIDATION_FAILED', "Passwords don't match.");
       return;
     }
     setSubmitting(true);
     try {
-      await apiRequest<void>('/auth/accept-invite', {
-        method: 'POST',
-        body: { token: params.token, password },
-      });
-      router.push('/login');
+      await AuthApi.completePasswordReset({ token: params.token, password });
+      router.push('/login?reset=ok');
     } catch (err) {
       showApiError(err);
     } finally {
@@ -71,13 +64,18 @@ export default function AcceptInvitePage({ params }: PageProps): JSX.Element {
   }
 
   if (loading) {
-    return <p className="text-sm text-neutral-500">Loading invite…</p>;
+    return <p className="text-sm text-neutral-500">Verifying link…</p>;
   }
-  if (!preview) {
+  if (!verified) {
     return (
-      <div className="space-y-2">
-        <p className="text-sm text-danger-700">This invite is not valid.</p>
-        <p className="text-sm text-neutral-500">Ask your admin to send a new one.</p>
+      <div className="space-y-3 rounded-md bg-neutral-0 p-8 shadow-md">
+        <h1 className="text-lg font-semibold text-neutral-800">This link is no longer valid</h1>
+        <p className="text-sm text-neutral-600">
+          Reset links expire after 30 minutes. Request a new one to continue.
+        </p>
+        <Link href="/forgot-password" className="text-sm text-primary-600 hover:underline">
+          Request new link
+        </Link>
       </div>
     );
   }
@@ -85,18 +83,18 @@ export default function AcceptInvitePage({ params }: PageProps): JSX.Element {
   return (
     <div className="space-y-6 rounded-md bg-neutral-0 p-8 shadow-md">
       <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-neutral-800">Accept your invite</h1>
+        <h1 className="text-xl font-semibold text-neutral-800">Set a new password</h1>
         <p className="text-sm text-neutral-500">
-          {preview.firstName}, you&apos;ve been invited to {preview.tenantDisplayName}.
+          {verified.firstName}, choose a new password for your account.
         </p>
         <p className="text-xs text-neutral-400">
-          Expires {new Date(preview.expiresAt).toLocaleString()}
+          This link expires {new Date(verified.expiresAt).toLocaleString()}.
         </p>
       </header>
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <div className="space-y-1">
           <label htmlFor="password" className="text-sm font-medium text-neutral-700">
-            Choose a password
+            New password
           </label>
           <input
             id="password"
@@ -111,16 +109,12 @@ export default function AcceptInvitePage({ params }: PageProps): JSX.Element {
           <PasswordStrengthMeter
             password={password}
             policy={policy}
-            context={{
-              email: preview.email,
-              firstName: preview.firstName,
-              lastName: preview.lastName,
-            }}
+            context={{ email: verified.email, firstName: verified.firstName }}
           />
         </div>
         <div className="space-y-1">
           <label htmlFor="confirm" className="text-sm font-medium text-neutral-700">
-            Confirm password
+            Confirm new password
           </label>
           <input
             id="confirm"
@@ -138,7 +132,7 @@ export default function AcceptInvitePage({ params }: PageProps): JSX.Element {
           disabled={submitting}
           className="w-full rounded-sm bg-primary-600 px-3 py-2 text-sm font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
         >
-          {submitting ? 'Setting up…' : 'Accept invite'}
+          {submitting ? 'Saving…' : 'Set new password'}
         </button>
       </form>
     </div>

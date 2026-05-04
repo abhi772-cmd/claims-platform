@@ -1,11 +1,19 @@
 import {
   AcceptInviteRequestSchema,
   type AcceptInviteRequest,
+  type ChangePasswordRequest,
+  ChangePasswordRequestSchema,
   type InvitePreview,
   type LoginRequest,
   LoginRequestSchema,
   type LoginResponse,
   type MeResponse,
+  type PasswordPolicyDescriptor,
+  type PasswordResetCompleteRequest,
+  PasswordResetCompleteRequestSchema,
+  type PasswordResetInitiateRequest,
+  PasswordResetInitiateRequestSchema,
+  type PasswordResetVerifyResponse,
 } from '@claims/contracts';
 import {
   Body,
@@ -14,6 +22,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -29,6 +38,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RefreshTokenInvalidError } from '../../common/errors/auth-errors';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { type AppConfig } from '../../config/configuration';
+import { PasswordPolicyService, PasswordService } from '../password';
 import { InviteService } from '../user/invite.service';
 import { UserService } from '../user/user.service';
 
@@ -38,6 +48,8 @@ export class AuthController {
     private readonly auth: AuthService,
     private readonly users: UserService,
     private readonly invites: InviteService,
+    private readonly passwords: PasswordService,
+    private readonly policy: PasswordPolicyService,
     private readonly config: ConfigService<AppConfig, true>,
   ) {}
 
@@ -127,6 +139,73 @@ export class AuthController {
       req.ip ?? null,
       req.get('user-agent') ?? null,
     );
+  }
+
+  // Public — describes the policy so the web app can render a strength
+  // meter without hard-coding the rules in two places.
+  @Get('password-policy')
+  passwordPolicy(): PasswordPolicyDescriptor {
+    return this.policy.describe();
+  }
+
+  // Public — always returns 204 to avoid leaking account existence.
+  @Post('password-reset/initiate')
+  @HttpCode(204)
+  async initiateReset(
+    @Body(new ZodValidationPipe(PasswordResetInitiateRequestSchema))
+    body: PasswordResetInitiateRequest,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.passwords.initiate({
+      email: body.email,
+      ip: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    });
+  }
+
+  // Public — pre-flight before showing the new-password form.
+  @Get('password-reset/verify')
+  async verifyReset(@Query('token') rawToken: string): Promise<PasswordResetVerifyResponse> {
+    const out = await this.passwords.verify(rawToken);
+    return {
+      ok: true,
+      email: out.email,
+      firstName: out.firstName,
+      expiresAt: out.expiresAt.toISOString(),
+    };
+  }
+
+  @Post('password-reset/complete')
+  @HttpCode(204)
+  async completeReset(
+    @Body(new ZodValidationPipe(PasswordResetCompleteRequestSchema))
+    body: PasswordResetCompleteRequest,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.passwords.complete({
+      rawToken: body.token,
+      newPassword: body.password,
+      ip: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    });
+  }
+
+  @Post('me/password')
+  @HttpCode(204)
+  @UseGuards(JwtAuthGuard)
+  async changePassword(
+    @Body(new ZodValidationPipe(ChangePasswordRequestSchema)) body: ChangePasswordRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.passwords.change({
+      tenantId: user.tenantId,
+      userId: user.userId,
+      currentPassword: body.currentPassword,
+      newPassword: body.newPassword,
+      ip: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    });
   }
 
   private setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {

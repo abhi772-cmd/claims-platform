@@ -276,6 +276,37 @@ export const ErrorPresentations: Record<ErrorCode, ErrorPresentation> = {
     primaryAction: 'OK',
   },
 
+  AUTH_PASSWORD_RESET_TOKEN_INVALID: {
+    title: 'Reset link is invalid',
+    body: "This password reset link doesn't look right. Request a new one to continue.",
+    severity: 'error',
+    primaryAction: 'Request new link',
+  },
+  AUTH_PASSWORD_RESET_TOKEN_EXPIRED: {
+    title: 'Reset link expired',
+    body: 'Password reset links expire after 30 minutes for security. Request a new one.',
+    severity: 'warning',
+    primaryAction: 'Request new link',
+  },
+  AUTH_PASSWORD_RESET_TOKEN_USED: {
+    title: 'Reset link already used',
+    body: 'This link has already been used. If you need to reset your password again, request a new link.',
+    severity: 'info',
+    primaryAction: 'Request new link',
+  },
+  AUTH_PASSWORD_BREACHED: {
+    title: 'This password has been seen in a breach',
+    body: 'This password appears in known breach lists and is unsafe. Choose something more unique.',
+    severity: 'warning',
+    primaryAction: 'Choose another',
+  },
+  AUTH_CURRENT_PASSWORD_INCORRECT: {
+    title: 'Current password is incorrect',
+    body: "The current password you entered didn't match.",
+    severity: 'error',
+    primaryAction: 'Try again',
+  },
+
   VALIDATION_FAILED: {
     title: 'Check the details',
     body: 'Some fields need attention before you can continue.',

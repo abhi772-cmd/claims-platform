@@ -1,31 +1,29 @@
 'use client';
 
-import { LoginRequestSchema } from '@claims/contracts';
+import { PasswordResetInitiateRequestSchema } from '@claims/contracts';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
 import { useErrorModal } from '../../../components/modals/ErrorModal/ErrorModalProvider';
 import { AuthApi } from '../../../lib/api/auth.api';
 
-export default function LoginPage(): JSX.Element {
-  const router = useRouter();
+export default function ForgotPasswordPage(): JSX.Element {
   const { showApiError, showError } = useErrorModal();
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [done, setDone] = useState(false);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
-    const parsed = LoginRequestSchema.safeParse({ email, password });
+    const parsed = PasswordResetInitiateRequestSchema.safeParse({ email });
     if (!parsed.success) {
       showError('VALIDATION_FAILED', parsed.error.issues[0]?.message);
       return;
     }
     setSubmitting(true);
     try {
-      await AuthApi.login(parsed.data);
-      router.push('/dashboard');
+      await AuthApi.initiatePasswordReset(parsed.data);
+      setDone(true);
     } catch (err) {
       showApiError(err);
     } finally {
@@ -33,13 +31,32 @@ export default function LoginPage(): JSX.Element {
     }
   }
 
+  if (done) {
+    return (
+      <div className="space-y-4 rounded-md bg-neutral-0 p-8 shadow-md">
+        <h1 className="text-xl font-semibold text-neutral-800">Check your email</h1>
+        <p className="text-sm text-neutral-600">
+          If an account exists for <span className="font-medium">{email}</span>, we&apos;ve
+          sent a password reset link. The link expires in 30 minutes.
+        </p>
+        <p className="text-xs text-neutral-500">
+          Didn&apos;t get it? Check your spam folder, or wait a moment and try again.
+        </p>
+        <Link href="/login" className="text-sm text-primary-600 hover:underline">
+          Back to sign in
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 rounded-md bg-neutral-0 p-8 shadow-md">
       <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-neutral-800">DigiSparsh Claims</h1>
-        <p className="text-sm text-neutral-500">Sign in to continue.</p>
+        <h1 className="text-xl font-semibold text-neutral-800">Reset your password</h1>
+        <p className="text-sm text-neutral-500">
+          Enter your email and we&apos;ll send you a link to set a new password.
+        </p>
       </header>
-
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <div className="space-y-1">
           <label htmlFor="email" className="text-sm font-medium text-neutral-700">
@@ -56,31 +73,16 @@ export default function LoginPage(): JSX.Element {
             className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           />
         </div>
-        <div className="space-y-1">
-          <label htmlFor="password" className="text-sm font-medium text-neutral-700">
-            Password
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
-          />
-        </div>
         <button
           type="submit"
           disabled={submitting}
           className="w-full rounded-sm bg-primary-600 px-3 py-2 text-sm font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
         >
-          {submitting ? 'Signing in…' : 'Sign in'}
+          {submitting ? 'Sending…' : 'Send reset link'}
         </button>
-        <div className="text-right">
-          <Link href="/forgot-password" className="text-xs text-primary-600 hover:underline">
-            Forgot your password?
+        <div className="text-center">
+          <Link href="/login" className="text-xs text-primary-600 hover:underline">
+            Back to sign in
           </Link>
         </div>
       </form>

@@ -1,13 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { hash } from 'argon2';
 
 import { generateInviteToken, hashInviteToken } from './invite-token.util';
 import {
   InviteTokenExpiredError,
   InviteTokenRevokedError,
   InviteTokenUsedError,
-  PasswordTooWeakError,
 } from '../../common/errors/auth-errors';
 import {
   InviteNotPendingError,
@@ -19,6 +17,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 import { AuditEvents, AuditService } from '../audit';
 import { NotificationService } from '../notification';
+import { PasswordPolicyService } from '../password';
 
 export interface InviteUserInput {
   tenantId: string;
@@ -45,24 +44,6 @@ export interface InvitedUserSummary {
   inviteExpiresAt: Date;
 }
 
-// Min password policy enforced here for accept-invite. Slice C will introduce
-// the full policy + HIBP check + history; for now we enforce length + a basic
-// composition rule so accepted invites land with a non-trivial password.
-function assertPasswordStrong(password: string): void {
-  if (password.length < 12) {
-    throw new PasswordTooWeakError('Password must be at least 12 characters.');
-  }
-  const hasLower = /[a-z]/.test(password);
-  const hasUpper = /[A-Z]/.test(password);
-  const hasDigit = /[0-9]/.test(password);
-  const hasSymbol = /[^A-Za-z0-9]/.test(password);
-  if (!(hasLower && hasUpper && hasDigit && hasSymbol)) {
-    throw new PasswordTooWeakError(
-      'Password must include lowercase, uppercase, a digit, and a symbol.',
-    );
-  }
-}
-
 @Injectable()
 export class InviteService {
   constructor(
@@ -70,6 +51,7 @@ export class InviteService {
     private readonly config: ConfigService<AppConfig, true>,
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
+    private readonly passwordPolicy: PasswordPolicyService,
   ) {}
 
   async invite(
@@ -328,9 +310,7 @@ export class InviteService {
     ip: string | null,
     userAgent: string | null,
   ): Promise<{ userId: string; tenantId: string }> {
-    assertPasswordStrong(input.password);
     const tokenHash = hashInviteToken(input.rawToken);
-    const passwordHash = await hash(input.password);
     return this.prisma.runInTenantContext(
       '00000000-0000-0000-0000-000000000000',
       'platform_admin',
@@ -341,14 +321,36 @@ export class InviteService {
         if (!user.inviteTokenExpiresAt || user.inviteTokenExpiresAt.getTime() < Date.now()) {
           throw new InviteTokenExpiredError();
         }
+
+        // Full policy: shape + breach + reuse. The reuse check has nothing
+        // to compare against on first accept (passwordHash is empty), but
+        // it's the same code path we use for resets and self-changes so we
+        // run it for consistency.
+        await this.passwordPolicy.validateAll(
+          tx,
+          {
+            tenantId: user.tenantId,
+            userId: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+          },
+          user.passwordHash || null,
+          input.password,
+        );
+
+        const passwordHash = await this.passwordPolicy.hashForStorage(input.password);
+        const now = new Date();
+
         await tx.user.update({
           where: { id: user.id },
           data: {
             passwordHash,
             status: 'active',
-            inviteAcceptedAt: new Date(),
+            inviteAcceptedAt: now,
             inviteTokenHash: null,
             inviteTokenExpiresAt: null,
+            lastPasswordChangeAt: now,
           },
         });
         await this.audit.recordWithTx(tx, {
