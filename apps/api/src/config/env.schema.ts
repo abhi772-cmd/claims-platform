@@ -48,6 +48,18 @@ export const EnvSchema = z.object({
   REDIS_URL: NonEmptyString.default('redis://localhost:6379'),
 
   CORS_ORIGIN: NonEmptyString.default('http://localhost:3000'),
+
+  // Public base URL of the web app — used to build links inside email/SMS.
+  WEB_BASE_URL: NonEmptyString.default('http://localhost:3000'),
+
+  // SMTP for outbound email. Dev points at Mailhog (localhost:1025).
+  SMTP_HOST: NonEmptyString.default('localhost'),
+  SMTP_PORT: z.coerce.number().int().positive().default(1025),
+  SMTP_FROM: NonEmptyString.default('no-reply@digisparsh.in'),
+
+  // Invitation flow
+  INVITE_TOKEN_TTL_HOURS: z.coerce.number().int().positive().default(168), // 7 days
+  INVITE_RESEND_LIMIT_PER_DAY: z.coerce.number().int().positive().default(3),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
