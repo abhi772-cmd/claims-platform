@@ -37,3 +37,27 @@ export class SessionExpiredError extends DomainError {
     super(ErrorCodes.AUTH_SESSION_EXPIRED);
   }
 }
+
+export class InviteTokenExpiredError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_INVITE_TOKEN_EXPIRED);
+  }
+}
+
+export class InviteTokenUsedError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_INVITE_TOKEN_USED);
+  }
+}
+
+export class InviteTokenRevokedError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_INVITE_TOKEN_REVOKED);
+  }
+}
+
+export class PasswordTooWeakError extends DomainError {
+  constructor(detail?: string) {
+    super(ErrorCodes.AUTH_PASSWORD_TOO_WEAK, detail !== undefined ? { detail } : undefined);
+  }
+}

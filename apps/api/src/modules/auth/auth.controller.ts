@@ -1,14 +1,23 @@
-import { type LoginRequest, LoginRequestSchema, type LoginResponse, type MeResponse } from '@claims/contracts';
+import {
+  AcceptInviteRequestSchema,
+  type AcceptInviteRequest,
+  type InvitePreview,
+  type LoginRequest,
+  LoginRequestSchema,
+  type LoginResponse,
+  type MeResponse,
+} from '@claims/contracts';
 import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  Param,
   Post,
   Req,
   Res,
   UseGuards,
   UsePipes,
-  HttpCode,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { type CookieOptions, type Request, type Response } from 'express';
@@ -20,6 +29,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RefreshTokenInvalidError } from '../../common/errors/auth-errors';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { type AppConfig } from '../../config/configuration';
+import { InviteService } from '../user/invite.service';
 import { UserService } from '../user/user.service';
 
 @Controller('auth')
@@ -27,6 +37,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly users: UserService,
+    private readonly invites: InviteService,
     private readonly config: ConfigService<AppConfig, true>,
   ) {}
 
@@ -87,6 +98,35 @@ export class AuthController {
     roles: readonly string[];
   } {
     return { permissions: user.permissions, roles: user.roles };
+  }
+
+  // Public invite preview — used by the accept-invite page to show the
+  // user who they are about to be onboarded as before they enter a password.
+  @Get('invite/:token')
+  async invitePreview(@Param('token') rawToken: string): Promise<InvitePreview> {
+    const preview = await this.invites.preview(rawToken);
+    return {
+      email: preview.email,
+      firstName: preview.firstName,
+      lastName: preview.lastName,
+      tenantDisplayName: preview.tenantDisplayName,
+      roles: preview.roles,
+      expiresAt: preview.expiresAt.toISOString(),
+    };
+  }
+
+  @Post('accept-invite')
+  @HttpCode(204)
+  @UsePipes(new ZodValidationPipe(AcceptInviteRequestSchema))
+  async acceptInvite(
+    @Body() body: AcceptInviteRequest,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.invites.accept(
+      { rawToken: body.token, password: body.password },
+      req.ip ?? null,
+      req.get('user-agent') ?? null,
+    );
   }
 
   private setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {

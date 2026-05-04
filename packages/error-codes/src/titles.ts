@@ -251,6 +251,31 @@ export const ErrorPresentations: Record<ErrorCode, ErrorPresentation> = {
     primaryAction: 'Go back',
   },
 
+  USER_ALREADY_EXISTS: {
+    title: 'User already exists',
+    body: 'A user with this email is already on the platform.',
+    severity: 'warning',
+    primaryAction: 'OK',
+  },
+  USER_NOT_FOUND: {
+    title: 'User not found',
+    body: "We couldn't find that user.",
+    severity: 'error',
+    primaryAction: 'OK',
+  },
+  INVITE_RATE_LIMIT_REACHED: {
+    title: 'Too many invites',
+    body: "You've sent too many invites to this user in the last 24 hours. Try again tomorrow.",
+    severity: 'warning',
+    primaryAction: 'OK',
+  },
+  INVITE_NOT_PENDING: {
+    title: 'Invite already accepted',
+    body: 'This user has already accepted their invite. They can sign in directly.',
+    severity: 'info',
+    primaryAction: 'OK',
+  },
+
   VALIDATION_FAILED: {
     title: 'Check the details',
     body: 'Some fields need attention before you can continue.',

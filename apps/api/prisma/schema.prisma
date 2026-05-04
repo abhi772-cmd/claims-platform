@@ -62,32 +62,77 @@ model Role {
 }
 
 model User {
-  id                  String     @id @default(uuid()) @db.Uuid
-  tenantId            String     @db.Uuid
-  email               String     @unique
-  mobile              String?
-  passwordHash        String
-  status              UserStatus @default(active)
-  firstName           String
-  lastName            String
-  designation         String?
-  mfaEnabled          Boolean    @default(false)
-  mfaSecret           String?
-  mustChangePassword  Boolean    @default(false)
-  failedLoginAttempts Int        @default(0)
-  lockedUntil         DateTime?
-  lastLoginAt         DateTime?
-  lastLoginIp         String?
-  lastLoginUserAgent  String?
-  createdAt           DateTime   @default(now())
-  updatedAt           DateTime   @updatedAt
+  id                   String     @id @default(uuid()) @db.Uuid
+  tenantId             String     @db.Uuid
+  email                String     @unique
+  mobile               String?
+  // Empty string for invited-but-not-accepted users; set during accept-invite.
+  // argon2 verify() fails on a non-argon2 string, so login refuses these.
+  passwordHash         String
+  status               UserStatus @default(active)
+  firstName            String
+  lastName             String
+  designation          String?
+  mfaEnabled           Boolean    @default(false)
+  mfaSecret            String?
+  mustChangePassword   Boolean    @default(false)
+  failedLoginAttempts  Int        @default(0)
+  lockedUntil          DateTime?
+  lastLoginAt          DateTime?
+  lastLoginIp          String?
+  lastLoginUserAgent   String?
+  // Invitation flow (Slice B). Token is hashed on storage; raw token only
+  // exists in the email/SMS the invitee receives.
+  inviteTokenHash      String?    @unique
+  inviteTokenExpiresAt DateTime?
+  inviteAcceptedAt     DateTime?
+  invitedById          String?    @db.Uuid
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
 
-  tenant    Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userRoles UserRole[]
-  sessions  Session[]
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles     UserRole[]
+  sessions      Session[]
+  inviteResends InviteResend[]
 
   @@index([tenantId, status])
+  @@index([inviteTokenExpiresAt])
   @@map("user")
+}
+
+// Tracks invite resends for rate limiting (3 per 24h per user) and audit.
+model InviteResend {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @db.Uuid
+  userId    String   @db.Uuid
+  resentBy  String   @db.Uuid
+  resentAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, resentAt])
+  @@map("invite_resend")
+}
+
+// Persistent outbox for notifications (email + SMS). Workers poll status='queued'
+// and dispatch via the Email/Sms adapters. Status transitions on success/failure.
+// Kept tenant-scoped so RLS isolation applies.
+model NotificationOutbox {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @db.Uuid
+  channel      String   // 'email' | 'sms' | 'in_app'
+  templateKey  String
+  recipient    String   // email address or phone number
+  payload      Json
+  status       String   @default("queued") // 'queued' | 'sent' | 'failed'
+  attempts     Int      @default(0)
+  lastError    String?
+  scheduledAt  DateTime @default(now())
+  sentAt       DateTime?
+
+  @@index([tenantId, status, scheduledAt])
+  @@index([tenantId, recipient])
+  @@map("notification_outbox")
 }
 
 model UserRole {
