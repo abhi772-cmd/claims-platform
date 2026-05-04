@@ -7,6 +7,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { JwtStrategy } from './jwt.strategy';
+import { RolesGuard } from '../../common/guards/roles.guard';
 import { type AppConfig } from '../../config/configuration';
 import { TenantModule } from '../tenant/tenant.module';
 import { UserModule } from '../user/user.module';
@@ -37,7 +38,7 @@ import { UserModule } from '../user/user.module';
     TenantModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, JwtAuthGuard],
-  exports: [AuthService, JwtAuthGuard],
+  providers: [AuthService, JwtStrategy, JwtAuthGuard, RolesGuard],
+  exports: [AuthService, JwtAuthGuard, RolesGuard],
 })
 export class AuthModule {}

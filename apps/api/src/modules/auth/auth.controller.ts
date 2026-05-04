@@ -78,6 +78,17 @@ export class AuthController {
     return me;
   }
 
+  // Lightweight permission probe for the frontend. Uses the JWT-embedded
+  // permission set (no DB hit). The frontend hides UI based on this.
+  @Get('me/permissions')
+  @UseGuards(JwtAuthGuard)
+  mePermissions(@CurrentUser() user: Express.AuthenticatedUser): {
+    permissions: readonly string[];
+    roles: readonly string[];
+  } {
+    return { permissions: user.permissions, roles: user.roles };
+  }
+
   private setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {
     const base = this.cookieOptions();
     res.cookie(ACCESS_COOKIE_NAME, accessToken, {

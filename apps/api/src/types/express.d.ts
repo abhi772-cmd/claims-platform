@@ -14,6 +14,10 @@ declare global {
       tenantId: string;
       role: 'tenant' | 'platform_admin';
       roles: readonly string[];
+      // Effective permission set — union of all assigned roles' permissions.
+      // Computed at login and embedded in the JWT so the RolesGuard does not
+      // re-query the DB per request.
+      permissions: readonly string[];
       sessionId: string;
     }
 

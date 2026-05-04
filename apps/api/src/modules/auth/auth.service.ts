@@ -15,6 +15,7 @@ import {
 } from '../../common/errors/auth-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
+import { AuditEvents, AuditService } from '../audit';
 
 const FAILED_ATTEMPTS_LIMIT = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000;
@@ -43,6 +44,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly audit: AuditService,
   ) {}
 
   async login(input: LoginInput, userAgent: string | null, ip: string | null): Promise<LoginOutput> {
@@ -60,10 +62,24 @@ export class AuthService {
         if (!user) {
           // Argon2 verify on a dummy hash to keep response time uniform.
           await verify(DUMMY_ARGON2_HASH, input.password).catch(() => false);
+          // No tenant context to audit against — unknown email is logged but
+          // not stored as an audit row (would create write amplification on
+          // credential-stuffing). Counters live in metrics, not audit_log.
           throw new InvalidCredentialsError();
         }
 
         if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
+          await this.audit.recordWithTx(tx, {
+            tenantId: user.tenantId,
+            actorUserId: user.id,
+            actorType: 'user',
+            action: AuditEvents.USER_FAILED_LOGIN,
+            resourceType: 'user',
+            resourceId: user.id,
+            after: { reason: 'account_locked' },
+            ipAddress: ip,
+            userAgent,
+          });
           throw new AccountLockedError();
         }
 
@@ -78,10 +94,32 @@ export class AuthService {
               lockedUntil: shouldLock ? new Date(Date.now() + LOCK_DURATION_MS) : user.lockedUntil,
             },
           });
+          await this.audit.recordWithTx(tx, {
+            tenantId: user.tenantId,
+            actorUserId: user.id,
+            actorType: 'user',
+            action: shouldLock ? AuditEvents.USER_LOCKED : AuditEvents.USER_FAILED_LOGIN,
+            resourceType: 'user',
+            resourceId: user.id,
+            after: { attempts, reason: shouldLock ? 'too_many_attempts' : 'wrong_password' },
+            ipAddress: ip,
+            userAgent,
+          });
           throw shouldLock ? new AccountLockedError() : new InvalidCredentialsError();
         }
 
         if (user.tenant.lifecycleState === 'SUSPENDED' || user.tenant.lifecycleState === 'CHURNED') {
+          await this.audit.recordWithTx(tx, {
+            tenantId: user.tenantId,
+            actorUserId: user.id,
+            actorType: 'user',
+            action: AuditEvents.USER_FAILED_LOGIN,
+            resourceType: 'user',
+            resourceId: user.id,
+            after: { reason: 'tenant_disabled', tenantState: user.tenant.lifecycleState },
+            ipAddress: ip,
+            userAgent,
+          });
           throw new TenantDisabledError();
         }
 
@@ -112,13 +150,26 @@ export class AuthService {
         });
 
         const roleNames = user.userRoles.map((ur) => ur.role.name);
+        const permissions = unionPermissions(user.userRoles);
         const isPlatformAdmin = roleNames.includes('platform_admin');
         const accessToken = this.signAccessToken({
           sub: user.id,
           tid: user.tenantId,
           rl: isPlatformAdmin ? 'platform_admin' : 'tenant',
           rs: roleNames,
+          pm: permissions,
           sid: session.id,
+        });
+
+        await this.audit.recordWithTx(tx, {
+          tenantId: user.tenantId,
+          actorUserId: user.id,
+          actorType: 'user',
+          action: AuditEvents.USER_LOGGED_IN,
+          resourceType: 'session',
+          resourceId: session.id,
+          ipAddress: ip,
+          userAgent,
         });
 
         return {
@@ -195,12 +246,14 @@ export class AuthService {
         });
 
         const roleNames = session.user.userRoles.map((ur) => ur.role.name);
+        const permissions = unionPermissions(session.user.userRoles);
         const isPlatformAdmin = roleNames.includes('platform_admin');
         const accessToken = this.signAccessToken({
           sub: session.userId,
           tid: session.tenantId,
           rl: isPlatformAdmin ? 'platform_admin' : 'tenant',
           rs: roleNames,
+          pm: permissions,
           sid: session.id,
         });
 
@@ -216,7 +269,19 @@ export class AuthService {
       '00000000-0000-0000-0000-000000000000',
       'platform_admin',
       async (tx) => {
-        await tx.session.deleteMany({ where: { refreshTokenHash: presented } });
+        const session = await tx.session.findUnique({
+          where: { refreshTokenHash: presented },
+        });
+        if (!session) return;
+        await tx.session.delete({ where: { id: session.id } });
+        await this.audit.recordWithTx(tx, {
+          tenantId: session.tenantId,
+          actorUserId: session.userId,
+          actorType: 'user',
+          action: AuditEvents.USER_LOGGED_OUT,
+          resourceType: 'session',
+          resourceId: session.id,
+        });
       },
     );
   }
@@ -224,6 +289,21 @@ export class AuthService {
   private signAccessToken(payload: JwtPayload): string {
     return this.jwt.sign(payload);
   }
+}
+
+function unionPermissions(
+  userRoles: { role: { permissions: unknown } }[],
+): string[] {
+  const set = new Set<string>();
+  for (const ur of userRoles) {
+    const perms = ur.role.permissions;
+    if (Array.isArray(perms)) {
+      for (const p of perms) {
+        if (typeof p === 'string') set.add(p);
+      }
+    }
+  }
+  return Array.from(set).sort();
 }
 
 function generateOpaqueToken(): string {
