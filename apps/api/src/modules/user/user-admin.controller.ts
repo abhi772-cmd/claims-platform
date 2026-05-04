@@ -1,5 +1,5 @@
 import { Permissions, type InviteUserRequest, InviteUserRequestSchema, type InviteUserResponse } from '@claims/contracts';
-import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Post, Req, UseGuards, UsePipes } from '@nestjs/common';
+import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { type Request } from 'express';
 
 import { InviteService } from './invite.service';
@@ -17,9 +17,11 @@ export class UserAdminController {
   @Post()
   @HttpCode(201)
   @RequirePermission(Permissions.USER_INVITE)
-  @UsePipes(new ZodValidationPipe(InviteUserRequestSchema))
   async invite(
-    @Body() body: InviteUserRequest,
+    // Bind the Zod pipe to @Body() only — @UsePipes at method-level would
+    // also run on @CurrentUser() and validate the user object as
+    // InviteUserRequest, which obviously fails.
+    @Body(new ZodValidationPipe(InviteUserRequestSchema)) body: InviteUserRequest,
     @CurrentUser() actor: Express.AuthenticatedUser,
     @Req() req: Request,
   ): Promise<InviteUserResponse> {
