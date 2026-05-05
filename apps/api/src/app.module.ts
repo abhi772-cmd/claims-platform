@@ -1,7 +1,8 @@
-import { Module } from '@nestjs/common';
+import { type MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { LoggerModule } from 'nestjs-pino';
 
+import { SecurityHeadersMiddleware } from './common/middleware/security-headers.middleware';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { SecurityModule } from './common/security/security.module';
 import { loadConfig } from './config/configuration';
@@ -98,4 +99,10 @@ import { UserModule } from './modules/user/user.module';
     AuthModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    // Security headers run on every request, including health checks.
+    // Mounting at '*' covers all routes registered after AppModule.
+    consumer.apply(SecurityHeadersMiddleware).forRoutes('*');
+  }
+}
