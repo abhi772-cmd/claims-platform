@@ -111,42 +111,58 @@ export class SettlementService {
   }
 
   async recordReceipt(input: RecordReceiptInput): Promise<Settlement> {
-    return this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
-      const settlement = await tx.settlement.findUnique({ where: { claimId: input.claimId } });
-      if (!settlement) {
-        throw new ValidationFailedError({
-          settlement: ['No settlement open — call /expect first.'],
-        });
-      }
-      const expected = settlement.expectedAmount;
-      const isShort = input.receivedAmount < expected;
-      const deductionAmount = Math.max(0, expected - input.receivedAmount);
+    const settlement = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      async (tx) => {
+        const row = await tx.settlement.findUnique({ where: { claimId: input.claimId } });
+        if (!row) {
+          throw new ValidationFailedError({
+            settlement: ['No settlement open — call /expect first.'],
+          });
+        }
+        const expected = row.expectedAmount;
+        const isShort = input.receivedAmount < expected;
+        const deductionAmount = Math.max(0, expected - input.receivedAmount);
 
-      const updated = await tx.settlement.update({
-        where: { claimId: input.claimId },
-        data: {
-          receivedAmount: input.receivedAmount,
-          receivedAt: input.receivedAt ?? new Date(),
-          ...(input.eobDocumentId !== undefined ? { eobDocumentId: input.eobDocumentId } : {}),
-          deductionAmount,
-          shortPaymentReasons: (input.shortPaymentReasons ?? []) as never,
-          reconciliationStatus: isShort
-            ? ('short_paid' satisfies ReconciliationStatus)
-            : ('manual_match_pending' satisfies ReconciliationStatus),
-        },
-      });
-      return toSettlement(updated);
-    }).then(async (s) => {
-      const isShort = (s.receivedAmount ?? 0) < s.expectedAmount;
+        const updated = await tx.settlement.update({
+          where: { claimId: input.claimId },
+          data: {
+            receivedAmount: input.receivedAmount,
+            receivedAt: input.receivedAt ?? new Date(),
+            ...(input.eobDocumentId !== undefined ? { eobDocumentId: input.eobDocumentId } : {}),
+            deductionAmount,
+            shortPaymentReasons: (input.shortPaymentReasons ?? []) as never,
+            reconciliationStatus: isShort
+              ? ('short_paid' satisfies ReconciliationStatus)
+              : ('manual_match_pending' satisfies ReconciliationStatus),
+          },
+        });
+        return toSettlement(updated);
+      },
+    );
+
+    // The state machine treats SHORT_PAID as a refinement of RECEIVED,
+    // not an alternative — payment.short_paid only fires from
+    // PAYMENT_RECEIVED. So always drive payment.received first, then
+    // chain payment.short_paid when the receipt is partial.
+    await this.claims.transition({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      eventType: 'payment.received',
+      actorUserId: input.actorUserId,
+      patch: { paidAmount: input.receivedAmount },
+    });
+    const isShort = (settlement.receivedAmount ?? 0) < settlement.expectedAmount;
+    if (isShort) {
       await this.claims.transition({
         tenantId: input.tenantId,
         claimId: input.claimId,
-        eventType: isShort ? 'payment.short_paid' : 'payment.received',
+        eventType: 'payment.short_paid',
         actorUserId: input.actorUserId,
-        patch: { paidAmount: input.receivedAmount },
       });
-      return s;
-    });
+    }
+    return settlement;
   }
 
   async reconcile(input: ReconcileInput): Promise<Settlement> {
