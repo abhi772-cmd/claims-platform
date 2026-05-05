@@ -142,6 +142,52 @@ describe('Slice P — NhcxJweAdapter against mock gateway', () => {
     expect(result.latencyMs).toBeGreaterThanOrEqual(0);
   });
 
+  it('verifyEligibility (Slice T): outbound payload is a FHIR Bundle when patient+coverage given', async () => {
+    let receivedBundle: Record<string, unknown> | undefined;
+    mock = await startMockGateway(gateway, participant, ({ body }) => {
+      // body is the gateway's decrypted envelope; .payload is the
+      // FHIR Bundle the adapter built.
+      const env = body as { payload: Record<string, unknown> };
+      receivedBundle = env.payload;
+      return { verified: true };
+    });
+    const adapter = buildAdapter({
+      url: mock.url,
+      participantPriv: participant.privatePem,
+      gatewayPub: gateway.publicPem,
+    });
+
+    await adapter.verifyEligibility({
+      tenantId: 'tenant-1',
+      claimId: 'claim-1',
+      hospitalMrn: 'MRN-FHIR',
+      patientName: 'FHIR Patient',
+      patient: {
+        fullName: 'FHIR Patient',
+        hospitalMrn: 'MRN-FHIR',
+        dateOfBirth: '1980-01-01',
+        gender: 'male',
+        abhaId: '11-2222-3333-4444',
+      },
+      coverage: { payerCode: 'MEDIASSIST', memberId: 'POL-1' },
+      serviceDate: '2026-05-01',
+    });
+
+    expect(receivedBundle).toBeDefined();
+    expect(receivedBundle!['resourceType']).toBe('Bundle');
+    expect(receivedBundle!['type']).toBe('collection');
+    const entries = receivedBundle!['entry'] as Array<{
+      resource: Record<string, unknown>;
+    }>;
+    const types = entries.map((e) => e.resource['resourceType']);
+    expect(types).toContain('CoverageEligibilityRequest');
+    expect(types).toContain('Patient');
+    expect(types).toContain('Coverage');
+    const patientRes = entries.find((e) => e.resource['resourceType'] === 'Patient')
+      ?.resource as Record<string, unknown> | undefined;
+    expect(patientRes!['birthDate']).toBe('1980-01-01');
+  });
+
   it('submitPreauth: returns payerRefNum from the gateway response', async () => {
     mock = await startMockGateway(gateway, participant, ({ operation, body }) => {
       expect(operation).toBe('preauth/submit');

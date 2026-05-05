@@ -6,6 +6,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { ClaimService } from '../claim';
 import { IntegrationMessageService } from '../integration';
 import { NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
+import { PatientService } from '../patient';
 
 export interface RunEligibilityInput {
   tenantId: string;
@@ -27,6 +28,7 @@ export class EligibilityService {
     private readonly claims: ClaimService,
     private readonly integration: IntegrationMessageService,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
+    private readonly patients: PatientService,
   ) {}
 
   // Orchestration:
@@ -54,8 +56,21 @@ export class EligibilityService {
       // The state machine accepts eligibility.requested only from
       // INITIATED or ELIGIBILITY_FAILED (retry path) — let
       // ClaimService.transition enforce that.
-      return { hospitalMrn: c.hospitalMrn, patientName: c.patientName };
+      return {
+        hospitalMrn: c.hospitalMrn,
+        patientName: c.patientName,
+        patientId: c.patientId,
+        admissionDate: c.admissionDate,
+      };
     });
+
+    // Pull decrypted PII when the Case has a linked Patient row. We
+    // only forward fields the FHIR bundle needs — Aadhaar / mobile /
+    // email stay encrypted at rest and never leave the service tier
+    // (NHCX uses ABHA id + policy number for identity).
+    const patientPii = ctx.patientId
+      ? await this.patients.getDecrypted(input.tenantId, ctx.patientId)
+      : null;
 
     // The transition itself opens its own tenant tx (ClaimService is
     // self-contained). State-machine errors flow through to the caller
@@ -79,6 +94,37 @@ export class EligibilityService {
       patientName: ctx.patientName,
       ...(input.policyNumber !== undefined ? { policyNumber: input.policyNumber } : {}),
       ...(input.payerCode !== undefined ? { payerCode: input.payerCode } : {}),
+      // Slice T enrichment — feeds the FHIR R4 bundle builder. Stub
+      // adapter ignores these fields; the JWE adapter materialises
+      // them into a CoverageEligibilityRequest bundle.
+      patient: {
+        fullName: ctx.patientName,
+        hospitalMrn: ctx.hospitalMrn,
+        ...(patientPii?.dateOfBirth ? { dateOfBirth: patientPii.dateOfBirth } : {}),
+        ...(patientPii?.gender
+          ? {
+              gender: patientPii.gender as
+                | 'male'
+                | 'female'
+                | 'other'
+                | 'prefer_not_to_say',
+            }
+          : {}),
+        ...(patientPii?.abhaId ? { abhaId: patientPii.abhaId } : {}),
+        ...(patientPii?.policyNumber ? { policyNumber: patientPii.policyNumber } : {}),
+      },
+      ...(input.payerCode
+        ? {
+            coverage: {
+              payerCode: input.payerCode,
+              memberId:
+                input.policyNumber ??
+                patientPii?.policyNumber ??
+                ctx.hospitalMrn,
+            },
+            serviceDate: ctx.admissionDate.toISOString().slice(0, 10),
+          }
+        : {}),
     };
 
     // 2. Adapter call.
