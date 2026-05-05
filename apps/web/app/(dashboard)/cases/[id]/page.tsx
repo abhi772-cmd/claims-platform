@@ -3,6 +3,7 @@
 import {
   type CaseDetail,
   type ClaimEventListItem,
+  type IntegrationMessage,
 } from '@claims/contracts';
 import { useEffect, useState } from 'react';
 
@@ -17,6 +18,9 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
   const { showApiError } = useErrorModal();
   const [detail, setDetail] = useState<CaseDetail | null>(null);
   const [events, setEvents] = useState<ClaimEventListItem[]>([]);
+  const [messages, setMessages] = useState<IntegrationMessage[]>([]);
+  const [policyNumber, setPolicyNumber] = useState('');
+  const [running, setRunning] = useState(false);
 
   async function reload(): Promise<void> {
     try {
@@ -24,11 +28,30 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
       setDetail(d);
       const firstClaim = d.claims[0];
       if (firstClaim) {
-        const e = await CaseApi.listClaimEvents(d.id, firstClaim.id);
+        const [e, m] = await Promise.all([
+          CaseApi.listClaimEvents(d.id, firstClaim.id),
+          CaseApi.listIntegrationMessages(d.id, firstClaim.id),
+        ]);
         setEvents(e.events);
+        setMessages(m.messages);
       }
     } catch (err) {
       showApiError(err);
+    }
+  }
+
+  async function runEligibility(): Promise<void> {
+    if (!detail || !detail.claims[0]) return;
+    setRunning(true);
+    try {
+      await CaseApi.runEligibility(detail.id, detail.claims[0].id, {
+        ...(policyNumber ? { policyNumber } : {}),
+      });
+      await reload();
+    } catch (err) {
+      showApiError(err);
+    } finally {
+      setRunning(false);
     }
   }
 
@@ -71,6 +94,69 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
             <dt className="text-neutral-500">Claim ref</dt>
             <dd className="font-mono text-neutral-700">{claim.claimRefNum ?? '—'}</dd>
           </dl>
+        </section>
+      ) : null}
+
+      {claim && (claim.status === 'INITIATED' || claim.status === 'ELIGIBILITY_FAILED') ? (
+        <section className="space-y-3 rounded-md bg-neutral-0 p-6 shadow-md">
+          <h2 className="text-sm font-semibold text-neutral-700">Eligibility</h2>
+          <p className="text-xs text-neutral-500">
+            Verify the patient&apos;s coverage with the payer. The first call kicks off the
+            eligibility cycle; you can retry from FAILED.
+          </p>
+          <div className="flex items-end gap-2">
+            <div className="flex-1 space-y-1">
+              <label htmlFor="policy" className="text-xs text-neutral-500">
+                Policy number (optional)
+              </label>
+              <input
+                id="policy"
+                value={policyNumber}
+                onChange={(e) => setPolicyNumber(e.target.value)}
+                className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 font-mono text-xs"
+              />
+            </div>
+            <button
+              onClick={runEligibility}
+              disabled={running}
+              className="rounded-sm bg-primary-600 px-3 py-2 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+            >
+              {running ? 'Running…' : 'Verify eligibility'}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {messages.length > 0 ? (
+        <section className="space-y-3 rounded-md bg-neutral-0 p-6 shadow-md">
+          <h2 className="text-sm font-semibold text-neutral-700">Integration messages</h2>
+          <ul className="space-y-1">
+            {messages.map((m) => (
+              <li key={m.id} className="rounded-sm border border-neutral-100 p-2 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-mono text-neutral-700">
+                    {m.integration} · {m.operation} · {m.direction}
+                  </span>
+                  <span
+                    className={
+                      m.status === 'succeeded'
+                        ? 'text-success-700'
+                        : m.status === 'failed'
+                          ? 'text-error-700'
+                          : 'text-neutral-500'
+                    }
+                  >
+                    {m.status}
+                  </span>
+                </div>
+                <p className="text-neutral-400">
+                  corr <span className="font-mono">{m.correlationId.slice(0, 8)}</span> ·
+                  {' '}
+                  {new Date(m.createdAt).toLocaleString()}
+                </p>
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 

@@ -76,6 +76,10 @@ export const EnvSchema = z.object({
   // HPR_STUB_OTP to match exactly (any 6-digit string by default).
   HPR_STUB_ALLOWLIST: z.preprocess(trim, z.string().default('')),
   HPR_STUB_OTP: NonEmptyString.default('000000'),
+
+  // NHCX stub adapter (Slice K). Replaced by the real adapter in Slice P.
+  NHCX_STUB_VERIFY_DEFAULT: BooleanLike.default(true),
+  NHCX_STUB_MRN_FAIL_LIST: z.preprocess(trim, z.string().default('')),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

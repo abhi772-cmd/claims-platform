@@ -479,6 +479,42 @@ model DoctorToken {
   @@map("doctor_token")
 }
 
+// Every external-system call (NHCX, PMJAY, ABDM, OpenAI, SMTP) writes
+// a row here, both directions. Outbound rows start at status='pending';
+// adapter completion flips to 'sent' / 'succeeded' / 'failed'. The
+// rawRequest + rawResponse JSONB columns are the forensic record —
+// service code is free to overwrite status + failureClass + retryCount
+// + completedAt, but not the payload columns once written (enforced
+// at the application layer; the migration's CHECK is a Sprint 3
+// hardening item).
+model IntegrationMessage {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @db.Uuid
+  // Optional FK to a claim — many calls are claim-scoped, but a few
+  // (master-data sync, eligibility-only probes) aren't.
+  claimId       String?   @db.Uuid
+  direction     String    // 'outbound' | 'inbound'
+  integration   String    // 'nhcx' | 'pmjay_tms' | 'abdm' | 'openai' | 'textguru' | 'smtp'
+  operation     String
+  correlationId String
+  // Pairs an outbound row with the matching inbound response so a
+  // retry doesn't double-charge / double-act.
+  idempotencyKey String?
+  status        String    @default("pending")
+  failureClass  String?
+  retryCount    Int       @default(0)
+  rawRequest    Json?
+  rawResponse   Json?
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+  lastAttemptAt DateTime?
+
+  @@index([tenantId, integration, status, createdAt])
+  @@index([correlationId])
+  @@index([claimId])
+  @@map("integration_message")
+}
+
 // Append-only via RLS (see migration). Application code that tries to
 // UPDATE or DELETE rows is silently rejected.
 model AuditLog {
