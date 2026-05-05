@@ -6,6 +6,38 @@ This folder is the single source of truth that engineers and Claude (in VS Code)
 
 ---
 
+## Quickstart (post Sprint 1)
+
+```bash
+# 1. Install
+pnpm install
+
+# 2. Postgres — either docker or hosted (Neon works fine).
+#    Two roles: claims_migrator (owner) and claims_app (runtime, NOSUPERUSER NOBYPASSRLS).
+cp apps/api/.env.example apps/api/.env   # fill in DATABASE_URL_MIGRATOR + DATABASE_URL
+
+# 3. Migrate
+pnpm --filter @claims/api db:migrate:deploy
+
+# 4. Run
+pnpm --filter @claims/api dev          # API on :3001
+pnpm --filter @claims/web dev          # web on :3000
+```
+
+What's already built (Sprint 1):
+
+- Authentication: login + refresh + logout + invite + accept-invite.
+- Password policy + reset + history (bundled offline breach list).
+- MFA: TOTP + 10 backup codes; trusted-device cookie skips MFA.
+- Sessions: list / revoke / concurrent-cap eviction; IP allowlist per tenant.
+- Doctor signature flow: 10-minute opaque token + HPR stub.
+- Tenant onboarding wizard, readiness check, lifecycle FSM.
+- 65 integration tests in CI; RLS canary as the gate.
+
+See `CHANGELOG.md` for slice-by-slice detail and `docs/sprint-1-exit.md` for what's deferred to Sprint 2. Operational playbooks live in `docs/runbooks/`.
+
+---
+
 ## How to read this folder
 
 Start at `CLAUDE.md` if you're Claude, then read the relevant module doc for the task at hand. Start at `docs/01-overview-and-decisions.md` if you're a human onboarding to the project.
