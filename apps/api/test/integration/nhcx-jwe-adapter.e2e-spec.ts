@@ -145,8 +145,10 @@ describe('Slice P — NhcxJweAdapter against mock gateway', () => {
   it('submitPreauth: returns payerRefNum from the gateway response', async () => {
     mock = await startMockGateway(gateway, participant, ({ operation, body }) => {
       expect(operation).toBe('preauth/submit');
-      const b = body as { payload: { payload: { requestedAmount: number } } };
-      expect(b.payload.payload.requestedAmount).toBe(250_000);
+      // Decrypted bundle shape: { meta, payload } where payload IS the
+      // input the adapter passed to callOperation.
+      const b = body as { payload: { requestedAmount: number } };
+      expect(b.payload.requestedAmount).toBe(250_000);
       return {
         acknowledged: true,
         payerRefNum: 'GW-PA-ABC123',
