@@ -7,6 +7,12 @@ import {
   type IntegrationMessageListResponse,
   type ListCasesResponse,
   type ManualTransitionRequest,
+  type PreauthDecisionRequest,
+  type PreauthDecisionResponse,
+  type PreauthDraftRequest,
+  type PreauthDraftResponse,
+  type PreauthQueryResponseRequest,
+  type PreauthSubmitResponse,
   type UpdateCaseRequest,
 } from '@claims/contracts';
 
@@ -66,5 +72,50 @@ export const CaseApi = {
   ): Promise<IntegrationMessageListResponse> =>
     apiRequest<IntegrationMessageListResponse>(
       `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/integration-messages`,
+    ),
+
+  getPreauthDraft: (
+    caseId: string,
+    claimId: string,
+  ): Promise<PreauthDraftResponse | { draft: null }> =>
+    apiRequest<PreauthDraftResponse | { draft: null }>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/preauth/draft`,
+    ),
+
+  savePreauthDraft: (
+    caseId: string,
+    claimId: string,
+    body: PreauthDraftRequest,
+  ): Promise<PreauthDraftResponse> =>
+    apiRequest<PreauthDraftResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/preauth/draft`,
+      { method: 'PUT', body },
+    ),
+
+  submitPreauth: (caseId: string, claimId: string): Promise<PreauthSubmitResponse> =>
+    apiRequest<PreauthSubmitResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/preauth/submit`,
+      { method: 'POST', body: {} },
+    ),
+
+  preauthDecision: (
+    caseId: string,
+    claimId: string,
+    body: PreauthDecisionRequest,
+  ): Promise<PreauthDecisionResponse> =>
+    apiRequest<PreauthDecisionResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/preauth/decision`,
+      { method: 'POST', body },
+    ),
+
+  respondPreauthQuery: (
+    caseId: string,
+    claimId: string,
+    queryId: string,
+    body: PreauthQueryResponseRequest,
+  ): Promise<{ status: string }> =>
+    apiRequest<{ status: string }>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/preauth/queries/${encodeURIComponent(queryId)}/respond`,
+      { method: 'POST', body },
     ),
 };

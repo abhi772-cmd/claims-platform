@@ -479,6 +479,46 @@ model DoctorToken {
   @@map("doctor_token")
 }
 
+// Editable pre-auth draft. One row per Claim (unique on claimId).
+// Updated as the executive types; on submit the draft is frozen
+// (submittedSnapshot captures the values at submit time) and the
+// claim transitions to PREAUTH_QUEUED.
+model PreauthDraft {
+  id                        String    @id @default(uuid()) @db.Uuid
+  tenantId                  String    @db.Uuid
+  claimId                   String    @unique @db.Uuid
+  diagnosisIcdCode          String?
+  diagnosisDescription      String?
+  plannedProcedure          String?
+  procedureCode             String?
+  estimatedLengthOfStayDays Int?
+  requestedAmount           Int?
+  clinicalJustification     String?
+  submittedAt               DateTime?
+  submittedSnapshot         Json?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  @@index([tenantId, claimId])
+  @@map("preauth_draft")
+}
+
+// One row per query raised by the payer on a pre-auth. respondedAt
+// flips on response and the response text is stored alongside.
+model PreauthQuery {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @db.Uuid
+  claimId       String    @db.Uuid
+  queryText     String
+  raisedAt      DateTime  @default(now())
+  respondedAt   DateTime?
+  responseText  String?
+  correlationId String?
+
+  @@index([tenantId, claimId, raisedAt])
+  @@map("preauth_query")
+}
+
 // Every external-system call (NHCX, PMJAY, ABDM, OpenAI, SMTP) writes
 // a row here, both directions. Outbound rows start at status='pending';
 // adapter completion flips to 'sent' / 'succeeded' / 'failed'. The

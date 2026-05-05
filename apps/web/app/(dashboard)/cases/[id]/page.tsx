@@ -3,11 +3,13 @@
 import {
   type CaseDetail,
   type ClaimEventListItem,
+  type ClaimStatus,
   type IntegrationMessage,
 } from '@claims/contracts';
 import { useEffect, useState } from 'react';
 
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
+import { PreauthPanel } from '../../../../components/preauth/PreauthPanel';
 import { CaseApi } from '../../../../lib/api/case.api';
 
 interface PageProps {
@@ -125,6 +127,15 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
             </button>
           </div>
         </section>
+      ) : null}
+
+      {claim ? (
+        <PreauthPanel
+          caseId={detail.id}
+          claimId={claim.id}
+          status={claim.status as ClaimStatus}
+          onChanged={() => void reload()}
+        />
       ) : null}
 
       {messages.length > 0 ? (
