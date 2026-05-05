@@ -306,6 +306,24 @@ export const ErrorPresentations: Record<ErrorCode, ErrorPresentation> = {
     severity: 'error',
     primaryAction: 'Try again',
   },
+  AUTH_MFA_CHALLENGE_INVALID: {
+    title: 'MFA challenge invalid',
+    body: 'Sign in again to start a fresh challenge.',
+    severity: 'error',
+    primaryAction: 'Sign in again',
+  },
+  AUTH_MFA_CHALLENGE_EXPIRED: {
+    title: 'MFA challenge expired',
+    body: 'For security, the challenge expired. Sign in again.',
+    severity: 'warning',
+    primaryAction: 'Sign in again',
+  },
+  AUTH_MFA_SETUP_NOT_PENDING: {
+    title: 'MFA setup not in progress',
+    body: 'Start the setup again from your account settings.',
+    severity: 'info',
+    primaryAction: 'OK',
+  },
 
   VALIDATION_FAILED: {
     title: 'Check the details',

@@ -93,12 +93,15 @@ model User {
   createdAt            DateTime   @default(now())
   updatedAt            DateTime   @updatedAt
 
-  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userRoles      UserRole[]
-  sessions       Session[]
-  inviteResends  InviteResend[]
+  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles       UserRole[]
+  sessions        Session[]
+  inviteResends   InviteResend[]
   passwordHistory PasswordHistory[]
-  passwordResets PasswordResetToken[]
+  passwordResets  PasswordResetToken[]
+  mfaEnrollment   MfaEnrollment?
+  backupCodes     BackupCode[]
+  mfaChallenges   MfaChallenge[]
 
   @@index([tenantId, status])
   @@index([inviteTokenExpiresAt])
@@ -224,6 +227,71 @@ model PasswordResetToken {
   @@index([tenantId, userId, requestedAt])
   @@index([expiresAt])
   @@map("password_reset_token")
+}
+
+// Pending MFA enrollment OR confirmed enrollment. One row per user.
+// `confirmedAt` flips from null to a timestamp on /auth/me/mfa/confirm.
+// We keep the pending row separate from the confirmed state so that a
+// half-finished setup never leaves the user's confirmed login broken.
+// The secret is base32 (otpauth standard) and is rotated on every new
+// setup attempt.
+model MfaEnrollment {
+  id                  String    @id @default(uuid()) @db.Uuid
+  tenantId            String    @db.Uuid
+  userId              String    @unique @db.Uuid
+  secret              String
+  confirmedAt         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  // Last verified TOTP step — used to prevent code replay within the same
+  // 30-second window. Set on each successful verify; if a verify presents
+  // a step <= this value, it's a replay and we reject.
+  lastUsedStep        BigInt?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("mfa_enrollment")
+}
+
+// Backup codes are issued in batches of 10 on confirm + on regenerate.
+// Stored hashed (sha256). usedAt is append-only via RLS — the row is
+// either unused (NULL) or carries the timestamp of the single use that
+// burned it.
+model BackupCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @db.Uuid
+  userId    String    @db.Uuid
+  codeHash  String    @unique
+  createdAt DateTime  @default(now())
+  usedAt    DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@map("backup_code")
+}
+
+// Server-side staging row for the two-step login. When MFA is required,
+// /auth/login does the password check, opens a challenge, and returns
+// the challengeId to the client. The client then calls /auth/mfa/verify
+// with challengeId + TOTP/backup code. The challenge expires in 5 min.
+model MfaChallenge {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @db.Uuid
+  userId      String    @db.Uuid
+  challengeId String    @unique
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  ipAddress   String?
+  userAgent   String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@index([expiresAt])
+  @@map("mfa_challenge")
 }
 
 // Append-only via RLS (see migration). Application code that tries to

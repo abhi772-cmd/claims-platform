@@ -16,6 +16,7 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 import { AuditEvents, AuditService } from '../audit';
+import { MfaService } from '../mfa';
 
 const FAILED_ATTEMPTS_LIMIT = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000;
@@ -25,7 +26,8 @@ export interface LoginInput {
   password: string;
 }
 
-export interface LoginOutput {
+export interface LoginSuccessOutput {
+  kind: 'success';
   accessToken: string;
   refreshToken: string;
   user: {
@@ -38,6 +40,14 @@ export interface LoginOutput {
   };
 }
 
+export interface LoginMfaRequiredOutput {
+  kind: 'mfa_required';
+  challengeId: string;
+  expiresAt: Date;
+}
+
+export type LoginOutput = LoginSuccessOutput | LoginMfaRequiredOutput;
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -45,6 +55,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService<AppConfig, true>,
     private readonly audit: AuditService,
+    private readonly mfa: MfaService,
   ) {}
 
   async login(input: LoginInput, userAgent: string | null, ip: string | null): Promise<LoginOutput> {
@@ -136,18 +147,65 @@ export class AuthService {
       throw new TenantDisabledError();
     }
 
-    // Success path: session create + counter reset + audit, atomic.
+    // Password is correct. If MFA is enabled, short-circuit to a challenge —
+    // we DON'T issue a session yet. The client then calls /auth/mfa/verify
+    // with the challengeId + TOTP/backup-code.
+    if (user.mfaEnabled) {
+      const challenge = await this.mfa.issueChallenge({
+        tenantId: user.tenantId,
+        userId: user.id,
+        ip,
+        userAgent,
+      });
+      return {
+        kind: 'mfa_required',
+        challengeId: challenge.challengeId,
+        expiresAt: challenge.expiresAt,
+      };
+    }
+
+    return this.finalizeLogin(user.id, user.tenantId, userAgent, ip);
+  }
+
+  // Completes login after a successful MFA challenge. Used by /auth/mfa/verify.
+  // Re-loads the user (we don't trust anything from the challenge row beyond
+  // userId + tenantId) and runs the same finalize path as the no-MFA branch.
+  async completeMfa(
+    challengeId: string,
+    code: string,
+    userAgent: string | null,
+    ip: string | null,
+  ): Promise<LoginSuccessOutput> {
+    const verified = await this.mfa.verifyChallenge({ challengeId, code, ip, userAgent });
+    return this.finalizeLogin(verified.userId, verified.tenantId, userAgent, ip);
+  }
+
+  private async finalizeLogin(
+    userId: string,
+    tenantId: string,
+    userAgent: string | null,
+    ip: string | null,
+  ): Promise<LoginSuccessOutput> {
     const refreshToken = generateOpaqueToken();
     const refreshHash = hashToken(refreshToken);
     const refreshExpiresAt = new Date(
       Date.now() + parseDurationMs(this.config.get('JWT_REFRESH_TTL', { infer: true })),
     );
 
-    const session = await this.prisma.runInTenantContext(
+    const result = await this.prisma.runInTenantContext(
       '00000000-0000-0000-0000-000000000000',
       'platform_admin',
       async (tx) => {
-        const created = await tx.session.create({
+        const user = await tx.user.findUnique({
+          where: { id: userId },
+          include: {
+            tenant: { select: { id: true } },
+            userRoles: { include: { role: true } },
+          },
+        });
+        if (!user) throw new InvalidCredentialsError();
+
+        const session = await tx.session.create({
           data: {
             userId: user.id,
             tenantId: user.tenantId,
@@ -173,38 +231,42 @@ export class AuthService {
           actorType: 'user',
           action: AuditEvents.USER_LOGGED_IN,
           resourceType: 'session',
-          resourceId: created.id,
+          resourceId: session.id,
           ipAddress: ip,
           userAgent,
         });
-        return created;
+        return { user, session };
       },
     );
 
-    const roleNames = user.userRoles.map((ur) => ur.role.name);
-    const permissions = unionPermissions(user.userRoles);
+    const roleNames = result.user.userRoles.map((ur) => ur.role.name);
+    const permissions = unionPermissions(result.user.userRoles);
     const isPlatformAdmin = roleNames.includes('platform_admin');
     const accessToken = this.signAccessToken({
-      sub: user.id,
-      tid: user.tenantId,
+      sub: result.user.id,
+      tid: result.user.tenantId,
       rl: isPlatformAdmin ? 'platform_admin' : 'tenant',
       rs: roleNames,
       pm: permissions,
-      sid: session.id,
+      sid: result.session.id,
     });
 
     return {
+      kind: 'success',
       accessToken,
       refreshToken,
       user: {
-        id: user.id,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        tenantId: user.tenantId,
-        mustChangePassword: user.mustChangePassword,
+        id: result.user.id,
+        email: result.user.email,
+        firstName: result.user.firstName,
+        lastName: result.user.lastName,
+        tenantId: result.user.tenantId,
+        mustChangePassword: result.user.mustChangePassword,
       },
     };
+    // tenantId is read off the loaded user; the parameter `tenantId` above
+    // is reserved for forward-compat with cross-tenant flows.
+    void tenantId;
   }
 
   async refresh(opaqueRefreshToken: string, userAgent: string | null, ip: string | null): Promise<{

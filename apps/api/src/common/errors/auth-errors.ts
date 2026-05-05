@@ -106,3 +106,39 @@ export class CurrentPasswordIncorrectError extends DomainError {
     super(ErrorCodes.AUTH_CURRENT_PASSWORD_INCORRECT);
   }
 }
+
+export class MfaInvalidError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_MFA_INVALID);
+  }
+}
+
+export class MfaAlreadyEnrolledError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_MFA_ALREADY_ENROLLED);
+  }
+}
+
+export class MfaNotEnrolledError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_MFA_NOT_ENROLLED);
+  }
+}
+
+export class MfaSetupNotPendingError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_MFA_SETUP_NOT_PENDING);
+  }
+}
+
+export class MfaChallengeInvalidError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_MFA_CHALLENGE_INVALID);
+  }
+}
+
+export class MfaChallengeExpiredError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_MFA_CHALLENGE_EXPIRED);
+  }
+}

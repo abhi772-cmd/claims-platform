@@ -8,6 +8,7 @@ import { loadConfig } from './config/configuration';
 import { AuditModule } from './modules/audit';
 import { AuthModule } from './modules/auth/auth.module';
 import { HealthModule } from './modules/health/health.module';
+import { MfaModule } from './modules/mfa';
 import { NotificationModule } from './modules/notification';
 import { PasswordModule } from './modules/password';
 import { TenantModule } from './modules/tenant/tenant.module';
@@ -58,6 +59,7 @@ import { UserModule } from './modules/user/user.module';
     AuditModule,
     NotificationModule,
     PasswordModule,
+    MfaModule,
     HealthModule,
     TenantModule,
     UserModule,

@@ -4,10 +4,22 @@ import {
   type ChangePasswordRequest,
   ChangePasswordRequestSchema,
   type InvitePreview,
+  type LoginMfaChallengeResponse,
   type LoginRequest,
   LoginRequestSchema,
   type LoginResponse,
   type MeResponse,
+  type MfaConfirmRequest,
+  MfaConfirmRequestSchema,
+  type MfaConfirmResponse,
+  type MfaDisableRequest,
+  MfaDisableRequestSchema,
+  type MfaRegenerateBackupCodesRequest,
+  MfaRegenerateBackupCodesRequestSchema,
+  type MfaRegenerateBackupCodesResponse,
+  type MfaSetupResponse,
+  type MfaVerifyRequest,
+  MfaVerifyRequestSchema,
   type PasswordPolicyDescriptor,
   type PasswordResetCompleteRequest,
   PasswordResetCompleteRequestSchema,
@@ -38,6 +50,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RefreshTokenInvalidError } from '../../common/errors/auth-errors';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { type AppConfig } from '../../config/configuration';
+import { MfaService } from '../mfa';
 import { PasswordPolicyService, PasswordService } from '../password';
 import { InviteService } from '../user/invite.service';
 import { UserService } from '../user/user.service';
@@ -50,6 +63,7 @@ export class AuthController {
     private readonly invites: InviteService,
     private readonly passwords: PasswordService,
     private readonly policy: PasswordPolicyService,
+    private readonly mfa: MfaService,
     private readonly config: ConfigService<AppConfig, true>,
   ) {}
 
@@ -60,13 +74,33 @@ export class AuthController {
     @Body() body: LoginRequest,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
+  ): Promise<LoginResponse | LoginMfaChallengeResponse> {
+    const userAgent = req.get('user-agent') ?? null;
+    const ip = req.ip ?? null;
+    const result = await this.auth.login(body, userAgent, ip);
+    if (result.kind === 'mfa_required') {
+      return {
+        mfaRequired: true,
+        challengeId: result.challengeId,
+        expiresAt: result.expiresAt.toISOString(),
+      };
+    }
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+    return { user: result.user };
+  }
+
+  @Post('mfa/verify')
+  @HttpCode(200)
+  async mfaVerify(
+    @Body(new ZodValidationPipe(MfaVerifyRequestSchema)) body: MfaVerifyRequest,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<LoginResponse> {
     const userAgent = req.get('user-agent') ?? null;
     const ip = req.ip ?? null;
-    const { accessToken, refreshToken, user } = await this.auth.login(body, userAgent, ip);
-
-    this.setAuthCookies(res, accessToken, refreshToken);
-    return { user };
+    const result = await this.auth.completeMfa(body.challengeId, body.code, userAgent, ip);
+    this.setAuthCookies(res, result.accessToken, result.refreshToken);
+    return { user: result.user };
   }
 
   @Post('refresh')
@@ -206,6 +240,71 @@ export class AuthController {
       ip: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,
     });
+  }
+
+  @Post('me/mfa/setup')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async mfaSetup(@CurrentUser() user: Express.AuthenticatedUser): Promise<MfaSetupResponse> {
+    const me = await this.users.getMe(user.tenantId, user.userId);
+    if (!me) throw new RefreshTokenInvalidError();
+    const out = await this.mfa.setup(user.tenantId, user.userId, me.email);
+    return { secret: out.secret, otpauthUrl: out.otpauthUrl, qrDataUrl: out.qrDataUrl };
+  }
+
+  @Post('me/mfa/confirm')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async mfaConfirm(
+    @Body(new ZodValidationPipe(MfaConfirmRequestSchema)) body: MfaConfirmRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+    @Req() req: Request,
+  ): Promise<MfaConfirmResponse> {
+    const out = await this.mfa.confirm(
+      user.tenantId,
+      user.userId,
+      body.code,
+      req.ip ?? null,
+      req.get('user-agent') ?? null,
+    );
+    return { backupCodes: out.backupCodes };
+  }
+
+  @Post('me/mfa/disable')
+  @HttpCode(204)
+  @UseGuards(JwtAuthGuard)
+  async mfaDisable(
+    @Body(new ZodValidationPipe(MfaDisableRequestSchema)) body: MfaDisableRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.mfa.disable(
+      user.tenantId,
+      user.userId,
+      body.currentPassword,
+      body.code,
+      req.ip ?? null,
+      req.get('user-agent') ?? null,
+    );
+  }
+
+  @Post('me/mfa/backup-codes/regenerate')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async mfaRegenerateBackupCodes(
+    @Body(new ZodValidationPipe(MfaRegenerateBackupCodesRequestSchema))
+    body: MfaRegenerateBackupCodesRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+    @Req() req: Request,
+  ): Promise<MfaRegenerateBackupCodesResponse> {
+    const codes = await this.mfa.regenerateBackupCodes(
+      user.tenantId,
+      user.userId,
+      body.currentPassword,
+      req.ip ?? null,
+      req.get('user-agent') ?? null,
+    );
+    return { backupCodes: codes };
   }
 
   private setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {
