@@ -24,6 +24,7 @@ import { NhcxModule } from './modules/nhcx';
 import { NotificationModule } from './modules/notification';
 import { OnboardingModule } from './modules/onboarding';
 import { PasswordModule } from './modules/password';
+import { PatientModule } from './modules/patient';
 import { PreauthModule } from './modules/preauth';
 import { AppSecurityModule } from './modules/security';
 import { SettlementModule } from './modules/settlement';
@@ -84,6 +85,7 @@ import { UserModule } from './modules/user/user.module';
     IntegrationModule,
     NhcxModule,
     StorageModule,
+    PatientModule,
     ClaimModule,
     CaseModule,
     EligibilityModule,

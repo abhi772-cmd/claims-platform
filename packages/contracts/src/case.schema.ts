@@ -7,9 +7,29 @@ import {
   ClaimStatusSchema,
 } from './claim.schema';
 
+// Encrypted PII payload attached to a new case. patientName + hospitalMrn
+// remain on Case for fast list-view rendering; everything else goes into
+// the Patient row encrypted with the tenant DEK.
+export const PatientPiiInputSchema = z.object({
+  // Aadhaar must be 12 digits; we let the server normalise (strip
+  // spaces) before validation.
+  aadhaar: z.string().regex(/^[0-9]{12}$/).optional(),
+  // ABHA ID can be the 14-digit health id or the human-readable form
+  // like "12-3456-7890-1234". Accept either by stripping non-digits.
+  abhaId: z.string().min(1).max(64).optional(),
+  policyNumber: z.string().min(1).max(120).optional(),
+  // E.164-ish; we only require leading + and 8–15 digits.
+  mobile: z.string().regex(/^\+?[0-9]{8,15}$/).optional(),
+  email: z.string().email().max(254).optional(),
+  dateOfBirth: z.string().date().optional(),
+  gender: z.enum(['male', 'female', 'other', 'prefer_not_to_say']).optional(),
+});
+export type PatientPiiInput = z.infer<typeof PatientPiiInputSchema>;
+
 // POST /cases — admin / insurance desk creates a case + the first claim
-// in one shot. patientName + hospitalMrn are placeholder strings until
-// the encrypted Patient model lands later in Sprint 2.
+// in one shot. patientName + hospitalMrn live on Case (plaintext display
+// fields). All sensitive identifiers go into the optional `patient`
+// block which is encrypted at rest.
 export const CreateCaseRequestSchema = z.object({
   patientName: z.string().min(1).max(200),
   hospitalMrn: z.string().min(1).max(64),
@@ -17,6 +37,11 @@ export const CreateCaseRequestSchema = z.object({
   admissionType: z.enum(['planned', 'emergency', 'day_care']),
   primaryRail: ClaimRailSchema,
   treatingDoctorId: z.string().uuid().optional(),
+  // Optional in V1 so existing tests + dev flows that didn't pass PII
+  // continue to work. PMJAY submit will fail later if Aadhaar is
+  // missing — that gate lives in the rail-specific submit layer, not
+  // here.
+  patient: PatientPiiInputSchema.optional(),
 });
 export type CreateCaseRequest = z.infer<typeof CreateCaseRequestSchema>;
 

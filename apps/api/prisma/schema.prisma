@@ -28,17 +28,73 @@ enum UserStatus {
   deactivated
 }
 
+// Encrypted PII for a single patient. patientName lives in Case as
+// plaintext (it's already on every screen + in audit logs); the truly
+// sensitive identifiers (Aadhaar, ABHA ID, policy number, mobile,
+// email) are stored as base64(IV || ciphertext || authTag) here under
+// AES-256-GCM with a per-tenant data encryption key wrapped by the
+// platform KMS root key.
+//
+// One Patient row per case (FK on patientId from Case). Demographic
+// fields go here too so PII is in one place; the Case keeps display
+// fields (patientName, hospitalMrn) for the list view without needing
+// to decrypt every row.
+//
+// All ciphertext columns are nullable because Sprint 2 cases were
+// created before this slice landed — they have no Patient row.
+model Patient {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @db.Uuid
+  // Plaintext display fields. patientName here mirrors Case.patientName
+  // (kept in sync on update) so future joins don't need decryption for
+  // the common read path.
+  fullName      String
+  dateOfBirth   DateTime? @db.Date
+  gender        String?  // 'male' | 'female' | 'other' | 'prefer_not_to_say'
+  // Encrypted PII. Each column is a base64-encoded
+  // [iv (12 bytes) || ciphertext (n bytes) || authTag (16 bytes)] blob.
+  // The DEK id (the KMS-wrapped key version that produced this blob)
+  // is stored alongside in <field>KeyVersion so we can rotate keys
+  // without re-encrypting everything atomically.
+  aadhaarCipher       String?
+  aadhaarKeyVersion   String?
+  abhaIdCipher        String?
+  abhaIdKeyVersion    String?
+  policyNumberCipher      String?
+  policyNumberKeyVersion  String?
+  mobileCipher        String?
+  mobileKeyVersion    String?
+  emailCipher         String?
+  emailKeyVersion     String?
+  // Hashed (sha256) lookup keys so we can search by Aadhaar / mobile
+  // without decrypting every row. The hash is computed over the raw
+  // value with no salt — the lookup is exact-match only and a salt
+  // would prevent equality lookups.
+  aadhaarHash         String?  @db.Char(64)
+  mobileHash          String?  @db.Char(64)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  cases Case[]
+
+  @@index([tenantId])
+  @@index([tenantId, aadhaarHash])
+  @@index([tenantId, mobileHash])
+  @@map("patient")
+}
+
 // One row per insurance + treatment instance. A case is the container;
 // each case has 1..N claims (e.g. NHCX cashless + later reimbursement).
 //
-// Patient details are PLACEHOLDER strings in Sprint 2's first slice —
-// they'll move to the encrypted Patient model in a later slice. The
-// fields are marked here so future readers know to look for the
-// encryption work.
+// patientName + hospitalMrn live on Case for fast list-view rendering
+// without decryption. Sensitive identifiers (Aadhaar / ABHA / policy
+// number / contact info) live on the linked Patient row in encrypted
+// form. patientId is nullable for the legacy cases that pre-date
+// Slice R; new cases always create a Patient row.
 model Case {
   id              String    @id @default(uuid()) @db.Uuid
   tenantId        String    @db.Uuid
-  // PLACEHOLDER: will reference Patient(id) once that model lands.
+  patientId       String?   @db.Uuid
   patientName     String
   hospitalMrn     String
   admissionDate   DateTime  @db.Date
@@ -51,10 +107,12 @@ model Case {
   updatedAt       DateTime  @updatedAt
   closedAt        DateTime?
 
-  claims Claim[]
+  claims  Claim[]
+  patient Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, caseStatus])
   @@index([tenantId, hospitalMrn])
+  @@index([patientId])
   @@map("case")
 }
 
