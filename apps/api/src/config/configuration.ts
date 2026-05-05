@@ -10,6 +10,10 @@ export class ConfigError extends Error {
 export interface AppConfig extends Env {
   jwtPrivateKeyPem: string;
   jwtPublicKeyPem: string;
+  // NHCX real-mode keys. Decoded eagerly at config load so a misconfigured
+  // PEM fails the boot rather than the first request. Null when MODE=stub.
+  nhcxPrivateKeyPem: string | null;
+  nhcxGatewayPublicKeyPem: string | null;
 }
 
 export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
@@ -18,10 +22,33 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     throw new ConfigError(parsed.error.flatten());
   }
   const env = parsed.data;
+
+  // When NHCX_MODE=real, the connection settings + keys must be present.
+  // Surface the misconfiguration as a single ConfigError up front.
+  if (env.NHCX_MODE === 'real') {
+    const missing: string[] = [];
+    if (!env.NHCX_GATEWAY_URL) missing.push('NHCX_GATEWAY_URL');
+    if (!env.NHCX_PARTICIPANT_CODE) missing.push('NHCX_PARTICIPANT_CODE');
+    if (!env.NHCX_PRIVATE_KEY_BASE64) missing.push('NHCX_PRIVATE_KEY_BASE64');
+    if (!env.NHCX_GATEWAY_PUBLIC_KEY_BASE64) missing.push('NHCX_GATEWAY_PUBLIC_KEY_BASE64');
+    if (missing.length > 0) {
+      throw new ConfigError({ NHCX_MODE: [`real mode requires: ${missing.join(', ')}`] });
+    }
+  }
+
   return {
     ...env,
     jwtPrivateKeyPem: decodeBase64Pem(env.JWT_PRIVATE_KEY_BASE64, 'JWT_PRIVATE_KEY_BASE64'),
     jwtPublicKeyPem: decodeBase64Pem(env.JWT_PUBLIC_KEY_BASE64, 'JWT_PUBLIC_KEY_BASE64'),
+    nhcxPrivateKeyPem: env.NHCX_PRIVATE_KEY_BASE64
+      ? decodeBase64Pem(env.NHCX_PRIVATE_KEY_BASE64, 'NHCX_PRIVATE_KEY_BASE64')
+      : null,
+    nhcxGatewayPublicKeyPem: env.NHCX_GATEWAY_PUBLIC_KEY_BASE64
+      ? decodeBase64Pem(
+          env.NHCX_GATEWAY_PUBLIC_KEY_BASE64,
+          'NHCX_GATEWAY_PUBLIC_KEY_BASE64',
+        )
+      : null,
   };
 }
 
