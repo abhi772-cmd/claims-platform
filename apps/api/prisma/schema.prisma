@@ -479,6 +479,36 @@ model DoctorToken {
   @@map("doctor_token")
 }
 
+// One row per claim. Created on claim.approved / claim.partially_approved
+// (the SettlementService.expectPayment path). Updates flip:
+//   * receivedAmount + receivedAt + eobDocumentId on bank receipt
+//   * deductionAmount + deductions on reconciliation
+//   * shortPaymentReasons on short-paid path
+//   * reconciliationStatus through auto_matched / manual_match_pending /
+//     short_paid / discrepancy
+//   * closedAt on terminal close (claim.closed event)
+model Settlement {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @db.Uuid
+  claimId              String   @unique @db.Uuid
+  paymentMode          String
+  expectedAmount       Int
+  receivedAmount       Int?
+  deductionAmount      Int?
+  deductions           Json     @default("[]")
+  shortPaymentReasons  Json     @default("[]")
+  receivedAt           DateTime?
+  eobDocumentId        String?  @db.Uuid
+  reconciliationStatus String   @default("manual_match_pending")
+  closedAt             DateTime?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([tenantId, claimId])
+  @@index([tenantId, reconciliationStatus])
+  @@map("settlement")
+}
+
 // File metadata only — binaries live in OVH Object Storage. v1 stores
 // references with a synthetic storage key; the real upload pipeline
 // lands in Slice P alongside the NHCX adapter.
