@@ -1,11 +1,11 @@
 import { type EligibilityResponse } from '@claims/contracts';
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 
-import { NhcxStubAdapter } from './nhcx-stub.adapter';
 import { CaseNotFoundError } from '../../common/errors/case-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ClaimService } from '../claim';
 import { IntegrationMessageService } from '../integration';
+import { NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 
 export interface RunEligibilityInput {
   tenantId: string;
@@ -26,7 +26,7 @@ export class EligibilityService {
     private readonly prisma: PrismaService,
     private readonly claims: ClaimService,
     private readonly integration: IntegrationMessageService,
-    private readonly nhcx: NhcxStubAdapter,
+    @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
   ) {}
 
   // Orchestration:

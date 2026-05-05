@@ -3,14 +3,14 @@ import {
   type PreauthDraft,
   type PreauthDraftResponse,
 } from '@claims/contracts';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
 import { InvalidClaimTransitionError } from '../../common/errors/claim-errors';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ClaimService } from '../claim';
-import { NhcxStubAdapter } from '../eligibility/nhcx-stub.adapter';
 import { IntegrationMessageService } from '../integration';
+import { NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 
 export interface SaveDraftInput {
   tenantId: string;
@@ -51,7 +51,7 @@ export class PreauthService {
     private readonly prisma: PrismaService,
     private readonly claims: ClaimService,
     private readonly integration: IntegrationMessageService,
-    private readonly nhcx: NhcxStubAdapter,
+    @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
   ) {}
 
   // PUT preauth/draft — upsert. Also drives the eligibility-verified →

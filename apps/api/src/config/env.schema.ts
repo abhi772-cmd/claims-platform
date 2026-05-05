@@ -77,9 +77,24 @@ export const EnvSchema = z.object({
   HPR_STUB_ALLOWLIST: z.preprocess(trim, z.string().default('')),
   HPR_STUB_OTP: NonEmptyString.default('000000'),
 
-  // NHCX stub adapter (Slice K). Replaced by the real adapter in Slice P.
+  // NHCX adapter (Slice K stub + Slice P real JWE).
+  //   stub = NhcxStubAdapter (env-driven outcomes, no external calls)
+  //   real = NhcxJweAdapter  (FHIR Bundle → JWE → POST to gateway)
+  NHCX_MODE: z.enum(['stub', 'real']).default('stub'),
+  // Outcome knobs for the stub mode.
   NHCX_STUB_VERIFY_DEFAULT: BooleanLike.default(true),
   NHCX_STUB_MRN_FAIL_LIST: z.preprocess(trim, z.string().default('')),
+  // Real-mode connection. Required when NHCX_MODE=real; optional in stub.
+  // The participant code identifies us on the gateway. The keys are
+  // PEM-encoded in base64 — same handling pattern as JWT_PRIVATE_KEY_BASE64.
+  // PUBLIC keys are gateway / payer keys we encrypt outbound to; PRIVATE
+  // is ours, used to decrypt inbound + sign outbound.
+  NHCX_GATEWAY_URL: OptionalString,
+  NHCX_PARTICIPANT_CODE: OptionalString,
+  NHCX_PRIVATE_KEY_BASE64: OptionalString,
+  NHCX_GATEWAY_PUBLIC_KEY_BASE64: OptionalString,
+  // Default request timeout for real-mode HTTP calls (ms).
+  NHCX_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

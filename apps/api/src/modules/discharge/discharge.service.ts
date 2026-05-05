@@ -1,11 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ClaimService } from '../claim';
 import { DocumentService } from '../document';
-import { NhcxStubAdapter } from '../eligibility/nhcx-stub.adapter';
 import { IntegrationMessageService } from '../integration';
+import { NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 
 export interface DischargeInput {
   tenantId: string;
@@ -20,7 +20,7 @@ export class DischargeService {
     private readonly claims: ClaimService,
     private readonly documents: DocumentService,
     private readonly integration: IntegrationMessageService,
-    private readonly nhcx: NhcxStubAdapter,
+    @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
   ) {}
 
   async initiate(input: DischargeInput): Promise<{ status: string }> {

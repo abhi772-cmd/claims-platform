@@ -18,6 +18,7 @@ import { HealthModule } from './modules/health/health.module';
 import { IntegrationModule } from './modules/integration';
 import { MasterDataModule } from './modules/master-data';
 import { MfaModule } from './modules/mfa';
+import { NhcxModule } from './modules/nhcx';
 import { NotificationModule } from './modules/notification';
 import { OnboardingModule } from './modules/onboarding';
 import { PasswordModule } from './modules/password';
@@ -77,6 +78,7 @@ import { UserModule } from './modules/user/user.module';
     DoctorModule,
     OnboardingModule,
     IntegrationModule,
+    NhcxModule,
     ClaimModule,
     CaseModule,
     EligibilityModule,
