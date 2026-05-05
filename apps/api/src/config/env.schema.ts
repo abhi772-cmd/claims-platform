@@ -64,6 +64,10 @@ export const EnvSchema = z.object({
   // Password reset flow (Slice C)
   PASSWORD_RESET_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(30),
   PASSWORD_RESET_RATE_LIMIT_PER_DAY: z.coerce.number().int().positive().default(5),
+
+  // Sessions / trusted devices / concurrent cap (Slice E)
+  CONCURRENT_SESSION_LIMIT: z.coerce.number().int().positive().default(5),
+  TRUSTED_DEVICE_TTL_DAYS: z.coerce.number().int().positive().default(30),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

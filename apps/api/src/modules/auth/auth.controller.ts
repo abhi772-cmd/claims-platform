@@ -26,13 +26,17 @@ import {
   type PasswordResetInitiateRequest,
   PasswordResetInitiateRequestSchema,
   type PasswordResetVerifyResponse,
+  type SessionListResponse,
+  type TrustedDeviceListResponse,
 } from '@claims/contracts';
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Req,
@@ -44,7 +48,11 @@ import { ConfigService } from '@nestjs/config';
 import { type CookieOptions, type Request, type Response } from 'express';
 
 import { AuthService } from './auth.service';
-import { ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME } from './cookie.constants';
+import {
+  ACCESS_COOKIE_NAME,
+  REFRESH_COOKIE_NAME,
+  TRUSTED_DEVICE_COOKIE_NAME,
+} from './cookie.constants';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RefreshTokenInvalidError } from '../../common/errors/auth-errors';
@@ -52,6 +60,7 @@ import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { type AppConfig } from '../../config/configuration';
 import { MfaService } from '../mfa';
 import { PasswordPolicyService, PasswordService } from '../password';
+import { SessionService, TrustedDeviceService } from '../security';
 import { InviteService } from '../user/invite.service';
 import { UserService } from '../user/user.service';
 
@@ -64,6 +73,8 @@ export class AuthController {
     private readonly passwords: PasswordService,
     private readonly policy: PasswordPolicyService,
     private readonly mfa: MfaService,
+    private readonly sessions: SessionService,
+    private readonly trustedDevices: TrustedDeviceService,
     private readonly config: ConfigService<AppConfig, true>,
   ) {}
 
@@ -77,7 +88,13 @@ export class AuthController {
   ): Promise<LoginResponse | LoginMfaChallengeResponse> {
     const userAgent = req.get('user-agent') ?? null;
     const ip = req.ip ?? null;
-    const result = await this.auth.login(body, userAgent, ip);
+    const cookies = req.cookies as Record<string, string> | undefined;
+    const trustedDeviceToken = cookies?.[TRUSTED_DEVICE_COOKIE_NAME] ?? null;
+    const result = await this.auth.login(
+      { ...body, trustedDeviceToken },
+      userAgent,
+      ip,
+    );
     if (result.kind === 'mfa_required') {
       return {
         mfaRequired: true,
@@ -100,6 +117,15 @@ export class AuthController {
     const ip = req.ip ?? null;
     const result = await this.auth.completeMfa(body.challengeId, body.code, userAgent, ip);
     this.setAuthCookies(res, result.accessToken, result.refreshToken);
+    if (body.trustDevice) {
+      const issued = await this.trustedDevices.issue({
+        tenantId: result.user.tenantId,
+        userId: result.user.id,
+        ip,
+        userAgent,
+      });
+      this.setTrustedDeviceCookie(res, issued.rawToken, issued.expiresAt);
+    }
     return { user: result.user };
   }
 
@@ -307,6 +333,85 @@ export class AuthController {
     return { backupCodes: codes };
   }
 
+  // -- Sessions --
+
+  @Get('me/sessions')
+  @UseGuards(JwtAuthGuard)
+  async listSessions(
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<SessionListResponse> {
+    const items = await this.sessions.list(user.tenantId, user.userId, user.sessionId);
+    return {
+      sessions: items.map((s) => ({
+        id: s.id,
+        createdAt: s.createdAt.toISOString(),
+        expiresAt: s.expiresAt.toISOString(),
+        ipAddress: s.ipAddress,
+        userAgent: s.userAgent,
+        isCurrent: s.isCurrent,
+      })),
+    };
+  }
+
+  @Delete('me/sessions/:id')
+  @HttpCode(204)
+  @UseGuards(JwtAuthGuard)
+  async revokeSession(
+    @Param('id', new ParseUUIDPipe()) sessionId: string,
+    @CurrentUser() user: Express.AuthenticatedUser,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.sessions.revoke(
+      user.tenantId,
+      user.userId,
+      sessionId,
+      user.sessionId,
+      req.ip ?? null,
+      req.get('user-agent') ?? null,
+    );
+  }
+
+  // -- Trusted devices --
+
+  @Get('me/trusted-devices')
+  @UseGuards(JwtAuthGuard)
+  async listTrustedDevices(
+    @CurrentUser() user: Express.AuthenticatedUser,
+    @Req() req: Request,
+  ): Promise<TrustedDeviceListResponse> {
+    const cookies = req.cookies as Record<string, string> | undefined;
+    const presented = cookies?.[TRUSTED_DEVICE_COOKIE_NAME];
+    const current = presented
+      ? await this.trustedDevices.resolve(presented, user.userId, req.get('user-agent') ?? null)
+      : null;
+    const items = await this.trustedDevices.list(
+      user.tenantId,
+      user.userId,
+      current?.deviceId ?? null,
+    );
+    return {
+      devices: items.map((d) => ({
+        id: d.id,
+        createdAt: d.createdAt.toISOString(),
+        lastUsedAt: d.lastUsedAt ? d.lastUsedAt.toISOString() : null,
+        expiresAt: d.expiresAt.toISOString(),
+        ipAddress: d.ipAddress,
+        userAgent: d.userAgent,
+        isCurrent: d.isCurrent,
+      })),
+    };
+  }
+
+  @Delete('me/trusted-devices/:id')
+  @HttpCode(204)
+  @UseGuards(JwtAuthGuard)
+  async revokeTrustedDevice(
+    @Param('id', new ParseUUIDPipe()) deviceId: string,
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<void> {
+    await this.trustedDevices.revoke(user.tenantId, user.userId, deviceId);
+  }
+
   private setAuthCookies(res: Response, accessToken: string, refreshToken: string): void {
     const base = this.cookieOptions();
     res.cookie(ACCESS_COOKIE_NAME, accessToken, {
@@ -324,6 +429,16 @@ export class AuthController {
     const base = this.cookieOptions();
     res.clearCookie(ACCESS_COOKIE_NAME, base);
     res.clearCookie(REFRESH_COOKIE_NAME, { ...base, path: '/auth' });
+  }
+
+  private setTrustedDeviceCookie(res: Response, rawToken: string, expiresAt: Date): void {
+    const base = this.cookieOptions();
+    res.cookie(TRUSTED_DEVICE_COOKIE_NAME, rawToken, {
+      ...base,
+      // Send the cookie on /auth/login so the trust skip works pre-auth.
+      path: '/auth',
+      expires: expiresAt,
+    });
   }
 
   private cookieOptions(): CookieOptions {

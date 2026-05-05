@@ -11,6 +11,7 @@ import { HealthModule } from './modules/health/health.module';
 import { MfaModule } from './modules/mfa';
 import { NotificationModule } from './modules/notification';
 import { PasswordModule } from './modules/password';
+import { AppSecurityModule } from './modules/security';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { UserModule } from './modules/user/user.module';
 
@@ -60,6 +61,7 @@ import { UserModule } from './modules/user/user.module';
     NotificationModule,
     PasswordModule,
     MfaModule,
+    AppSecurityModule,
     HealthModule,
     TenantModule,
     UserModule,

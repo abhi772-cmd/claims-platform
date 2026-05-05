@@ -69,5 +69,9 @@ export type LoginMfaChallengeResponse = z.infer<typeof LoginMfaChallengeResponse
 export const MfaVerifyRequestSchema = z.object({
   challengeId: z.string().min(20).max(200),
   code: z.union([TotpCodeSchema, BackupCodeSchema]),
+  // When true the server will issue a long-lived trusted-device cookie so
+  // future logins from this device skip the MFA challenge (until revoked
+  // or expired). Default false.
+  trustDevice: z.boolean().optional(),
 });
 export type MfaVerifyRequest = z.infer<typeof MfaVerifyRequestSchema>;

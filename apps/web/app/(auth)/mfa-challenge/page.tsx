@@ -12,6 +12,7 @@ export default function MfaChallengePage(): JSX.Element {
   const challengeId = params.get('challenge') ?? '';
   const { showApiError, showError } = useErrorModal();
   const [code, setCode] = useState('');
+  const [trustDevice, setTrustDevice] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   async function onSubmit(e: FormEvent<HTMLFormElement>): Promise<void> {
@@ -23,7 +24,7 @@ export default function MfaChallengePage(): JSX.Element {
     }
     setSubmitting(true);
     try {
-      await AuthApi.mfaVerify({ challengeId, code });
+      await AuthApi.mfaVerify({ challengeId, code, trustDevice });
       router.push('/dashboard');
     } catch (err) {
       showApiError(err);
@@ -59,6 +60,15 @@ export default function MfaChallengePage(): JSX.Element {
             placeholder="123456 or XXXX-XXXX-XXXX"
           />
         </div>
+        <label className="flex items-center gap-2 text-xs text-neutral-600">
+          <input
+            type="checkbox"
+            checked={trustDevice}
+            onChange={(e) => setTrustDevice(e.target.checked)}
+            className="rounded-sm border-neutral-300"
+          />
+          Trust this device for 30 days
+        </label>
         <button
           type="submit"
           disabled={submitting || code.length === 0}
