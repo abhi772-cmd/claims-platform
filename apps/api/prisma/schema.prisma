@@ -607,6 +607,127 @@ model IntegrationMessage {
   @@map("integration_message")
 }
 
+// =====================================================
+// Master data (Slice O). Platform-level reference tables
+// — no tenantId column. SELECT is open to any
+// authenticated context (tenant or platform_admin).
+// INSERT/UPDATE/DELETE is platform_admin-only.
+//
+// Versioning is shallow: effectiveFrom/effectiveTo bracket
+// when a row is current. Lookups filter on
+// effectiveFrom <= now() AND (effectiveTo IS NULL OR
+// now() < effectiveTo). When a row is superseded we set
+// effectiveTo on the old row and INSERT a new one — we
+// never edit the historical record in place.
+// =====================================================
+
+model Payer {
+  id            String    @id @default(uuid()) @db.Uuid
+  // Stable upper-snake code, e.g. 'MEDIASSIST', 'PARAMOUNT', 'SHA_PMJAY'.
+  code          String    @unique
+  name          String
+  // 'private_tpa' | 'private_insurer' | 'pmjay_sha' | 'cghs' | 'self'
+  payerType     String
+  rail          String    // 'nhcx' | 'pmjay' | 'self_pay'
+  // NHCX participant code if registered on the gateway. Optional —
+  // self-pay and unregistered TPAs leave it null.
+  hcxCode       String?
+  active        Boolean   @default(true)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([rail, active])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("payer")
+}
+
+// PMJAY HBP packages and private-rail treatment package master.
+// pmjayHbp=true rows are the national Health Benefits Package list;
+// pmjayHbp=false rows are tariff-style entries that hospitals add for
+// their own catalogue.
+model Package {
+  id            String    @id @default(uuid()) @db.Uuid
+  code          String    @unique
+  name          String
+  category      String?
+  // Base package amount in PAISE (so 35000.00 INR = 3_500_000).
+  amount        Int
+  pmjayHbp      Boolean   @default(false)
+  active        Boolean   @default(true)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([category, active])
+  @@index([pmjayHbp, active])
+  @@map("package")
+}
+
+// ICD-10-CM diagnosis codes. Code is the natural primary key —
+// e.g. 'I10', 'J18.9', 'K35.80'. We accept both the dotted and
+// undotted forms; the canonical storage is the dotted form.
+model IcdCode {
+  code        String  @id
+  description String
+  // ICD-10 chapter (I–XXII) — e.g. 'IX' for circulatory.
+  chapter     String?
+  active      Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active])
+  @@map("icd_code")
+}
+
+// Procedure / billing codes. Hospitals price these; payer settlements
+// reference the code on each line item. baseAmount is in paise.
+model BillingCode {
+  code        String  @id
+  description String
+  category    String?
+  baseAmount  Int?
+  active      Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category, active])
+  @@map("billing_code")
+}
+
+// Document checklist rules. The pre-auth, discharge and claim phases
+// query this table to compute the required-docs list shown to the
+// executive. payerId/packageCode/admissionType narrow the rule
+// applicability — NULL means "applies to all".
+model DocumentChecklistRule {
+  id            String    @id @default(uuid()) @db.Uuid
+  // Phase the rule applies to. 'all' is shorthand for any phase.
+  phase         String    // 'preauth' | 'discharge' | 'claim' | 'all'
+  rail          String    // 'nhcx' | 'pmjay' | 'self_pay'
+  documentType  String    // see DocumentType enum
+  required      Boolean   @default(true)
+  // Optional narrowing scope. payerCode and packageCode reference the
+  // master-data tables loosely (not FK'd because rules can be drafted
+  // ahead of master data).
+  payerCode     String?
+  packageCode   String?
+  admissionType String?   // 'planned' | 'emergency' | 'day_care'
+  // Free-form narrowing predicates — readers should treat unknown keys
+  // as "no constraint" so adding a key never breaks old rules.
+  conditions    Json      @default("{}")
+  active        Boolean   @default(true)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([phase, rail, active])
+  @@index([payerCode, packageCode])
+  @@map("document_checklist_rule")
+}
+
 // Append-only via RLS (see migration). Application code that tries to
 // UPDATE or DELETE rows is silently rejected.
 model AuditLog {
