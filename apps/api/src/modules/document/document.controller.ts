@@ -109,11 +109,16 @@ export class DocumentController {
     @CurrentUser() user: Express.AuthenticatedUser,
   ): Promise<{ document: Document }> {
     await this.assertOwns(user.tenantId, caseId, claimId);
+    const scanBuffer =
+      body.scanBufferBase64 !== undefined
+        ? Buffer.from(body.scanBufferBase64, 'base64')
+        : undefined;
     const document = await this.documents.finalizeUpload({
       tenantId: user.tenantId,
       claimId,
       documentId,
       ...(body.contentSha256 !== undefined ? { contentSha256: body.contentSha256 } : {}),
+      ...(scanBuffer !== undefined ? { scanBuffer } : {}),
     });
     return { document };
   }
