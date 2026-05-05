@@ -13,5 +13,6 @@ export * from './integration.schema';
 export * from './preauth.schema';
 export * from './document.schema';
 export * from './claim-submit.schema';
+export * from './settlement.schema';
 export * from './problem-details.schema';
 export { Permissions, ALL_PERMISSIONS, type Permission as AppPermission } from './permissions';

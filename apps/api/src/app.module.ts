@@ -22,6 +22,7 @@ import { OnboardingModule } from './modules/onboarding';
 import { PasswordModule } from './modules/password';
 import { PreauthModule } from './modules/preauth';
 import { AppSecurityModule } from './modules/security';
+import { SettlementModule } from './modules/settlement';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { UserModule } from './modules/user/user.module';
 
@@ -82,6 +83,7 @@ import { UserModule } from './modules/user/user.module';
     DocumentModule,
     DischargeModule,
     ClaimSubmitModule,
+    SettlementModule,
     HealthModule,
     TenantModule,
     UserModule,

@@ -9,6 +9,7 @@ import {
   type DocumentListResponse,
   type EligibilityRequest,
   type EligibilityResponse,
+  type ExpectPaymentRequest,
   type IntegrationMessageListResponse,
   type ListCasesResponse,
   type ManualTransitionRequest,
@@ -18,8 +19,13 @@ import {
   type PreauthDraftResponse,
   type PreauthQueryResponseRequest,
   type PreauthSubmitResponse,
+  type ReconcileRequest,
+  type RecordReceiptRequest,
+  type Settlement,
+  type SettlementResponse,
   type UpdateCaseRequest,
   type UploadDocumentStubRequest,
+  type WriteOffRequest,
 } from '@claims/contracts';
 
 import { apiRequest } from './client';
@@ -176,5 +182,56 @@ export const CaseApi = {
     apiRequest<ClaimDecisionResponse>(
       `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/claim-submission/decision`,
       { method: 'POST', body },
+    ),
+
+  getSettlement: (caseId: string, claimId: string): Promise<{ settlement: Settlement | null }> =>
+    apiRequest<{ settlement: Settlement | null }>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/settlement`,
+    ),
+
+  expectPayment: (
+    caseId: string,
+    claimId: string,
+    body: ExpectPaymentRequest,
+  ): Promise<SettlementResponse> =>
+    apiRequest<SettlementResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/settlement/expect`,
+      { method: 'POST', body },
+    ),
+
+  recordReceipt: (
+    caseId: string,
+    claimId: string,
+    body: RecordReceiptRequest,
+  ): Promise<SettlementResponse> =>
+    apiRequest<SettlementResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/settlement/receipt`,
+      { method: 'POST', body },
+    ),
+
+  reconcile: (
+    caseId: string,
+    claimId: string,
+    body: ReconcileRequest,
+  ): Promise<SettlementResponse> =>
+    apiRequest<SettlementResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/settlement/reconcile`,
+      { method: 'POST', body },
+    ),
+
+  writeOffSettlement: (
+    caseId: string,
+    claimId: string,
+    body: WriteOffRequest,
+  ): Promise<SettlementResponse> =>
+    apiRequest<SettlementResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/settlement/write-off`,
+      { method: 'POST', body },
+    ),
+
+  closeSettlement: (caseId: string, claimId: string): Promise<SettlementResponse> =>
+    apiRequest<SettlementResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/settlement/close`,
+      { method: 'POST', body: {} },
     ),
 };
