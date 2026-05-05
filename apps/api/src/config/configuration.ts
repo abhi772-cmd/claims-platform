@@ -36,10 +36,13 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     }
   }
 
-  // PII KMS — stub mode requires the root key; real mode is deferred.
-  if (env.PII_KMS_MODE === 'stub' && !env.PII_KMS_ROOT_KEY_BASE64) {
+  // PII KMS — production must have the root key set; non-prod can boot
+  // without it and fail at first PatientService use instead. This keeps
+  // existing dev + integration flows that don't touch PII working
+  // without forcing every test harness to mint a 32-byte key.
+  if (env.NODE_ENV === 'production' && env.PII_KMS_MODE === 'stub' && !env.PII_KMS_ROOT_KEY_BASE64) {
     throw new ConfigError({
-      PII_KMS_MODE: ['stub mode requires PII_KMS_ROOT_KEY_BASE64 (32 bytes, base64)'],
+      PII_KMS_MODE: ['stub mode in production requires PII_KMS_ROOT_KEY_BASE64 (32 bytes, base64)'],
     });
   }
   if (env.PII_KMS_MODE === 'real') {
