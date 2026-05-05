@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import {
@@ -26,7 +26,11 @@ import {
   type AdapterPreauthSubmitResult,
   type NhcxAdapter,
 } from './nhcx-adapter.interface';
-import { decryptFromParticipant, encryptToParticipant } from './nhcx.crypto';
+import {
+  NHCX_KEY_RESOLVER,
+  type NhcxKeyResolver,
+} from './nhcx-key-resolver';
+import { decryptFromParticipant, encryptToParticipant, readJweKid } from './nhcx.crypto';
 import { type AppConfig } from '../../config/configuration';
 
 // Minimal NHCX FHIR R4 envelope. The real NHCX gateway requires:
@@ -69,7 +73,14 @@ const HEADER_OPERATION = 'x-hcx-operation';
 export class NhcxJweAdapter implements NhcxAdapter {
   private readonly log = new Logger(NhcxJweAdapter.name);
 
-  constructor(private readonly config: ConfigService<AppConfig, true>) {}
+  // The key resolver is optional so existing test rigs that build the
+  // adapter directly with `new NhcxJweAdapter(cfg)` keep working — the
+  // adapter falls back to the legacy single-key behaviour when no
+  // resolver is injected.
+  constructor(
+    private readonly config: ConfigService<AppConfig, true>,
+    @Optional() @Inject(NHCX_KEY_RESOLVER) private readonly keyResolver: NhcxKeyResolver | null = null,
+  ) {}
 
   async verifyEligibility(input: AdapterEligibilityRequest): Promise<AdapterEligibilityResponse> {
     // Slice T: build a real FHIR CoverageEligibilityRequest bundle
@@ -273,11 +284,20 @@ export class NhcxJweAdapter implements NhcxAdapter {
     const correlationId = randomUUID();
     const senderCode = this.config.get('NHCX_PARTICIPANT_CODE', { infer: true }) ?? '';
     const gatewayUrl = this.config.get('NHCX_GATEWAY_URL', { infer: true }) ?? '';
-    const ourPrivateKey = this.config.get('nhcxPrivateKeyPem', { infer: true });
     const gatewayPublicKey = this.config.get('nhcxGatewayPublicKeyPem', { infer: true });
     const timeoutMs = this.config.get('NHCX_HTTP_TIMEOUT_MS', { infer: true });
 
-    if (!gatewayUrl || !senderCode || !ourPrivateKey || !gatewayPublicKey) {
+    // Active outbound key + version. When the resolver is present
+    // we honour it (rotation-aware); otherwise fall back to the
+    // legacy single-key field for back-compat with existing tests.
+    const activeKey = this.keyResolver
+      ? this.keyResolver.activePrivateKey()
+      : {
+          pem: this.config.get('nhcxPrivateKeyPem', { infer: true }) ?? '',
+          version: this.config.get('NHCX_PRIVATE_KEY_VERSION', { infer: true }),
+        };
+
+    if (!gatewayUrl || !senderCode || !activeKey.pem || !gatewayPublicKey) {
       throw new Error(
         'NhcxJweAdapter is bound but real-mode config is missing — config loader should reject this earlier.',
       );
@@ -294,7 +314,11 @@ export class NhcxJweAdapter implements NhcxAdapter {
       },
       payload,
     };
-    const encrypted = await encryptToParticipant(bundle, gatewayPublicKey);
+    // Stamp our active key version into the JWE header so the gateway
+    // knows which of our public keys to verify against. Symmetric
+    // operation: the gateway stamps THEIR kid on inbound, and we use
+    // it below to pick the right private key.
+    const encrypted = await encryptToParticipant(bundle, gatewayPublicKey, activeKey.version);
 
     const url = `${gatewayUrl.replace(/\/$/, '')}/${operation}`;
     const started = Date.now();
@@ -328,7 +352,15 @@ export class NhcxJweAdapter implements NhcxAdapter {
     }
 
     const compactJwe = await res.text();
-    const decrypted = await decryptFromParticipant<{ payload: TResp }>(compactJwe, ourPrivateKey);
+    // Pick the private key matching the inbound JWE's kid. When the
+    // gateway hasn't stamped one (legacy / stub gateways) fall through
+    // to the active key; that matches Slice P behaviour exactly.
+    const inboundKid = readJweKid(compactJwe);
+    const decryptKey =
+      this.keyResolver && inboundKid
+        ? this.keyResolver.privateKeyForVersion(inboundKid) ?? activeKey.pem
+        : activeKey.pem;
+    const decrypted = await decryptFromParticipant<{ payload: TResp }>(compactJwe, decryptKey);
     this.log.log(
       `nhcx ${operation} ok (${latencyMs}ms) corr=${correlationId}`,
     );
