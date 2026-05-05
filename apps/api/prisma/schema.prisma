@@ -28,6 +28,96 @@ enum UserStatus {
   deactivated
 }
 
+// One row per insurance + treatment instance. A case is the container;
+// each case has 1..N claims (e.g. NHCX cashless + later reimbursement).
+//
+// Patient details are PLACEHOLDER strings in Sprint 2's first slice —
+// they'll move to the encrypted Patient model in a later slice. The
+// fields are marked here so future readers know to look for the
+// encryption work.
+model Case {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @db.Uuid
+  // PLACEHOLDER: will reference Patient(id) once that model lands.
+  patientName     String
+  hospitalMrn     String
+  admissionDate   DateTime  @db.Date
+  admissionType   String    // 'planned' | 'emergency' | 'day_care'
+  primaryRail     String    // 'nhcx' | 'pmjay' | 'self_pay'
+  caseStatus      String    @default("open") // 'open' | 'closed' | 'abandoned'
+  treatingDoctorId String?  @db.Uuid
+  createdById     String    @db.Uuid
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  closedAt        DateTime?
+
+  claims Claim[]
+
+  @@index([tenantId, caseStatus])
+  @@index([tenantId, hospitalMrn])
+  @@map("case")
+}
+
+// Materialised state of the claim. The source of truth is ClaimEvent —
+// this row is the rolled-up view for fast reads. Every write must go
+// through ClaimService.transition() so the event log + materialised
+// state stay in lockstep.
+model Claim {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @db.Uuid
+  caseId          String    @db.Uuid
+  rail            String    // 'nhcx' | 'pmjay' | 'self_pay'
+  status          String    // ClaimStatus enum (35 values, see contracts)
+  preauthAmount   Int?
+  claimAmount     Int?
+  approvedAmount  Int?
+  paidAmount      Int?
+  preauthRefNum   String?
+  claimRefNum     String?
+  payerRefNum     String?
+  assignedToUserId String?  @db.Uuid
+  initiatedAt     DateTime  @default(now())
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+  paidAt          DateTime?
+  closedAt        DateTime?
+
+  case   Case          @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  events ClaimEvent[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, assignedToUserId, status])
+  @@index([caseId])
+  @@map("claim")
+}
+
+// Append-only via RLS. Application code that tries to UPDATE/DELETE
+// these rows is silently rejected. resultingStatus captures what the
+// claim's status BECAME after this event was applied, so a replay can
+// reconstruct without re-running the transition table.
+model ClaimEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @db.Uuid
+  claimId         String   @db.Uuid
+  eventType       String
+  resultingStatus String
+  occurredAt      DateTime
+  recordedAt      DateTime @default(now())
+  recordedById    String?  @db.Uuid
+  payload         Json     @default("{}")
+  correlationId   String?
+  // Chain pointer to the previous event for this claim. NULL for
+  // case.created. Used by the reconstruction service for ordered
+  // replay without relying on createdAt-tiebreaks.
+  prevEventId     String?  @db.Uuid
+
+  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([claimId, occurredAt])
+  @@index([tenantId, eventType])
+  @@map("claim_event")
+}
+
 model Tenant {
   id              String               @id @default(uuid()) @db.Uuid
   slug            String               @unique
