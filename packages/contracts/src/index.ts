@@ -5,5 +5,6 @@ export * from './invitation.schema';
 export * from './password.schema';
 export * from './mfa.schema';
 export * from './security.schema';
+export * from './doctor.schema';
 export * from './problem-details.schema';
 export { Permissions, ALL_PERMISSIONS, type Permission as AppPermission } from './permissions';

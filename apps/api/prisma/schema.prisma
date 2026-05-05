@@ -97,16 +97,18 @@ model User {
   createdAt            DateTime   @default(now())
   updatedAt            DateTime   @updatedAt
 
-  tenant          Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userRoles       UserRole[]
-  sessions        Session[]
-  inviteResends   InviteResend[]
-  passwordHistory PasswordHistory[]
-  passwordResets  PasswordResetToken[]
-  mfaEnrollment   MfaEnrollment?
-  backupCodes     BackupCode[]
-  mfaChallenges   MfaChallenge[]
-  trustedDevices  TrustedDevice[]
+  tenant            Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles         UserRole[]
+  sessions          Session[]
+  inviteResends     InviteResend[]
+  passwordHistory   PasswordHistory[]
+  passwordResets    PasswordResetToken[]
+  mfaEnrollment     MfaEnrollment?
+  backupCodes       BackupCode[]
+  mfaChallenges     MfaChallenge[]
+  trustedDevices    TrustedDevice[]
+  doctorTokens      DoctorToken[]        @relation("DoctorTokensByDoctor")
+  doctorTokensIssued DoctorToken[]       @relation("DoctorTokensByIssuer")
 
   @@index([tenantId, status])
   @@index([inviteTokenExpiresAt])
@@ -327,6 +329,41 @@ model MfaChallenge {
   @@index([tenantId, userId])
   @@index([expiresAt])
   @@map("mfa_challenge")
+}
+
+// Short-lived (10-min) opaque token used to authorise a doctor's clinical
+// signature on a pre-auth without forcing them to log in. Sent via the
+// doctor's email/SMS by the insurance desk. Hashed (sha256) at rest;
+// raw token only exists in the email/SMS link.
+//
+// usedAt flips on a successful sign call (single-use). signedHprId +
+// signedFullName + signedAt + signatureNote capture the proof — pre-auth
+// records reference these for evidentiary purposes once Sprint 2's
+// claim_id linkage lands.
+model DoctorToken {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @db.Uuid
+  doctorUserId  String    @db.Uuid
+  createdById   String    @db.Uuid
+  scope         String    // 'preauth_clinical_sign' (one of DoctorTokenScope)
+  caseRef       String
+  patientName   String
+  tokenHash     String    @unique
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+  usedAt        DateTime?
+  signedHprId   String?
+  signedFullName String?
+  signatureNote String?
+  ipAddress     String?
+  userAgent     String?
+
+  doctor    User @relation("DoctorTokensByDoctor", fields: [doctorUserId], references: [id], onDelete: Cascade)
+  createdBy User @relation("DoctorTokensByIssuer", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, doctorUserId])
+  @@index([expiresAt])
+  @@map("doctor_token")
 }
 
 // Append-only via RLS (see migration). Application code that tries to
