@@ -15,6 +15,7 @@ import { DoctorModule } from './modules/doctor';
 import { DocumentModule } from './modules/document';
 import { EligibilityModule } from './modules/eligibility';
 import { HealthModule } from './modules/health/health.module';
+import { HprModule } from './modules/hpr';
 import { IntegrationModule } from './modules/integration';
 import { MasterDataModule } from './modules/master-data';
 import { MfaModule } from './modules/mfa';
@@ -76,6 +77,7 @@ import { UserModule } from './modules/user/user.module';
     PasswordModule,
     MfaModule,
     AppSecurityModule,
+    HprModule,
     DoctorModule,
     OnboardingModule,
     IntegrationModule,

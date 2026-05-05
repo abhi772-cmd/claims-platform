@@ -1,8 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { generateDoctorToken, hashDoctorToken } from './doctor-token.util';
-import { HprService } from './hpr.service';
 import {
   DoctorTokenExpiredError,
   DoctorTokenInvalidError,
@@ -11,6 +10,7 @@ import { UserNotFoundError } from '../../common/errors/user-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 import { AuditEvents, AuditService } from '../audit';
+import { HPR_ADAPTER, type HprAdapter, type HprOtpRequestResult } from '../hpr';
 import { NotificationService } from '../notification';
 
 const PLATFORM_TENANT = '00000000-0000-0000-0000-000000000000';
@@ -46,6 +46,9 @@ export interface SignWithDoctorTokenInput {
   rawToken: string;
   hprId: string;
   hprOtp: string;
+  // Optional ABDM transaction id from a prior /doctor/hpr/init call.
+  // The stub adapter ignores this; the real adapter requires it.
+  hprTransactionId?: string;
   signatureNote?: string;
   ip: string | null;
   userAgent: string | null;
@@ -64,8 +67,14 @@ export class DoctorTokenService {
     private readonly config: ConfigService<AppConfig, true>,
     private readonly audit: AuditService,
     private readonly notifications: NotificationService,
-    private readonly hpr: HprService,
+    @Inject(HPR_ADAPTER) private readonly hpr: HprAdapter,
   ) {}
+
+  // Step 1 of doctor-sign on real ABDM: trigger an OTP send to the
+  // doctor's registered mobile. The stub returns a synthetic txn id.
+  async requestHprOtp(hprId: string): Promise<HprOtpRequestResult> {
+    return this.hpr.requestOtp(hprId);
+  }
 
   async issue(input: IssueDoctorTokenInput): Promise<IssueDoctorTokenOutput> {
     const ttlMin = this.config.get('DOCTOR_TOKEN_TTL_MINUTES', { infer: true });
@@ -203,7 +212,13 @@ export class DoctorTokenService {
 
     let verification;
     try {
-      verification = await this.hpr.verify(input.hprId, input.hprOtp);
+      verification = await this.hpr.verifyOtp({
+        hprId: input.hprId,
+        otp: input.hprOtp,
+        ...(input.hprTransactionId !== undefined
+          ? { transactionId: input.hprTransactionId }
+          : {}),
+      });
     } catch (err) {
       // Audit the failure (under platform_admin so we don't need a tenant
       // session). Then re-throw so the controller produces the right code.
