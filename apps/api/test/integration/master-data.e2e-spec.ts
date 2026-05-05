@@ -293,15 +293,16 @@ describe('Slice O — master data + checklist resolve', () => {
     // must win → required=true.
     expect(preauthForm?.required).toBe(true);
 
-    // claim phase has its own rule for final_bill but nothing for preauth_form.
+    // claim phase has its own rule for final_bill (required=true). The
+    // phase='all' rule for preauth_form (required=false) falls through
+    // because no claim-specific rule overrides it.
     const claim = await request(app.getHttpServer())
       .get('/document-checklist-rules/resolve?phase=claim&rail=nhcx')
       .set('Cookie', cookies);
     expect(claim.status).toBe(200);
     const claimItems = claim.body.items as Array<{ documentType: string; required: boolean }>;
     expect(claimItems.find((i) => i.documentType === 'final_bill')?.required).toBe(true);
-    // No rule (specific or 'all') for preauth_form on phase=claim → not present.
-    expect(claimItems.find((i) => i.documentType === 'preauth_form')).toBeUndefined();
+    expect(claimItems.find((i) => i.documentType === 'preauth_form')?.required).toBe(false);
   });
 
   it('RLS canary: claims_app without GUC cannot SELECT payer rows', async () => {
