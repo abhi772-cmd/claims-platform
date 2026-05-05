@@ -18,6 +18,19 @@ export type DocumentType = z.infer<typeof DocumentTypeSchema>;
 export const DocumentUploadStatusSchema = z.enum(['pending', 'completed', 'failed']);
 export type DocumentUploadStatus = z.infer<typeof DocumentUploadStatusSchema>;
 
+// Independent of upload lifecycle. A row can be uploadStatus='completed'
+// + scanStatus='pending' (finalize succeeded but the AV worker hasn't
+// run yet) OR uploadStatus='completed' + scanStatus='infected' (the
+// bytes are present in S3 but every consumer must reject them).
+export const DocumentScanStatusSchema = z.enum([
+  'pending',
+  'clean',
+  'infected',
+  'skipped',
+  'failed',
+]);
+export type DocumentScanStatus = z.infer<typeof DocumentScanStatusSchema>;
+
 export const DocumentSchema = z.object({
   id: z.string().uuid(),
   claimId: z.string().uuid(),
@@ -34,6 +47,10 @@ export const DocumentSchema = z.object({
   finalizedAt: z.string().datetime().nullable(),
   uploadedAt: z.string().datetime(),
   uploadedById: z.string().uuid().nullable(),
+  scanStatus: DocumentScanStatusSchema,
+  scanEngine: z.string().nullable(),
+  scanSignature: z.string().nullable(),
+  scannedAt: z.string().datetime().nullable(),
 });
 export type Document = z.infer<typeof DocumentSchema>;
 
@@ -78,8 +95,15 @@ export type UploadInitResponse = z.infer<typeof UploadInitResponseSchema>;
 // POST /cases/:c/claims/:cl/documents/:docId/finalize — client completed
 // the PUT, server HEADs the object to confirm + capture etag/size.
 export const UploadFinalizeRequestSchema = z.object({
-  // Optional client-side sha256. When provided, server stores it for
-  // future virus-scan / EOB-ingestion checks. V1 does not enforce.
+  // sha256 of the uploaded bytes. Optional in V1 stub flows; the
+  // discharge / claim-submit gates accept rows without it. Required at
+  // production hardening (Sprint 5) once the web client computes it
+  // before PUT.
   contentSha256: z.string().regex(/^[a-f0-9]{64}$/i).optional(),
+  // Optional bytes for the in-process stub virus scanner (base64-
+  // encoded). Real-mode scanners stream from S3 by (bucket, key) so
+  // this field is unused in production. Capped at 5 MiB after base64
+  // decode — anything larger should use the streaming path.
+  scanBufferBase64: z.string().max((5 * 1024 * 1024 * 4) / 3).optional(),
 });
 export type UploadFinalizeRequest = z.infer<typeof UploadFinalizeRequestSchema>;

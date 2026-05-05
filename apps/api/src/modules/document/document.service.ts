@@ -6,9 +6,12 @@ import {
   type DocumentUploadStatus,
 } from '@claims/contracts';
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
+import { VIRUS_SCAN_ADAPTER, type VirusScanAdapter } from './scan';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { type AppConfig } from '../../config/configuration';
 import { STORAGE_ADAPTER, type StorageAdapter } from '../storage';
 
 export interface UploadStubInput {
@@ -43,13 +46,18 @@ export interface FinalizeUploadInput {
   claimId: string;
   documentId: string;
   contentSha256?: string;
+  // Optional bytes for in-process scanning. Only used by the stub
+  // scanner — the real ClamAV adapter streams from S3 by (bucket,key).
+  scanBuffer?: Buffer;
 }
 
 @Injectable()
 export class DocumentService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService<AppConfig, true>,
     @Inject(STORAGE_ADAPTER) private readonly storage: StorageAdapter,
+    @Inject(VIRUS_SCAN_ADAPTER) private readonly scanner: VirusScanAdapter,
   ) {}
 
   // V1 stub flow: synthesise + create the row in 'completed' state in
@@ -169,6 +177,54 @@ export class DocumentService {
     // client passed at init time.
     const sizeToRecord = actualSizeBytes > 0 ? actualSizeBytes : row.sizeBytes;
 
+    // Virus scan. The off-mode adapter returns 'skipped' immediately.
+    // The stub-mode adapter detects EICAR in any provided buffer.
+    // Real-mode (Sprint 5) streams from S3 by (bucket, key).
+    const scanMode = this.config.get('VIRUS_SCAN_MODE', { infer: true });
+    const scanResult =
+      scanMode === 'off'
+        ? { status: 'skipped' as const, engine: 'disabled' }
+        : await this.scanner.scan({
+            ...(input.scanBuffer !== undefined ? { buffer: input.scanBuffer } : {}),
+            storageBucket: row.storageBucket,
+            storageKey: row.storageKey,
+            contentType: row.contentType,
+          });
+
+    if (scanResult.status === 'infected') {
+      // The row stays uploadStatus='completed' (the bytes did upload),
+      // but scanStatus='infected' means consumers won't surface it.
+      // Operators can purge from S3 + delete the row out-of-band.
+      const failedRow = await this.prisma.runInTenantContext(
+        input.tenantId,
+        'tenant',
+        (tx) =>
+          tx.document.update({
+            where: { id: input.documentId },
+            data: {
+              etag,
+              sizeBytes: sizeToRecord,
+              uploadStatus: 'completed',
+              finalizedAt: new Date(),
+              scanStatus: 'infected',
+              scanEngine: scanResult.engine,
+              ...(scanResult.signature !== undefined
+                ? { scanSignature: scanResult.signature }
+                : {}),
+              scannedAt: new Date(),
+              uploadError: `virus signature: ${scanResult.signature ?? 'unknown'}`,
+              ...(input.contentSha256 !== undefined
+                ? { contentSha256: input.contentSha256 }
+                : {}),
+            },
+          }),
+      );
+      void failedRow;
+      throw new ValidationFailedError({
+        documentId: [`Upload rejected — virus signature ${scanResult.signature ?? 'detected'}.`],
+      });
+    }
+
     const updated = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
       tx.document.update({
         where: { id: input.documentId },
@@ -178,6 +234,9 @@ export class DocumentService {
           uploadStatus: 'completed',
           finalizedAt: new Date(),
           uploadError: null,
+          scanStatus: scanResult.status,
+          scanEngine: scanResult.engine,
+          ...(scanResult.status === 'clean' ? { scannedAt: new Date() } : {}),
           ...(input.contentSha256 !== undefined ? { contentSha256: input.contentSha256 } : {}),
         },
       }),
@@ -197,8 +256,10 @@ export class DocumentService {
   }
 
   // Used by discharge / claim-submit to gate progression on completed
-  // uploads only — pending rows don't count toward checklist
-  // satisfaction.
+  // uploads only. Pending rows don't count, infected rows don't count.
+  // Skipped + clean both count — when scan mode is 'off' every row
+  // ends up 'skipped' and the gate is identical to pre-Slice-S
+  // behaviour.
   async hasDocumentType(
     tenantId: string,
     claimId: string,
@@ -206,7 +267,12 @@ export class DocumentService {
   ): Promise<boolean> {
     const count = await this.prisma.runInTenantContext(tenantId, 'tenant', (tx) =>
       tx.document.count({
-        where: { claimId, documentType: type, uploadStatus: 'completed' },
+        where: {
+          claimId,
+          documentType: type,
+          uploadStatus: 'completed',
+          scanStatus: { in: ['clean', 'skipped'] },
+        },
       }),
     );
     return count > 0;
@@ -229,6 +295,10 @@ function toDocument(row: {
   finalizedAt: Date | null;
   uploadedAt: Date;
   uploadedById: string | null;
+  scanStatus?: string;
+  scanEngine?: string | null;
+  scanSignature?: string | null;
+  scannedAt?: Date | null;
 }): Document {
   return {
     id: row.id,
@@ -246,5 +316,9 @@ function toDocument(row: {
     finalizedAt: row.finalizedAt ? row.finalizedAt.toISOString() : null,
     uploadedAt: row.uploadedAt.toISOString(),
     uploadedById: row.uploadedById,
+    scanStatus: (row.scanStatus ?? 'skipped') as Document['scanStatus'],
+    scanEngine: row.scanEngine ?? null,
+    scanSignature: row.scanSignature ?? null,
+    scannedAt: row.scannedAt ? row.scannedAt.toISOString() : null,
   };
 }

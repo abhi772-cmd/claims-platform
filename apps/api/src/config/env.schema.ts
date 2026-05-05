@@ -72,6 +72,21 @@ export const EnvSchema = z.object({
   // Maximum allowed upload size (bytes). 50 MiB matches the existing
   // UploadDocumentStubRequest cap.
   S3_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(52_428_800),
+  // Virus-scan adapter (Slice S).
+  //   off  — never scan; rows finalize directly to scanStatus='skipped'
+  //   stub — synchronous in-process check (EICAR-pattern detection)
+  //   real — ClamAV / cloud scanner over TCP (deferred to Sprint 5)
+  // The default 'off' matches existing dev / test environments that
+  // don't have a scanner running locally.
+  VIRUS_SCAN_MODE: z.enum(['off', 'stub', 'real']).default('off'),
+  // When real-mode arrives this is the ClamAV INSTREAM endpoint
+  // (host:port). Optional in stub/off modes.
+  VIRUS_SCAN_ENDPOINT: OptionalString,
+  // Lifecycle worker for stale `pending` document rows. Pending uploads
+  // older than this become 'failed' so the discharge / claim-submit
+  // checklist no longer surfaces them as "still uploading".
+  DOC_PENDING_TTL_MINUTES: z.coerce.number().int().positive().default(60),
+  DOC_LIFECYCLE_TICK_MS: z.coerce.number().int().positive().default(60_000),
 
   REDIS_URL: NonEmptyString.default('redis://localhost:6379'),
 

@@ -602,10 +602,25 @@ model Document {
   sizeBytes         Int
   originalFilename  String
   uploadStatus      String   @default("completed") // 'pending' | 'completed' | 'failed'
-  // sha256 hex-encoded if the client provides it. Optional in V1; the
-  // virus-scan + EOB ingestion paths in Sprint 3 will require it.
+  // sha256 hex-encoded; required at finalize time on real-mode uploads
+  // so the virus-scan + content-integrity check have a stable handle.
+  // Stub-mode + legacy upload-stub rows leave it null (no real bytes
+  // to hash).
   contentSha256     String?
-  // Last finalize failure reason — surfaces back to the UI on retry.
+  // Virus-scan lifecycle. Independent from uploadStatus so the row can
+  // be 'completed' (finalize succeeded, etag captured) but still
+  // 'pending' on scan. Discharge / claim-submit consumers gate on
+  // scanStatus='clean'.
+  //   pending  — finalize succeeded but scan hasn't run yet
+  //   clean    — scanned, no signature match
+  //   infected — scanner reported a hit; the row is unusable
+  //   skipped  — scan disabled for this deployment (stub mode)
+  //   failed   — scan probe error after retries (operator review)
+  scanStatus        String   @default("skipped")
+  scanEngine        String?
+  scanSignature     String?
+  scannedAt         DateTime?
+  // Last finalize / scan failure reason — surfaces back to the UI on retry.
   uploadError       String?
   finalizedAt       DateTime?
   uploadedAt        DateTime @default(now())
@@ -614,6 +629,8 @@ model Document {
   @@index([tenantId, claimId])
   @@index([claimId, documentType])
   @@index([tenantId, uploadStatus])
+  @@index([tenantId, scanStatus])
+  @@index([uploadStatus, finalizedAt])
   @@map("document")
 }
 

@@ -14,6 +14,7 @@ import { ClaimSubmitModule } from './modules/claim-submit';
 import { DischargeModule } from './modules/discharge';
 import { DoctorModule } from './modules/doctor';
 import { DocumentModule } from './modules/document';
+import { VirusScanModule } from './modules/document/scan';
 import { EligibilityModule } from './modules/eligibility';
 import { HealthModule } from './modules/health/health.module';
 import { HprModule } from './modules/hpr';
@@ -85,6 +86,7 @@ import { UserModule } from './modules/user/user.module';
     IntegrationModule,
     NhcxModule,
     StorageModule,
+    VirusScanModule,
     PatientModule,
     ClaimModule,
     CaseModule,
