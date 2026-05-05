@@ -4,6 +4,9 @@ import {
   IssueDoctorTokenRequestSchema,
   type IssueDoctorTokenResponse,
   Permissions,
+  type RequestHprOtpRequest,
+  RequestHprOtpRequestSchema,
+  type RequestHprOtpResponse,
   type SignWithDoctorTokenRequest,
   SignWithDoctorTokenRequestSchema,
   type SignWithDoctorTokenResponse,
@@ -73,6 +76,19 @@ export class DoctorTokenController {
     };
   }
 
+  // Public — the doctor on the link landing page asks ABDM to send an
+  // OTP to their registered mobile. Step 1 of the two-step real-ABDM
+  // flow; for the stub, returns a synthetic transactionId.
+  @Post(':rawToken/hpr-init')
+  @HttpCode(200)
+  async hprInit(
+    @Param('rawToken') _rawToken: string,
+    @Body(new ZodValidationPipe(RequestHprOtpRequestSchema)) body: RequestHprOtpRequest,
+  ): Promise<RequestHprOtpResponse> {
+    const out = await this.tokens.requestHprOtp(body.hprId);
+    return { transactionId: out.transactionId, expiresAt: out.expiresAt };
+  }
+
   @Post(':rawToken/sign')
   @HttpCode(200)
   async sign(
@@ -84,6 +100,9 @@ export class DoctorTokenController {
       rawToken,
       hprId: body.hprId,
       hprOtp: body.hprOtp,
+      ...(body.hprTransactionId !== undefined
+        ? { hprTransactionId: body.hprTransactionId }
+        : {}),
       ...(body.signatureNote !== undefined ? { signatureNote: body.signatureNote } : {}),
       ip: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,

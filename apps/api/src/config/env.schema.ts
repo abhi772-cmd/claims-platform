@@ -88,11 +88,18 @@ export const EnvSchema = z.object({
 
   // Doctor short-token (Slice F)
   DOCTOR_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(10),
-  // Comma-separated HPR ids the stub treats as valid. The real HPR
-  // verification calls ABDM in a later sprint. The stub also requires
-  // HPR_STUB_OTP to match exactly (any 6-digit string by default).
+  // HPR adapter mode (Slice F stub + Slice P3 real ABDM).
+  //   stub = HprStubAdapter (allowlist + fixed OTP)
+  //   real = HprRealAdapter (ABDM Sandbox HTTP calls)
+  HPR_MODE: z.enum(['stub', 'real']).default('stub'),
+  // Stub knobs.
   HPR_STUB_ALLOWLIST: z.preprocess(trim, z.string().default('')),
   HPR_STUB_OTP: NonEmptyString.default('000000'),
+  // Real-mode ABDM connection. Required when HPR_MODE=real.
+  ABDM_BASE_URL: OptionalString,
+  ABDM_CLIENT_ID: OptionalString,
+  ABDM_CLIENT_SECRET: OptionalString,
+  ABDM_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
 
   // NHCX adapter (Slice K stub + Slice P real JWE).
   //   stub = NhcxStubAdapter (env-driven outcomes, no external calls)

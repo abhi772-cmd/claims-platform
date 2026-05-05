@@ -36,6 +36,17 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     }
   }
 
+  // When HPR_MODE=real, the ABDM connection settings must be present.
+  if (env.HPR_MODE === 'real') {
+    const missing: string[] = [];
+    if (!env.ABDM_BASE_URL) missing.push('ABDM_BASE_URL');
+    if (!env.ABDM_CLIENT_ID) missing.push('ABDM_CLIENT_ID');
+    if (!env.ABDM_CLIENT_SECRET) missing.push('ABDM_CLIENT_SECRET');
+    if (missing.length > 0) {
+      throw new ConfigError({ HPR_MODE: [`real mode requires: ${missing.join(', ')}`] });
+    }
+  }
+
   // When NHCX_MODE=real, the connection settings + keys must be present.
   // Surface the misconfiguration as a single ConfigError up front.
   if (env.NHCX_MODE === 'real') {

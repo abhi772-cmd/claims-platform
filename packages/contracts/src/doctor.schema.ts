@@ -35,13 +35,29 @@ export const DoctorTokenPreviewSchema = z.object({
 });
 export type DoctorTokenPreview = z.infer<typeof DoctorTokenPreviewSchema>;
 
+// POST /preauth/doctor-tokens/:rawToken/hpr-init — public. Triggers ABDM
+// to send an OTP to the doctor's registered mobile and returns a
+// transactionId the client must present on /sign. Step 1 of the
+// two-step ABDM auth flow.
+export const RequestHprOtpRequestSchema = z.object({
+  hprId: z.string().regex(/^[0-9]{14}$/),
+});
+export type RequestHprOtpRequest = z.infer<typeof RequestHprOtpRequestSchema>;
+
+export const RequestHprOtpResponseSchema = z.object({
+  transactionId: z.string(),
+  expiresAt: z.string().datetime(),
+});
+export type RequestHprOtpResponse = z.infer<typeof RequestHprOtpResponseSchema>;
+
 // POST /preauth/doctor-tokens/:rawToken/sign — public. Doctor proves identity
-// via HPR id + OTP (the OTP comes from the ABDM-issued auth flow; v1's stub
-// accepts a fixed OTP per env config so we can demo end to end without a
-// live ABDM connection).
+// via HPR id + OTP. transactionId is required when HPR_MODE=real (it
+// links the OTP back to the prior /hpr-init call); the stub adapter
+// ignores it.
 export const SignWithDoctorTokenRequestSchema = z.object({
   hprId: z.string().regex(/^[0-9]{14}$/),
   hprOtp: z.string().regex(/^[0-9]{6}$/),
+  hprTransactionId: z.string().min(1).max(200).optional(),
   signatureNote: z.string().max(2000).optional(),
 });
 export type SignWithDoctorTokenRequest = z.infer<typeof SignWithDoctorTokenRequestSchema>;
