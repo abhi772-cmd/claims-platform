@@ -243,14 +243,15 @@ describe('Slice D — MFA (TOTP + backup codes)', () => {
   });
 
   it('disable with wrong password → 401 AUTH_CURRENT_PASSWORD_INCORRECT', async () => {
-    // Need to log back in (cookies were cleared on prior verify success and
-    // this test thread of execution doesn't carry them).
+    // Use backup codes for the verify hop — TOTP same-step replay would
+    // collide with prior tests. backup[0] was burned in test 7; backup[1]
+    // is fresh here. Disable's password-check runs before consumeSecondFactor,
+    // so a wrong password short-circuits before backup[2] is consumed.
     const challengeId = await loginAsExpectingChallenge(USER_EMAIL, USER_PASSWORD);
-    const secret = await readCurrentSecret();
-    const step = currentStep() + 5;
     const verifyRes = await request(app.getHttpServer())
       .post('/auth/mfa/verify')
-      .send({ challengeId, code: totpAt(secret, step) });
+      .send({ challengeId, code: backupCodes[1] });
+    expect(verifyRes.status).toBe(200);
     const cookies = ((verifyRes.headers['set-cookie'] as unknown as string[]) ?? [])
       .map((c) => c.split(';')[0])
       .filter((c): c is string => Boolean(c));
@@ -258,18 +259,17 @@ describe('Slice D — MFA (TOTP + backup codes)', () => {
     const res = await request(app.getHttpServer())
       .post('/auth/me/mfa/disable')
       .set('Cookie', cookies)
-      .send({ currentPassword: 'totally-wrong', code: backupCodes[1] });
+      .send({ currentPassword: 'totally-wrong', code: backupCodes[2] });
     expect(res.status).toBe(401);
     expect(res.body.code).toBe('AUTH_CURRENT_PASSWORD_INCORRECT');
   });
 
   it('disable with valid password + backup code → 204; mfa_enabled = false', async () => {
     const challengeId = await loginAsExpectingChallenge(USER_EMAIL, USER_PASSWORD);
-    const secret = await readCurrentSecret();
-    const step = currentStep() + 10;
     const verifyRes = await request(app.getHttpServer())
       .post('/auth/mfa/verify')
-      .send({ challengeId, code: totpAt(secret, step) });
+      .send({ challengeId, code: backupCodes[2] });
+    expect(verifyRes.status).toBe(200);
     const cookies = ((verifyRes.headers['set-cookie'] as unknown as string[]) ?? [])
       .map((c) => c.split(';')[0])
       .filter((c): c is string => Boolean(c));
@@ -277,7 +277,7 @@ describe('Slice D — MFA (TOTP + backup codes)', () => {
     const res = await request(app.getHttpServer())
       .post('/auth/me/mfa/disable')
       .set('Cookie', cookies)
-      .send({ currentPassword: USER_PASSWORD, code: backupCodes[1] });
+      .send({ currentPassword: USER_PASSWORD, code: backupCodes[3] });
     expect(res.status).toBe(204);
 
     // Subsequent login skips MFA (no challenge).
