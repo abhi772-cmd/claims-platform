@@ -4,12 +4,23 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import {
+  buildClaimSubmitBundle,
+  buildCommunicationBundle,
+  buildEligibilityRequestBundle,
+  buildPreauthSubmitBundle,
+  type FhirActorIds,
+  type FhirCoverageFields,
+  type FhirPatientFields,
+} from './fhir-builders';
+import {
   type AdapterClaimSubmitInput,
   type AdapterClaimSubmitResult,
+  type AdapterCoverageFields,
   type AdapterDischargeSubmitInput,
   type AdapterEligibilityRequest,
   type AdapterEligibilityResponse,
   type AdapterEnvelopedResult,
+  type AdapterPatientFields,
   type AdapterPreauthQueryRespondInput,
   type AdapterPreauthSubmitInput,
   type AdapterPreauthSubmitResult,
@@ -61,19 +72,31 @@ export class NhcxJweAdapter implements NhcxAdapter {
   constructor(private readonly config: ConfigService<AppConfig, true>) {}
 
   async verifyEligibility(input: AdapterEligibilityRequest): Promise<AdapterEligibilityResponse> {
+    // Slice T: build a real FHIR CoverageEligibilityRequest bundle
+    // when the caller supplied the enriched fields. Otherwise fall
+    // back to the lightweight payload so old call sites still work.
+    const fhirPayload =
+      input.patient && input.coverage
+        ? buildEligibilityRequestBundle({
+            actors: this.actors(input.coverage.payerCode),
+            patient: this.toFhirPatient(input.patient),
+            coverage: this.toFhirCoverage(input.coverage),
+            serviceDate: input.serviceDate ?? new Date().toISOString().slice(0, 10),
+          })
+        : {
+            patientName: input.patientName,
+            hospitalMrn: input.hospitalMrn,
+            policyNumber: input.policyNumber,
+            payerCode: input.payerCode,
+            tenantId: input.tenantId,
+            claimId: input.claimId,
+          };
     const op = await this.callOperation<{
       verified: boolean;
       planName?: string;
       sumInsured?: number;
       failureReason?: string;
-    }>('coverage-eligibility/check', {
-      patientName: input.patientName,
-      hospitalMrn: input.hospitalMrn,
-      policyNumber: input.policyNumber,
-      payerCode: input.payerCode,
-      tenantId: input.tenantId,
-      claimId: input.claimId,
-    });
+    }>('coverage-eligibility/check', fhirPayload);
 
     return {
       verified: op.response.verified,
@@ -89,14 +112,44 @@ export class NhcxJweAdapter implements NhcxAdapter {
   }
 
   async submitPreauth(input: AdapterPreauthSubmitInput): Promise<AdapterPreauthSubmitResult> {
+    const fhirPayload =
+      input.patient && input.coverage
+        ? buildPreauthSubmitBundle({
+            actors: this.actors(input.coverage.payerCode),
+            patient: this.toFhirPatient(input.patient),
+            coverage: this.toFhirCoverage(input.coverage),
+            localClaimId: input.claimId,
+            ...(input.diagnosisIcdCode !== undefined
+              ? { diagnosisIcdCode: input.diagnosisIcdCode }
+              : {}),
+            ...(input.diagnosisDescription !== undefined
+              ? { diagnosisDescription: input.diagnosisDescription }
+              : {}),
+            ...(input.plannedProcedure !== undefined
+              ? { plannedProcedure: input.plannedProcedure }
+              : {}),
+            ...(input.procedureCode !== undefined
+              ? { procedureCode: input.procedureCode }
+              : {}),
+            ...(input.estimatedLengthOfStayDays !== undefined
+              ? { estimatedLengthOfStayDays: input.estimatedLengthOfStayDays }
+              : {}),
+            ...(input.requestedAmount !== undefined
+              ? { requestedAmount: input.requestedAmount }
+              : {}),
+            ...(input.clinicalJustification !== undefined
+              ? { clinicalJustification: input.clinicalJustification }
+              : {}),
+          })
+        : {
+            tenantId: input.tenantId,
+            claimId: input.claimId,
+            requestedAmount: input.requestedAmount,
+          };
     const op = await this.callOperation<{
       acknowledged: boolean;
       payerRefNum: string;
-    }>('preauth/submit', {
-      tenantId: input.tenantId,
-      claimId: input.claimId,
-      requestedAmount: input.requestedAmount,
-    });
+    }>('preauth/submit', fhirPayload);
     return {
       acknowledged: op.response.acknowledged,
       payerRefNum: op.response.payerRefNum,
@@ -109,7 +162,16 @@ export class NhcxJweAdapter implements NhcxAdapter {
   async respondPreauthQuery(
     input: AdapterPreauthQueryRespondInput,
   ): Promise<AdapterEnvelopedResult> {
-    const op = await this.callOperation('preauth/query/respond', input);
+    const fhirPayload = input.coverage
+      ? buildCommunicationBundle({
+          actors: this.actors(input.coverage.payerCode),
+          payload: input.responseText,
+          ...(input.inReplyToRefNum !== undefined
+            ? { inReplyToRefNum: input.inReplyToRefNum }
+            : {}),
+        })
+      : input;
+    const op = await this.callOperation('preauth/query/respond', fhirPayload);
     return {
       correlationId: op.correlationId,
       rawRequest: op.request as unknown as Record<string, unknown>,
@@ -118,7 +180,13 @@ export class NhcxJweAdapter implements NhcxAdapter {
   }
 
   async submitDischarge(input: AdapterDischargeSubmitInput): Promise<AdapterEnvelopedResult> {
-    const op = await this.callOperation('discharge/submit', input);
+    const fhirPayload = input.coverage
+      ? buildCommunicationBundle({
+          actors: this.actors(input.coverage.payerCode),
+          payload: `discharge documents: ${input.documentIds.join(',')}`,
+        })
+      : input;
+    const op = await this.callOperation('discharge/submit', fhirPayload);
     return {
       correlationId: op.correlationId,
       rawRequest: op.request as unknown as Record<string, unknown>,
@@ -127,20 +195,72 @@ export class NhcxJweAdapter implements NhcxAdapter {
   }
 
   async submitClaim(input: AdapterClaimSubmitInput): Promise<AdapterClaimSubmitResult> {
+    const fhirPayload =
+      input.patient && input.coverage
+        ? buildClaimSubmitBundle({
+            actors: this.actors(input.coverage.payerCode),
+            patient: this.toFhirPatient(input.patient),
+            coverage: this.toFhirCoverage(input.coverage),
+            localClaimId: input.claimId,
+            finalAmount: input.finalAmount,
+            documentIds: input.documentIds ?? [],
+            ...(input.diagnosisIcdCode !== undefined
+              ? { diagnosisIcdCode: input.diagnosisIcdCode }
+              : {}),
+            ...(input.diagnosisDescription !== undefined
+              ? { diagnosisDescription: input.diagnosisDescription }
+              : {}),
+            ...(input.plannedProcedure !== undefined
+              ? { plannedProcedure: input.plannedProcedure }
+              : {}),
+            ...(input.procedureCode !== undefined
+              ? { procedureCode: input.procedureCode }
+              : {}),
+            ...(input.clinicalJustification !== undefined
+              ? { clinicalJustification: input.clinicalJustification }
+              : {}),
+          })
+        : {
+            tenantId: input.tenantId,
+            claimId: input.claimId,
+            finalAmount: input.finalAmount,
+          };
     const op = await this.callOperation<{
       acknowledged: boolean;
       claimRefNum: string;
-    }>('claim/submit', {
-      tenantId: input.tenantId,
-      claimId: input.claimId,
-      finalAmount: input.finalAmount,
-    });
+    }>('claim/submit', fhirPayload);
     return {
       acknowledged: op.response.acknowledged,
       claimRefNum: op.response.claimRefNum,
       correlationId: op.correlationId,
       rawRequest: op.request as unknown as Record<string, unknown>,
       rawResponse: op.response as unknown as Record<string, unknown>,
+    };
+  }
+
+  private actors(payerCode: string): FhirActorIds {
+    return {
+      senderCode: this.config.get('NHCX_PARTICIPANT_CODE', { infer: true }) ?? '',
+      receiverCode: payerCode,
+    };
+  }
+
+  private toFhirPatient(p: AdapterPatientFields): FhirPatientFields {
+    return {
+      fullName: p.fullName,
+      hospitalMrn: p.hospitalMrn,
+      ...(p.dateOfBirth !== undefined ? { dateOfBirth: p.dateOfBirth } : {}),
+      ...(p.gender !== undefined ? { gender: p.gender } : {}),
+      ...(p.abhaId !== undefined ? { abhaId: p.abhaId } : {}),
+      ...(p.policyNumber !== undefined ? { policyNumber: p.policyNumber } : {}),
+    };
+  }
+
+  private toFhirCoverage(c: AdapterCoverageFields): FhirCoverageFields {
+    return {
+      payerCode: c.payerCode,
+      ...(c.payerDisplayName !== undefined ? { payerDisplayName: c.payerDisplayName } : {}),
+      memberId: c.memberId,
     };
   }
 
