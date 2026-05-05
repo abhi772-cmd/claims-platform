@@ -24,7 +24,17 @@ export default function LoginPage(): JSX.Element {
     }
     setSubmitting(true);
     try {
-      await AuthApi.login(parsed.data);
+      const result = await AuthApi.login(parsed.data);
+      if ('mfaRequired' in result && result.mfaRequired) {
+        // Hand off to the MFA challenge page; it will read the challengeId
+        // from the URL and submit the user's TOTP / backup code there.
+        const params = new URLSearchParams({
+          challenge: result.challengeId,
+          expires: result.expiresAt,
+        });
+        router.push(`/mfa-challenge?${params.toString()}`);
+        return;
+      }
       router.push('/dashboard');
     } catch (err) {
       showApiError(err);
