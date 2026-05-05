@@ -199,12 +199,9 @@ describe('Slice G — onboarding wizard + readiness + lifecycle', () => {
       .post('/tenant/lifecycle/transition')
       .set('Cookie', cookies)
       .send({ target: 'LIVE' });
-    // 412 from readiness gate fires first because LIVE is readiness-gated;
-    // either is acceptable as long as the transition does NOT apply.
-    expect([412]).toContain(res.status);
-    expect(['TENANT_LIFECYCLE_TRANSITION_INVALID', 'TENANT_READINESS_CHECK_FAILED']).toContain(
-      res.body.code,
-    );
+    expect(res.status).toBe(412);
+    // FSM check runs before readiness so the FSM-invalid code wins.
+    expect(res.body.code).toBe('TENANT_LIFECYCLE_TRANSITION_INVALID');
   });
 
   it('IN_SETUP → PILOT blocked by readiness when steps incomplete → 412', async () => {

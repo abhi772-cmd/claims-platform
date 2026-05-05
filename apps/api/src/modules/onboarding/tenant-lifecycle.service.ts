@@ -39,8 +39,29 @@ export class TenantLifecycleService {
     state: TenantLifecycleState;
     allowedTargets: readonly TenantLifecycleState[];
   }> {
-    // Readiness check is OUTSIDE the tx — it queries multiple tables and
-    // we don't want to hold locks while computing.
+    // 1. FSM check first — cheap and the most fundamental gate. Doing
+    //    this before readiness means a CHURNED → LIVE attempt produces
+    //    LIFECYCLE_TRANSITION_INVALID rather than the noisier (and
+    //    correct-but-irrelevant) READINESS_CHECK_FAILED.
+    const before = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      (tx) =>
+        tx.tenant.findUnique({
+          where: { id: input.tenantId },
+          select: { lifecycleState: true },
+        }),
+    );
+    if (!before) throw new LifecycleTransitionInvalidError('Tenant not found.');
+    const from = before.lifecycleState;
+    if (!isTransitionAllowed(from, input.target)) {
+      throw new LifecycleTransitionInvalidError(
+        `Transition ${from} → ${input.target} is not allowed.`,
+      );
+    }
+
+    // 2. Readiness gate (PILOT/LIVE only). Outside the tx — it queries
+    //    multiple tables.
     if (READINESS_GATED_TARGETS.has(input.target)) {
       const report = await this.readiness.run(input.tenantId);
       if (!report.ready) {
@@ -50,16 +71,17 @@ export class TenantLifecycleService {
       }
     }
 
+    // 3. Apply. Re-check FSM inside the tx in case the state changed
+    //    between the read above and this write.
     return this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
-      const before = await tx.tenant.findUnique({
+      const fresh = await tx.tenant.findUnique({
         where: { id: input.tenantId },
         select: { lifecycleState: true },
       });
-      if (!before) throw new LifecycleTransitionInvalidError('Tenant not found.');
-      const from = before.lifecycleState;
-      if (!isTransitionAllowed(from, input.target)) {
+      if (!fresh) throw new LifecycleTransitionInvalidError('Tenant not found.');
+      if (!isTransitionAllowed(fresh.lifecycleState, input.target)) {
         throw new LifecycleTransitionInvalidError(
-          `Transition ${from} → ${input.target} is not allowed.`,
+          `Transition ${fresh.lifecycleState} → ${input.target} is not allowed.`,
         );
       }
       const updated = await tx.tenant.update({
@@ -74,7 +96,7 @@ export class TenantLifecycleService {
         action: AuditEvents.TENANT_LIFECYCLE_TRANSITION,
         resourceType: 'tenant',
         resourceId: input.tenantId,
-        before: { lifecycleState: from },
+        before: { lifecycleState: fresh.lifecycleState },
         after: {
           lifecycleState: input.target,
           ...(input.reason !== undefined ? { reason: input.reason } : {}),
