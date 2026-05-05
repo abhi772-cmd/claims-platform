@@ -9,5 +9,6 @@ export * from './doctor.schema';
 export * from './onboarding.schema';
 export * from './claim.schema';
 export * from './case.schema';
+export * from './integration.schema';
 export * from './problem-details.schema';
 export { Permissions, ALL_PERMISSIONS, type Permission as AppPermission } from './permissions';

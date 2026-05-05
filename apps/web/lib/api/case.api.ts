@@ -2,6 +2,9 @@ import {
   type CaseDetail,
   type ClaimEventListResponse,
   type CreateCaseRequest,
+  type EligibilityRequest,
+  type EligibilityResponse,
+  type IntegrationMessageListResponse,
   type ListCasesResponse,
   type ManualTransitionRequest,
   type UpdateCaseRequest,
@@ -45,5 +48,23 @@ export const CaseApi = {
     apiRequest<{ status: string }>(
       `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/transitions`,
       { method: 'POST', body },
+    ),
+
+  runEligibility: (
+    caseId: string,
+    claimId: string,
+    body: EligibilityRequest,
+  ): Promise<EligibilityResponse> =>
+    apiRequest<EligibilityResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/eligibility`,
+      { method: 'POST', body },
+    ),
+
+  listIntegrationMessages: (
+    caseId: string,
+    claimId: string,
+  ): Promise<IntegrationMessageListResponse> =>
+    apiRequest<IntegrationMessageListResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/integration-messages`,
     ),
 };

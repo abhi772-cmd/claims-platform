@@ -10,7 +10,9 @@ import { AuthModule } from './modules/auth/auth.module';
 import { CaseModule } from './modules/case';
 import { ClaimModule } from './modules/claim';
 import { DoctorModule } from './modules/doctor';
+import { EligibilityModule } from './modules/eligibility';
 import { HealthModule } from './modules/health/health.module';
+import { IntegrationModule } from './modules/integration';
 import { MfaModule } from './modules/mfa';
 import { NotificationModule } from './modules/notification';
 import { OnboardingModule } from './modules/onboarding';
@@ -68,8 +70,10 @@ import { UserModule } from './modules/user/user.module';
     AppSecurityModule,
     DoctorModule,
     OnboardingModule,
+    IntegrationModule,
     ClaimModule,
     CaseModule,
+    EligibilityModule,
     HealthModule,
     TenantModule,
     UserModule,
