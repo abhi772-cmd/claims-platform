@@ -25,6 +25,9 @@ import {
   type SettlementResponse,
   type UpdateCaseRequest,
   type UploadDocumentStubRequest,
+  type UploadFinalizeRequest,
+  type UploadInitRequest,
+  type UploadInitResponse,
   type WriteOffRequest,
 } from '@claims/contracts';
 
@@ -143,6 +146,27 @@ export const CaseApi = {
   ): Promise<{ document: DocumentListResponse['documents'][number] }> =>
     apiRequest<{ document: DocumentListResponse['documents'][number] }>(
       `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/documents/upload-stub`,
+      { method: 'POST', body },
+    ),
+
+  uploadInit: (
+    caseId: string,
+    claimId: string,
+    body: UploadInitRequest,
+  ): Promise<UploadInitResponse> =>
+    apiRequest<UploadInitResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/documents/upload-init`,
+      { method: 'POST', body },
+    ),
+
+  uploadFinalize: (
+    caseId: string,
+    claimId: string,
+    documentId: string,
+    body: UploadFinalizeRequest = {},
+  ): Promise<{ document: DocumentListResponse['documents'][number] }> =>
+    apiRequest<{ document: DocumentListResponse['documents'][number] }>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/documents/${encodeURIComponent(documentId)}/finalize`,
       { method: 'POST', body },
     ),
 

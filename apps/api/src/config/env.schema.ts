@@ -39,11 +39,28 @@ export const EnvSchema = z.object({
   OVH_KMS_ACCESS_KEY: OptionalString,
   OVH_KMS_SECRET_KEY: OptionalString,
 
+  // Object storage adapter selection.
+  //   stub = StubStorageAdapter (synthesizes references, no real upload)
+  //   real = S3StorageAdapter   (presigned PUTs to OVH/AWS-compatible S3)
+  STORAGE_MODE: z.enum(['stub', 'real']).default('stub'),
+  // OVH S3 endpoint config (also works for any S3-compatible service:
+  // MinIO, AWS S3 itself, etc.). Required when STORAGE_MODE=real.
   OVH_S3_ENDPOINT: OptionalString,
   OVH_S3_REGION: OptionalString,
   OVH_S3_BUCKET: OptionalString,
   OVH_S3_ACCESS_KEY: OptionalString,
   OVH_S3_SECRET_KEY: OptionalString,
+  // Force path-style addressing (required by MinIO + many self-hosted S3
+  // implementations; OVH supports both). When false, AWS virtual-hosted
+  // style is used.
+  S3_FORCE_PATH_STYLE: BooleanLike.default(true),
+  // Presigned URL TTL for upload PUTs (seconds). 15 minutes is the default
+  // — enough for slow connections, short enough that an intercepted URL
+  // expires quickly.
+  S3_PRESIGN_TTL_SECONDS: z.coerce.number().int().positive().default(900),
+  // Maximum allowed upload size (bytes). 50 MiB matches the existing
+  // UploadDocumentStubRequest cap.
+  S3_MAX_UPLOAD_BYTES: z.coerce.number().int().positive().default(52_428_800),
 
   REDIS_URL: NonEmptyString.default('redis://localhost:6379'),
 
