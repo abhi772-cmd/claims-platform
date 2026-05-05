@@ -4,6 +4,7 @@ import {
   _resetKeyCacheForTests,
   decryptFromParticipant,
   encryptToParticipant,
+  readJweKid,
 } from './nhcx.crypto';
 
 describe('NHCX JWE crypto', () => {
@@ -44,5 +45,20 @@ describe('NHCX JWE crypto', () => {
     const a = await encryptToParticipant(payload, publicPem);
     const b = await encryptToParticipant(payload, publicPem);
     expect(a).not.toBe(b);
+  });
+
+  it('readJweKid returns the kid stamped on the protected header', async () => {
+    const blob = await encryptToParticipant({ hello: 'world' }, publicPem, 'v2');
+    expect(readJweKid(blob)).toBe('v2');
+  });
+
+  it('readJweKid returns null when no kid was set', async () => {
+    const blob = await encryptToParticipant({ hello: 'world' }, publicPem);
+    expect(readJweKid(blob)).toBeNull();
+  });
+
+  it('readJweKid returns null on malformed input', () => {
+    expect(readJweKid('not.a.real.jwe.blob')).toBeNull();
+    expect(readJweKid('')).toBeNull();
   });
 });

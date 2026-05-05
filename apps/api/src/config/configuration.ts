@@ -12,7 +12,11 @@ export interface AppConfig extends Env {
   jwtPublicKeyPem: string;
   // NHCX real-mode keys. Decoded eagerly at config load so a misconfigured
   // PEM fails the boot rather than the first request. Null when MODE=stub.
+  // The v2 slot enables rotation: while NHCX still ships ciphertext
+  // addressed to v1, the v2 key is also resolvable so we don't drop
+  // inbound during the cutover.
   nhcxPrivateKeyPem: string | null;
+  nhcxPrivateKeyPemV2: string | null;
   nhcxGatewayPublicKeyPem: string | null;
 }
 
@@ -81,6 +85,9 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     jwtPublicKeyPem: decodeBase64Pem(env.JWT_PUBLIC_KEY_BASE64, 'JWT_PUBLIC_KEY_BASE64'),
     nhcxPrivateKeyPem: env.NHCX_PRIVATE_KEY_BASE64
       ? decodeBase64Pem(env.NHCX_PRIVATE_KEY_BASE64, 'NHCX_PRIVATE_KEY_BASE64')
+      : null,
+    nhcxPrivateKeyPemV2: env.NHCX_PRIVATE_KEY_BASE64_V2
+      ? decodeBase64Pem(env.NHCX_PRIVATE_KEY_BASE64_V2, 'NHCX_PRIVATE_KEY_BASE64_V2')
       : null,
     nhcxGatewayPublicKeyPem: env.NHCX_GATEWAY_PUBLIC_KEY_BASE64
       ? decodeBase64Pem(

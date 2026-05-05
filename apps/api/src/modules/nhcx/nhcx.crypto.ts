@@ -8,7 +8,14 @@
 // `node-jose` package — same JWE primitives, smaller surface, native
 // TypeScript types.
 
-import { compactDecrypt, CompactEncrypt, importPKCS8, importSPKI, type KeyLike } from 'jose';
+import {
+  compactDecrypt,
+  CompactEncrypt,
+  decodeProtectedHeader,
+  importPKCS8,
+  importSPKI,
+  type KeyLike,
+} from 'jose';
 
 const KEY_ALG = 'RSA-OAEP-256';
 const CONTENT_ENC = 'A256GCM';
@@ -36,16 +43,38 @@ async function loadPublicKey(pem: string): Promise<KeyLike> {
 }
 
 // Encrypt a JSON-serialisable payload to the gateway. Returns a compact
-// JWE (5 dot-separated base64url segments).
+// JWE (5 dot-separated base64url segments). When `kid` is supplied,
+// it's stamped into the JWE protected header — gateway uses this to
+// select the right private key on its side. Outbound calls pass our
+// active private-key version so the gateway can verify which key we
+// signed with.
 export async function encryptToParticipant(
   payload: unknown,
   recipientPublicKeyPem: string,
+  kid?: string,
 ): Promise<string> {
   const recipientKey = await loadPublicKey(recipientPublicKeyPem);
   const plaintext = new TextEncoder().encode(JSON.stringify(payload));
   return new CompactEncrypt(plaintext)
-    .setProtectedHeader({ alg: KEY_ALG, enc: CONTENT_ENC })
+    .setProtectedHeader({
+      alg: KEY_ALG,
+      enc: CONTENT_ENC,
+      ...(kid !== undefined ? { kid } : {}),
+    })
     .encrypt(recipientKey);
+}
+
+// Read the `kid` header off a compact JWE without attempting to
+// decrypt. Used by the rotation resolver to pick the right private
+// key for inbound traffic. Returns null if the header is malformed or
+// the kid is absent.
+export function readJweKid(compactJwe: string): string | null {
+  try {
+    const header = decodeProtectedHeader(compactJwe) as { kid?: unknown };
+    return typeof header.kid === 'string' ? header.kid : null;
+  } catch {
+    return null;
+  }
 }
 
 // Decrypt a compact JWE that was encrypted to our public key. Returns

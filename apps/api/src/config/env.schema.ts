@@ -143,6 +143,14 @@ export const EnvSchema = z.object({
   NHCX_PARTICIPANT_CODE: OptionalString,
   NHCX_PRIVATE_KEY_BASE64: OptionalString,
   NHCX_GATEWAY_PUBLIC_KEY_BASE64: OptionalString,
+  // Active private key version. Embedded as the JWE 'kid' header on
+  // outbound encryption. Defaults to "v1" so existing deployments
+  // don't have to set it. Rotation = issue v2 to NHCX, set
+  // NHCX_PRIVATE_KEY_BASE64_V2 + NHCX_PRIVATE_KEY_VERSION=v2 in env,
+  // restart. Old NHCX-side ciphertext addressed to v1 still decrypts
+  // because the resolver still has v1 in NHCX_PRIVATE_KEY_BASE64.
+  NHCX_PRIVATE_KEY_VERSION: NonEmptyString.default('v1'),
+  NHCX_PRIVATE_KEY_BASE64_V2: OptionalString,
   // Default request timeout for real-mode HTTP calls (ms).
   NHCX_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
 });

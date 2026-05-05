@@ -6,6 +6,7 @@ import {
   type HprOtpRequestResult,
   type HprVerification,
 } from './hpr-adapter.interface';
+import { TokenCache } from './token-cache';
 import { HprVerificationFailedError } from '../../common/errors/auth-errors';
 import { type AppConfig } from '../../config/configuration';
 
@@ -53,21 +54,30 @@ interface AbdmProfileResponse {
 @Injectable()
 export class HprRealAdapter implements HprAdapter {
   private readonly log = new Logger(HprRealAdapter.name);
+  // Single shared cache keyed on (clientId, baseUrl). Reuse across
+  // every doctor-sign request prevents the per-call token round-trip
+  // and absorbs the thundering-herd at expiry.
+  private readonly tokenCache = new TokenCache();
 
   constructor(private readonly config: ConfigService<AppConfig, true>) {}
 
   async requestOtp(hprId: string): Promise<HprOtpRequestResult> {
     const baseUrl = this.required('ABDM_BASE_URL');
     const access = await this.fetchAccessToken();
-    const res = await this.httpJson<AbdmInitResponse>('POST', `${baseUrl}/api/v1/auth/init`, {
-      headers: { authorization: `Bearer ${access}` },
-      body: {
-        authMethod: 'MOBILE_OTP',
-        // ABDM accepts the full HPR address (e.g. 12.34.5678910@hpr.abdm)
-        // in `id`. Callers pass the full id; the adapter doesn't transform.
-        id: hprId,
-      },
-    });
+    const res = await this.httpJsonWith401Retry<AbdmInitResponse>(
+      'POST',
+      `${baseUrl}/api/v1/auth/init`,
+      (token) => ({
+        headers: { authorization: `Bearer ${token}` },
+        body: {
+          authMethod: 'MOBILE_OTP',
+          // ABDM accepts the full HPR address (e.g. 12.34.5678910@hpr.abdm)
+          // in `id`. Callers pass the full id; the adapter doesn't transform.
+          id: hprId,
+        },
+      }),
+      access,
+    );
     return {
       transactionId: res.txnId,
       // ABDM OTPs typically live ~5 minutes; we don't get an explicit
@@ -90,13 +100,14 @@ export class HprRealAdapter implements HprAdapter {
 
     let xToken: string;
     try {
-      const confirm = await this.httpJson<AbdmConfirmResponse>(
+      const confirm = await this.httpJsonWith401Retry<AbdmConfirmResponse>(
         'POST',
         `${baseUrl}/api/v1/auth/confirmWithMobileOTP`,
-        {
-          headers: { authorization: `Bearer ${access}` },
+        (token) => ({
+          headers: { authorization: `Bearer ${token}` },
           body: { otp: input.otp, txnId: input.transactionId },
-        },
+        }),
+        access,
       );
       xToken = confirm.token;
     } catch (err) {
@@ -106,15 +117,16 @@ export class HprRealAdapter implements HprAdapter {
 
     let profile: AbdmProfileResponse;
     try {
-      profile = await this.httpJson<AbdmProfileResponse>(
+      profile = await this.httpJsonWith401Retry<AbdmProfileResponse>(
         'GET',
         `${baseUrl}/api/v2/hpr/healthcareprofessional/${encodeURIComponent(input.hprId)}`,
-        {
+        (token) => ({
           headers: {
-            authorization: `Bearer ${access}`,
+            authorization: `Bearer ${token}`,
             'x-token': `Bearer ${xToken}`,
           },
-        },
+        }),
+        access,
       );
     } catch (err) {
       this.log.warn(`hpr profile lookup failed hprId=${input.hprId}: ${describeErr(err)}`);
@@ -144,25 +156,48 @@ export class HprRealAdapter implements HprAdapter {
     return value;
   }
 
+  // Cache key combines baseUrl + clientId so a config change at runtime
+  // (e.g. blue/green clientId rotation) doesn't accidentally serve the
+  // stale token. Different ABDM gateway tiers (sandbox vs prod) get
+  // separate entries.
+  private cacheKey(): string {
+    const baseUrl = this.config.get('ABDM_BASE_URL', { infer: true }) ?? '';
+    const clientId = this.config.get('ABDM_CLIENT_ID', { infer: true }) ?? '';
+    return `${baseUrl}|${clientId}`;
+  }
+
   private async fetchAccessToken(): Promise<string> {
-    const baseUrl = this.required('ABDM_BASE_URL');
-    const clientId = this.required('ABDM_CLIENT_ID');
-    const clientSecret = this.required('ABDM_CLIENT_SECRET');
-    const res = await this.httpJson<AbdmTokenResponse>(
-      'POST',
-      `${baseUrl}/gateway/v0.5/sessions`,
-      {
-        body: {
-          clientId,
-          clientSecret,
-          grantType: 'client_credentials',
+    return this.tokenCache.get(this.cacheKey(), async () => {
+      const baseUrl = this.required('ABDM_BASE_URL');
+      const clientId = this.required('ABDM_CLIENT_ID');
+      const clientSecret = this.required('ABDM_CLIENT_SECRET');
+      const res = await this.httpJson<AbdmTokenResponse>(
+        'POST',
+        `${baseUrl}/gateway/v0.5/sessions`,
+        {
+          body: {
+            clientId,
+            clientSecret,
+            grantType: 'client_credentials',
+          },
         },
-      },
-    );
-    if (!res.accessToken) {
-      throw new Error('ABDM token response missing accessToken.');
-    }
-    return res.accessToken;
+      );
+      if (!res.accessToken) {
+        throw new Error('ABDM token response missing accessToken.');
+      }
+      // ABDM doesn't always return expiresIn; default to 25 minutes
+      // (a touch under the documented 30 min) so we refresh ahead.
+      const ttlSeconds = res.expiresIn ?? 25 * 60;
+      return { token: res.accessToken, ttlSeconds };
+    });
+  }
+
+  // Invalidate + retry once. Used after a 401 from any downstream call
+  // — ABDM may have rotated the gateway secret on us, in which case
+  // the next mint succeeds.
+  private async fetchAccessTokenAfterInvalidate(): Promise<string> {
+    this.tokenCache.invalidate(this.cacheKey());
+    return this.fetchAccessToken();
   }
 
   private async httpJson<T>(
@@ -186,11 +221,42 @@ export class HprRealAdapter implements HprAdapter {
       });
       if (!res.ok) {
         const body = await res.text().catch(() => '');
-        throw new Error(`ABDM ${method} ${url} → HTTP ${res.status} ${body.slice(0, 200)}`);
+        const err = new Error(
+          `ABDM ${method} ${url} → HTTP ${res.status} ${body.slice(0, 200)}`,
+        );
+        // Tag the error so callers can match on 401 without parsing
+        // the message. Simpler than throwing a custom subclass that the
+        // verifyOtp path would also have to import.
+        (err as { httpStatus?: number }).httpStatus = res.status;
+        throw err;
       }
       return (await res.json()) as T;
     } finally {
       clearTimeout(timer);
+    }
+  }
+
+  // Same as httpJson but on 401 invalidates the cached access token,
+  // re-fetches a fresh one, and retries the call once with the new
+  // bearer in the Authorization header. Returns the original error if
+  // the retry also fails. The caller passes a builder closure so we
+  // can substitute the bearer at retry time.
+  private async httpJsonWith401Retry<T>(
+    method: 'GET' | 'POST',
+    url: string,
+    buildInit: (token: string) => {
+      headers?: Record<string, string>;
+      body?: unknown;
+    },
+    initialToken: string,
+  ): Promise<T> {
+    try {
+      return await this.httpJson<T>(method, url, buildInit(initialToken));
+    } catch (err) {
+      if ((err as { httpStatus?: number }).httpStatus !== 401) throw err;
+      this.log.warn(`ABDM ${url} returned 401 — refreshing token and retrying once`);
+      const fresh = await this.fetchAccessTokenAfterInvalidate();
+      return this.httpJson<T>(method, url, buildInit(fresh));
     }
   }
 }

@@ -17,5 +17,11 @@ export {
 export {
   encryptToParticipant,
   decryptFromParticipant,
+  readJweKid,
   _resetKeyCacheForTests,
 } from './nhcx.crypto';
+export {
+  NHCX_KEY_RESOLVER,
+  type NhcxKeyResolver,
+  EnvKeyResolver,
+} from './nhcx-key-resolver';
