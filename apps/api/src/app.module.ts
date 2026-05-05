@@ -17,6 +17,7 @@ import { MfaModule } from './modules/mfa';
 import { NotificationModule } from './modules/notification';
 import { OnboardingModule } from './modules/onboarding';
 import { PasswordModule } from './modules/password';
+import { PreauthModule } from './modules/preauth';
 import { AppSecurityModule } from './modules/security';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { UserModule } from './modules/user/user.module';
@@ -74,6 +75,7 @@ import { UserModule } from './modules/user/user.module';
     ClaimModule,
     CaseModule,
     EligibilityModule,
+    PreauthModule,
     HealthModule,
     TenantModule,
     UserModule,

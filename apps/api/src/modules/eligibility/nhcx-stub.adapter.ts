@@ -79,6 +79,72 @@ export class NhcxStubAdapter {
         };
   }
 
+  // Pre-auth submit. Adapter just acknowledges receipt with a payer
+  // reference number — the actual decision arrives later via
+  // `respondPreauthQuery` / a `decideStub` callback.
+  async submitPreauth(input: {
+    tenantId: string;
+    claimId: string;
+    requestedAmount: number | null;
+  }): Promise<{
+    acknowledged: boolean;
+    payerRefNum: string;
+    correlationId: string;
+    rawRequest: Record<string, unknown>;
+    rawResponse: Record<string, unknown>;
+  }> {
+    const correlationId = randomUUID();
+    const payerRefNum = `STUB-PA-${randomUUID().slice(0, 8).toUpperCase()}`;
+    const rawRequest = {
+      bundleType: 'Claim',
+      use: 'preauthorization',
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      requestedAmount: input.requestedAmount,
+    };
+    const rawResponse = {
+      bundleType: 'ClaimResponse',
+      outcome: 'queued',
+      payerRefNum,
+      correlationId,
+      timestamp: new Date().toISOString(),
+    };
+    this.log.log(
+      `nhcx stub preauth.submit tenantId=${input.tenantId} claimId=${input.claimId} payerRef=${payerRefNum}`,
+    );
+    return { acknowledged: true, payerRefNum, correlationId, rawRequest, rawResponse };
+  }
+
+  // Pre-auth query response. Stub mirrors submit — acknowledges, no
+  // decision; the decision is injected by ops via the decision endpoint
+  // until Slice P delivers the real callback path.
+  async respondPreauthQuery(input: {
+    tenantId: string;
+    claimId: string;
+    queryId: string;
+    responseText: string;
+  }): Promise<{
+    correlationId: string;
+    rawRequest: Record<string, unknown>;
+    rawResponse: Record<string, unknown>;
+  }> {
+    const correlationId = randomUUID();
+    return {
+      correlationId,
+      rawRequest: {
+        bundleType: 'Communication',
+        operation: 'preauth.query.respond',
+        ...input,
+      },
+      rawResponse: {
+        bundleType: 'CommunicationResponse',
+        outcome: 'queued',
+        correlationId,
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
   private parseFailList(): ReadonlySet<string> {
     const raw = this.config.get('NHCX_STUB_MRN_FAIL_LIST', { infer: true });
     if (!raw) return new Set();
