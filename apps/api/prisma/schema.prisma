@@ -87,13 +87,18 @@ model User {
   inviteTokenExpiresAt DateTime?
   inviteAcceptedAt     DateTime?
   invitedById          String?    @db.Uuid
+  // Password lifecycle. lastPasswordChangeAt is null for users who have
+  // never accepted (passwordHash = '').
+  lastPasswordChangeAt DateTime?
   createdAt            DateTime   @default(now())
   updatedAt            DateTime   @updatedAt
 
-  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  userRoles     UserRole[]
-  sessions      Session[]
-  inviteResends InviteResend[]
+  tenant         Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles      UserRole[]
+  sessions       Session[]
+  inviteResends  InviteResend[]
+  passwordHistory PasswordHistory[]
+  passwordResets PasswordResetToken[]
 
   @@index([tenantId, status])
   @@index([inviteTokenExpiresAt])
@@ -180,6 +185,45 @@ model SessionTokenHistory {
 
   @@index([userId])
   @@map("session_token_history")
+}
+
+// Append-only password history. We block reuse of the last N hashes
+// (default 5) — the policy module reads the most recent rows and runs
+// argon2.verify against each. Old hashes are retained beyond the depth
+// for audit / forensics; only the top-N are checked for reuse.
+model PasswordHistory {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @db.Uuid
+  userId       String   @db.Uuid
+  passwordHash String
+  changedAt    DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, changedAt])
+  @@map("password_history")
+}
+
+// One row per reset request. Tokens are hashed on storage, raw token only
+// exists in the email. The row is marked usedAt on successful reset; we
+// also track requestedIp and a daily rate-limit count via a query on
+// occurredAt rather than a separate counter.
+model PasswordResetToken {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @db.Uuid
+  userId      String    @db.Uuid
+  tokenHash   String    @unique
+  requestedAt DateTime  @default(now())
+  expiresAt   DateTime
+  usedAt      DateTime?
+  requestedIp String?
+  requestedUa String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, requestedAt])
+  @@index([expiresAt])
+  @@map("password_reset_token")
 }
 
 // Append-only via RLS (see migration). Application code that tries to

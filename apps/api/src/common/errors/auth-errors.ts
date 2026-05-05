@@ -61,3 +61,48 @@ export class PasswordTooWeakError extends DomainError {
     super(ErrorCodes.AUTH_PASSWORD_TOO_WEAK, detail !== undefined ? { detail } : undefined);
   }
 }
+
+export class PasswordBreachedError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_PASSWORD_BREACHED);
+  }
+}
+
+export class PasswordReusedError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_PASSWORD_REUSED);
+  }
+}
+
+export class PasswordResetTokenInvalidError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_PASSWORD_RESET_TOKEN_INVALID);
+  }
+}
+
+export class PasswordResetTokenExpiredError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_PASSWORD_RESET_TOKEN_EXPIRED);
+  }
+}
+
+export class PasswordResetTokenUsedError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_PASSWORD_RESET_TOKEN_USED);
+  }
+}
+
+export class PasswordResetRateLimitError extends DomainError {
+  constructor(detail?: string) {
+    super(
+      ErrorCodes.AUTH_PASSWORD_RESET_LIMIT_REACHED,
+      detail !== undefined ? { detail } : undefined,
+    );
+  }
+}
+
+export class CurrentPasswordIncorrectError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_CURRENT_PASSWORD_INCORRECT);
+  }
+}
