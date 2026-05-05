@@ -1,0 +1,100 @@
+import { z } from 'zod';
+
+import {
+  ClaimEventTypeSchema,
+  ClaimRailSchema,
+  ClaimSchema,
+  ClaimStatusSchema,
+} from './claim.schema';
+
+// POST /cases — admin / insurance desk creates a case + the first claim
+// in one shot. patientName + hospitalMrn are placeholder strings until
+// the encrypted Patient model lands later in Sprint 2.
+export const CreateCaseRequestSchema = z.object({
+  patientName: z.string().min(1).max(200),
+  hospitalMrn: z.string().min(1).max(64),
+  admissionDate: z.string().date(),
+  admissionType: z.enum(['planned', 'emergency', 'day_care']),
+  primaryRail: ClaimRailSchema,
+  treatingDoctorId: z.string().uuid().optional(),
+});
+export type CreateCaseRequest = z.infer<typeof CreateCaseRequestSchema>;
+
+// PATCH /cases/:id — limited mutations: close, abandon, change assignee
+// on the first claim. Status transitions on the claim itself go through
+// the manual-transition endpoint (which delegates to ClaimService).
+export const UpdateCaseRequestSchema = z.object({
+  caseStatus: z.enum(['open', 'closed', 'abandoned']).optional(),
+  treatingDoctorId: z.string().uuid().nullable().optional(),
+});
+export type UpdateCaseRequest = z.infer<typeof UpdateCaseRequestSchema>;
+
+export const CaseSummarySchema = z.object({
+  id: z.string().uuid(),
+  patientName: z.string(),
+  hospitalMrn: z.string(),
+  admissionDate: z.string().date(),
+  admissionType: z.enum(['planned', 'emergency', 'day_care']),
+  primaryRail: ClaimRailSchema,
+  caseStatus: z.enum(['open', 'closed', 'abandoned']),
+  treatingDoctorId: z.string().uuid().nullable(),
+  createdAt: z.string().datetime(),
+  closedAt: z.string().datetime().nullable(),
+  // Headline status of the most recently-active claim — what the list
+  // page shows in the status column.
+  headlineClaimStatus: ClaimStatusSchema.nullable(),
+});
+export type CaseSummary = z.infer<typeof CaseSummarySchema>;
+
+export const CaseDetailSchema = CaseSummarySchema.extend({
+  claims: z.array(ClaimSchema),
+});
+export type CaseDetail = z.infer<typeof CaseDetailSchema>;
+
+export const ListCasesResponseSchema = z.object({
+  cases: z.array(CaseSummarySchema),
+  // Cursor pagination — Sprint 2 keeps it simple with offset+limit on
+  // the server. The shape leaves room to swap to keyset-pagination
+  // later without a wire break.
+  total: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  offset: z.number().int().nonnegative(),
+});
+export type ListCasesResponse = z.infer<typeof ListCasesResponseSchema>;
+
+// POST /cases/:caseId/claims/:claimId/transitions — admin escape hatch.
+// Real production transitions come from the rail adapters (NHCX / PMJAY).
+// Manual transitions exist for ops + initial smoke testing.
+export const ManualTransitionRequestSchema = z.object({
+  eventType: ClaimEventTypeSchema,
+  payload: z.record(z.unknown()).optional(),
+  // Optional materialised-state patch — same surface as ClaimService.transition.
+  patch: z
+    .object({
+      preauthAmount: z.number().int().optional(),
+      claimAmount: z.number().int().optional(),
+      approvedAmount: z.number().int().optional(),
+      paidAmount: z.number().int().optional(),
+      preauthRefNum: z.string().optional(),
+      claimRefNum: z.string().optional(),
+      payerRefNum: z.string().optional(),
+    })
+    .optional(),
+});
+export type ManualTransitionRequest = z.infer<typeof ManualTransitionRequestSchema>;
+
+export const ClaimEventListItemSchema = z.object({
+  id: z.string().uuid(),
+  eventType: ClaimEventTypeSchema,
+  resultingStatus: ClaimStatusSchema,
+  occurredAt: z.string().datetime(),
+  recordedAt: z.string().datetime(),
+  recordedById: z.string().uuid().nullable(),
+  payload: z.record(z.unknown()),
+});
+export type ClaimEventListItem = z.infer<typeof ClaimEventListItemSchema>;
+
+export const ClaimEventListResponseSchema = z.object({
+  events: z.array(ClaimEventListItemSchema),
+});
+export type ClaimEventListResponse = z.infer<typeof ClaimEventListResponseSchema>;
