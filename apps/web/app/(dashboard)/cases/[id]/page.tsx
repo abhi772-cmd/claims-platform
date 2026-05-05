@@ -8,6 +8,7 @@ import {
 } from '@claims/contracts';
 import { useEffect, useState } from 'react';
 
+import { ClaimPhasePanel } from '../../../../components/claim-phase/ClaimPhasePanel';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { PreauthPanel } from '../../../../components/preauth/PreauthPanel';
 import { CaseApi } from '../../../../lib/api/case.api';
@@ -131,6 +132,15 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
 
       {claim ? (
         <PreauthPanel
+          caseId={detail.id}
+          claimId={claim.id}
+          status={claim.status as ClaimStatus}
+          onChanged={() => void reload()}
+        />
+      ) : null}
+
+      {claim ? (
+        <ClaimPhasePanel
           caseId={detail.id}
           claimId={claim.id}
           status={claim.status as ClaimStatus}

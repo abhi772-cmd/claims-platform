@@ -1,7 +1,12 @@
 import {
   type CaseDetail,
+  type ClaimDecisionRequest,
+  type ClaimDecisionResponse,
   type ClaimEventListResponse,
+  type ClaimSubmissionResponse,
+  type ClaimSubmissionSubmitRequest,
   type CreateCaseRequest,
+  type DocumentListResponse,
   type EligibilityRequest,
   type EligibilityResponse,
   type IntegrationMessageListResponse,
@@ -14,6 +19,7 @@ import {
   type PreauthQueryResponseRequest,
   type PreauthSubmitResponse,
   type UpdateCaseRequest,
+  type UploadDocumentStubRequest,
 } from '@claims/contracts';
 
 import { apiRequest } from './client';
@@ -116,6 +122,59 @@ export const CaseApi = {
   ): Promise<{ status: string }> =>
     apiRequest<{ status: string }>(
       `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/preauth/queries/${encodeURIComponent(queryId)}/respond`,
+      { method: 'POST', body },
+    ),
+
+  listDocuments: (caseId: string, claimId: string): Promise<DocumentListResponse> =>
+    apiRequest<DocumentListResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/documents`,
+    ),
+
+  uploadDocumentStub: (
+    caseId: string,
+    claimId: string,
+    body: UploadDocumentStubRequest,
+  ): Promise<{ document: DocumentListResponse['documents'][number] }> =>
+    apiRequest<{ document: DocumentListResponse['documents'][number] }>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/documents/upload-stub`,
+      { method: 'POST', body },
+    ),
+
+  initiateDischarge: (caseId: string, claimId: string): Promise<{ status: string }> =>
+    apiRequest<{ status: string }>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/discharge/initiate`,
+      { method: 'POST', body: {} },
+    ),
+
+  submitDischarge: (caseId: string, claimId: string): Promise<{ status: string }> =>
+    apiRequest<{ status: string }>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/discharge/submit`,
+      { method: 'POST', body: {} },
+    ),
+
+  startClaimSubmission: (caseId: string, claimId: string): Promise<{ status: string }> =>
+    apiRequest<{ status: string }>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/claim-submission/start`,
+      { method: 'POST', body: {} },
+    ),
+
+  submitClaim: (
+    caseId: string,
+    claimId: string,
+    body: ClaimSubmissionSubmitRequest,
+  ): Promise<ClaimSubmissionResponse> =>
+    apiRequest<ClaimSubmissionResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/claim-submission/submit`,
+      { method: 'POST', body },
+    ),
+
+  claimDecision: (
+    caseId: string,
+    claimId: string,
+    body: ClaimDecisionRequest,
+  ): Promise<ClaimDecisionResponse> =>
+    apiRequest<ClaimDecisionResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/claim-submission/decision`,
       { method: 'POST', body },
     ),
 };
