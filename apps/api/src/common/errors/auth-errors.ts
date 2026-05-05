@@ -154,3 +154,21 @@ export class ConcurrentSessionLimitError extends DomainError {
     super(ErrorCodes.AUTH_CONCURRENT_SESSION_LIMIT);
   }
 }
+
+export class DoctorTokenExpiredError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_DOCTOR_TOKEN_EXPIRED);
+  }
+}
+
+export class DoctorTokenInvalidError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_DOCTOR_TOKEN_INVALID);
+  }
+}
+
+export class HprVerificationFailedError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_HPR_VERIFICATION_FAILED);
+  }
+}

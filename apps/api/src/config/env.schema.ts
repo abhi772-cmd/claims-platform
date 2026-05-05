@@ -68,6 +68,14 @@ export const EnvSchema = z.object({
   // Sessions / trusted devices / concurrent cap (Slice E)
   CONCURRENT_SESSION_LIMIT: z.coerce.number().int().positive().default(5),
   TRUSTED_DEVICE_TTL_DAYS: z.coerce.number().int().positive().default(30),
+
+  // Doctor short-token (Slice F)
+  DOCTOR_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(10),
+  // Comma-separated HPR ids the stub treats as valid. The real HPR
+  // verification calls ABDM in a later sprint. The stub also requires
+  // HPR_STUB_OTP to match exactly (any 6-digit string by default).
+  HPR_STUB_ALLOWLIST: z.preprocess(trim, z.string().default('')),
+  HPR_STUB_OTP: NonEmptyString.default('000000'),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

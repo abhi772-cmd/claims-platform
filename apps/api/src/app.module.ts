@@ -7,6 +7,7 @@ import { SecurityModule } from './common/security/security.module';
 import { loadConfig } from './config/configuration';
 import { AuditModule } from './modules/audit';
 import { AuthModule } from './modules/auth/auth.module';
+import { DoctorModule } from './modules/doctor';
 import { HealthModule } from './modules/health/health.module';
 import { MfaModule } from './modules/mfa';
 import { NotificationModule } from './modules/notification';
@@ -62,6 +63,7 @@ import { UserModule } from './modules/user/user.module';
     PasswordModule,
     MfaModule,
     AppSecurityModule,
+    DoctorModule,
     HealthModule,
     TenantModule,
     UserModule,
