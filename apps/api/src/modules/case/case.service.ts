@@ -13,6 +13,7 @@ import { CaseNotFoundError } from '../../common/errors/case-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditEvents, AuditService } from '../audit';
 import { ClaimService } from '../claim';
+import { PatientService } from '../patient';
 
 export interface CreateCaseInput extends CreateCaseRequest {
   tenantId: string;
@@ -42,6 +43,7 @@ export class CaseService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly claims: ClaimService,
+    private readonly patients: PatientService,
   ) {}
 
   // Create a Case AND mint the first Claim. The two are atomic via the
@@ -49,9 +51,32 @@ export class CaseService {
   // case row is rolled back too.
   async create(input: CreateCaseInput): Promise<CaseDetail> {
     const created = await this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
+      // If PII was provided, create the encrypted Patient row first
+      // inside the same tx so a Case never points at a non-existent
+      // Patient. The Patient row is rolled back if Case creation fails.
+      let patientId: string | null = null;
+      if (input.patient) {
+        const created = await this.patients.createWithTx(tx, input.tenantId, {
+          fullName: input.patientName,
+          ...(input.patient.dateOfBirth !== undefined
+            ? { dateOfBirth: input.patient.dateOfBirth }
+            : {}),
+          ...(input.patient.gender !== undefined ? { gender: input.patient.gender } : {}),
+          ...(input.patient.aadhaar !== undefined ? { aadhaar: input.patient.aadhaar } : {}),
+          ...(input.patient.abhaId !== undefined ? { abhaId: input.patient.abhaId } : {}),
+          ...(input.patient.policyNumber !== undefined
+            ? { policyNumber: input.patient.policyNumber }
+            : {}),
+          ...(input.patient.mobile !== undefined ? { mobile: input.patient.mobile } : {}),
+          ...(input.patient.email !== undefined ? { email: input.patient.email } : {}),
+        });
+        patientId = created.id;
+      }
+
       const c = await tx.case.create({
         data: {
           tenantId: input.tenantId,
+          ...(patientId !== null ? { patientId } : {}),
           patientName: input.patientName,
           hospitalMrn: input.hospitalMrn,
           admissionDate: new Date(input.admissionDate),
@@ -63,6 +88,9 @@ export class CaseService {
           createdById: input.actorUserId,
         },
       });
+      // Audit record carries DISPLAY-safe fields only — no encrypted
+      // identifiers in the audit_log payload (those would otherwise be
+      // permanently exposed in plaintext snapshots).
       await this.audit.recordWithTx(tx, {
         tenantId: input.tenantId,
         actorUserId: input.actorUserId,
@@ -74,6 +102,7 @@ export class CaseService {
           patientName: input.patientName,
           hospitalMrn: input.hospitalMrn,
           primaryRail: input.primaryRail,
+          ...(patientId !== null ? { patientId } : {}),
         },
         ipAddress: input.ip,
         userAgent: input.userAgent,

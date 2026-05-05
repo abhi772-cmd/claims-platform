@@ -33,6 +33,17 @@ export const EnvSchema = z.object({
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
+  // PII encryption (Slice R).
+  //   stub = static base64 root key from PII_KMS_ROOT_KEY_BASE64
+  //   real = OVH KMS-wrapped DEKs (Sprint 5 hardening)
+  PII_KMS_MODE: z.enum(['stub', 'real']).default('stub'),
+  // 32-byte root key encoded as base64. Required when MODE=stub. Used
+  // to derive a per-tenant DEK via HKDF — the DEK never leaves memory.
+  PII_KMS_ROOT_KEY_BASE64: OptionalString,
+  // Identifier embedded into each ciphertext blob's keyVersion field so
+  // we can rotate keys without re-encrypting old rows atomically.
+  PII_KMS_KEY_VERSION: NonEmptyString.default('v1'),
+  // Real OVH KMS settings (deferred to Sprint 5).
   OVH_KMS_ENDPOINT: OptionalString,
   OVH_KMS_REGION: OptionalString,
   OVH_KMS_KEY_ID: OptionalString,

@@ -36,6 +36,18 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     }
   }
 
+  // PII KMS — stub mode requires the root key; real mode is deferred.
+  if (env.PII_KMS_MODE === 'stub' && !env.PII_KMS_ROOT_KEY_BASE64) {
+    throw new ConfigError({
+      PII_KMS_MODE: ['stub mode requires PII_KMS_ROOT_KEY_BASE64 (32 bytes, base64)'],
+    });
+  }
+  if (env.PII_KMS_MODE === 'real') {
+    throw new ConfigError({
+      PII_KMS_MODE: ['real mode (OVH KMS) is not implemented yet — use stub'],
+    });
+  }
+
   // When HPR_MODE=real, the ABDM connection settings must be present.
   if (env.HPR_MODE === 'real') {
     const missing: string[] = [];
