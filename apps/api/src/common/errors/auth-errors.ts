@@ -142,3 +142,15 @@ export class MfaChallengeExpiredError extends DomainError {
     super(ErrorCodes.AUTH_MFA_CHALLENGE_EXPIRED);
   }
 }
+
+export class IpNotAllowedError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_IP_NOT_ALLOWED);
+  }
+}
+
+export class ConcurrentSessionLimitError extends DomainError {
+  constructor() {
+    super(ErrorCodes.AUTH_CONCURRENT_SESSION_LIMIT);
+  }
+}

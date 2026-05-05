@@ -17,6 +17,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 import { AuditEvents, AuditService } from '../audit';
 import { MfaService } from '../mfa';
+import { IpAllowlistService, SessionService, TrustedDeviceService } from '../security';
 
 const FAILED_ATTEMPTS_LIMIT = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000;
@@ -24,12 +25,18 @@ const LOCK_DURATION_MS = 15 * 60 * 1000;
 export interface LoginInput {
   email: string;
   password: string;
+  // Optional raw trusted-device token from the claims_trust cookie. When
+  // present and valid for this user, the MFA challenge is skipped.
+  trustedDeviceToken?: string | null;
 }
 
 export interface LoginSuccessOutput {
   kind: 'success';
   accessToken: string;
   refreshToken: string;
+  // True when this success was reached via a trusted-device cookie skip
+  // (caller may want to log it separately). False on every other path.
+  trustedDeviceUsed?: boolean;
   user: {
     id: string;
     email: string;
@@ -56,6 +63,9 @@ export class AuthService {
     private readonly config: ConfigService<AppConfig, true>,
     private readonly audit: AuditService,
     private readonly mfa: MfaService,
+    private readonly ipAllowlist: IpAllowlistService,
+    private readonly trustedDevices: TrustedDeviceService,
+    private readonly sessions: SessionService,
   ) {}
 
   async login(input: LoginInput, userAgent: string | null, ip: string | null): Promise<LoginOutput> {
@@ -147,10 +157,44 @@ export class AuthService {
       throw new TenantDisabledError();
     }
 
+    // IP allowlist enforcement. We check AFTER password verification so we
+    // don't leak the existence of an allowlist to an attacker probing
+    // random emails. platform_admin role bypasses (they may need to
+    // intervene from anywhere); otherwise the request IP must match one
+    // of the tenant's CIDR ranges (if any are configured).
+    const isPlatformAdmin = user.userRoles.some((ur) => ur.role.name === 'platform_admin');
+    try {
+      await this.ipAllowlist.assertAllowed(user.tenantId, ip, isPlatformAdmin);
+    } catch (err) {
+      await this.audit.record({
+        tenantId: user.tenantId,
+        actorUserId: user.id,
+        actorType: 'user',
+        action: AuditEvents.USER_FAILED_LOGIN,
+        resourceType: 'user',
+        resourceId: user.id,
+        after: { reason: 'ip_not_allowed', ip },
+        ipAddress: ip,
+        userAgent,
+      });
+      throw err;
+    }
+
     // Password is correct. If MFA is enabled, short-circuit to a challenge —
-    // we DON'T issue a session yet. The client then calls /auth/mfa/verify
-    // with the challengeId + TOTP/backup-code.
+    // unless the request carries a trusted-device cookie that resolves to
+    // this user, in which case we skip MFA and finalize directly.
     if (user.mfaEnabled) {
+      if (input.trustedDeviceToken) {
+        const trusted = await this.trustedDevices.resolve(
+          input.trustedDeviceToken,
+          user.id,
+          userAgent,
+        );
+        if (trusted) {
+          const finalized = await this.finalizeLogin(user.id, user.tenantId, userAgent, ip);
+          return { ...finalized, trustedDeviceUsed: true };
+        }
+      }
       const challenge = await this.mfa.issueChallenge({
         tenantId: user.tenantId,
         userId: user.id,
@@ -204,6 +248,9 @@ export class AuthService {
           },
         });
         if (!user) throw new InvalidCredentialsError();
+
+        // Enforce concurrent-session cap before creating the new session.
+        await this.sessions.enforceCapBeforeCreate(tx, user.tenantId, user.id);
 
         const session = await tx.session.create({
           data: {

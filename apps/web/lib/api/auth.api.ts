@@ -1,5 +1,6 @@
 import {
   type ChangePasswordRequest,
+  type IpAllowlist,
   type LoginMfaChallengeResponse,
   type LoginRequest,
   type LoginResponse,
@@ -15,6 +16,8 @@ import {
   type PasswordResetCompleteRequest,
   type PasswordResetInitiateRequest,
   type PasswordResetVerifyResponse,
+  type SessionListResponse,
+  type TrustedDeviceListResponse,
 } from '@claims/contracts';
 
 import { apiRequest } from './client';
@@ -68,4 +71,22 @@ export const AuthApi = {
 
   changePassword: (body: ChangePasswordRequest): Promise<void> =>
     apiRequest<void>('/auth/me/password', { method: 'POST', body }),
+
+  listSessions: (): Promise<SessionListResponse> =>
+    apiRequest<SessionListResponse>('/auth/me/sessions'),
+
+  revokeSession: (id: string): Promise<void> =>
+    apiRequest<void>(`/auth/me/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  listTrustedDevices: (): Promise<TrustedDeviceListResponse> =>
+    apiRequest<TrustedDeviceListResponse>('/auth/me/trusted-devices'),
+
+  revokeTrustedDevice: (id: string): Promise<void> =>
+    apiRequest<void>(`/auth/me/trusted-devices/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  getIpAllowlist: (): Promise<IpAllowlist> =>
+    apiRequest<IpAllowlist>('/tenant/security/ip-allowlist'),
+
+  updateIpAllowlist: (body: IpAllowlist): Promise<IpAllowlist> =>
+    apiRequest<IpAllowlist>('/tenant/security/ip-allowlist', { method: 'PUT', body }),
 };

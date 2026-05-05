@@ -34,6 +34,10 @@ model Tenant {
   displayName     String
   lifecycleState  TenantLifecycleState @default(IN_SETUP)
   logoUrl         String?
+  // Tenant-level IP allowlist. Stored as a JSON array of CIDR strings
+  // ("203.0.113.0/24", "2001:db8::/32") or single IPs. Empty array (the
+  // default) means no restriction. platform_admin bypasses regardless.
+  ipAllowlist     Json                 @default("[]")
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 
@@ -102,6 +106,7 @@ model User {
   mfaEnrollment   MfaEnrollment?
   backupCodes     BackupCode[]
   mfaChallenges   MfaChallenge[]
+  trustedDevices  TrustedDevice[]
 
   @@index([tenantId, status])
   @@index([inviteTokenExpiresAt])
@@ -168,11 +173,41 @@ model Session {
   createdAt        DateTime  @default(now())
   expiresAt        DateTime
   revokedAt        DateTime?
+  // Last refresh hit — used by the session list page to show "active 5 min
+  // ago" and by future analytics. Updated on every refresh + tokens use.
+  lastSeenAt       DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, userId])
   @@map("session")
+}
+
+// Long-lived "remember this device" credential. Issued on /auth/mfa/verify
+// when the user opts in via trustDevice=true; stores only sha256(token)
+// at rest. Validity = 30 days. The user can list/revoke these from
+// /me/trusted-devices.
+model TrustedDevice {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  // Coarse fingerprint to bind the cookie to the device that requested it.
+  // We use the User-Agent string sha256 — not bullet-proof, but stops a
+  // stolen cookie from working from a wildly different browser.
+  uaFingerprint String?
+  createdAt DateTime  @default(now())
+  lastUsedAt DateTime?
+  expiresAt DateTime
+  revokedAt DateTime?
+  ipAddress String?
+  userAgent String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId])
+  @@index([expiresAt])
+  @@map("trusted_device")
 }
 
 // Audit pointer for refresh-token reuse detection. When we rotate a refresh
