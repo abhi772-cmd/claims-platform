@@ -41,10 +41,33 @@ model Tenant {
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 
-  users User[]
-  roles Role[]
+  users            User[]
+  roles            Role[]
+  onboardingSteps  OnboardingStep[]
 
   @@map("tenant")
+}
+
+// One row per (tenant, step). Created lazily on first complete; we don't
+// pre-seed pending rows because the canonical step list lives in
+// contracts and we'd otherwise double-bookkeep. The readiness check
+// joins onto this table left-outer to find the latest status per step.
+model OnboardingStep {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @db.Uuid
+  stepKey      String
+  status       String   // 'pending' | 'in_progress' | 'completed' | 'skipped'
+  evidence     Json     @default("{}")
+  completedAt  DateTime?
+  completedBy  String?  @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, stepKey])
+  @@index([tenantId])
+  @@map("onboarding_step")
 }
 
 // Roles can be tenant-scoped (most cases) or platform-wide (platform_admin

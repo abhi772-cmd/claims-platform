@@ -16,6 +16,7 @@ export const Permissions = {
   TENANT_SUSPEND: 'tenant.suspend',
   TENANT_CHURN: 'tenant.churn',
   TENANT_SECURITY_UPDATE: 'tenant.security.update',
+  TENANT_ONBOARDING_UPDATE: 'tenant.onboarding.update',
 
   // Master data
   PAYER_MASTER_VIEW: 'payer.master.view',
