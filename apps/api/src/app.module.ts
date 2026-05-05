@@ -9,7 +9,10 @@ import { AuditModule } from './modules/audit';
 import { AuthModule } from './modules/auth/auth.module';
 import { CaseModule } from './modules/case';
 import { ClaimModule } from './modules/claim';
+import { ClaimSubmitModule } from './modules/claim-submit';
+import { DischargeModule } from './modules/discharge';
 import { DoctorModule } from './modules/doctor';
+import { DocumentModule } from './modules/document';
 import { EligibilityModule } from './modules/eligibility';
 import { HealthModule } from './modules/health/health.module';
 import { IntegrationModule } from './modules/integration';
@@ -76,6 +79,9 @@ import { UserModule } from './modules/user/user.module';
     CaseModule,
     EligibilityModule,
     PreauthModule,
+    DocumentModule,
+    DischargeModule,
+    ClaimSubmitModule,
     HealthModule,
     TenantModule,
     UserModule,

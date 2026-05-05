@@ -145,6 +145,72 @@ export class NhcxStubAdapter {
     };
   }
 
+  // Discharge bundle submit. Stub acknowledges; the real adapter will
+  // build a FHIR Communication bundle with discharge_summary references
+  // and POST it to NHCX.
+  async submitDischarge(input: {
+    tenantId: string;
+    claimId: string;
+    documentIds: string[];
+  }): Promise<{
+    correlationId: string;
+    rawRequest: Record<string, unknown>;
+    rawResponse: Record<string, unknown>;
+  }> {
+    const correlationId = randomUUID();
+    return {
+      correlationId,
+      rawRequest: {
+        bundleType: 'Communication',
+        operation: 'discharge.submit',
+        ...input,
+      },
+      rawResponse: {
+        bundleType: 'CommunicationResponse',
+        outcome: 'acknowledged',
+        correlationId,
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  // Final claim submit — same shape as preauth.submit. Returns a
+  // claimRefNum. Real decision arrives via callback or (V1) the
+  // admin-issued decision endpoint.
+  async submitClaim(input: {
+    tenantId: string;
+    claimId: string;
+    finalAmount: number;
+  }): Promise<{
+    acknowledged: boolean;
+    claimRefNum: string;
+    correlationId: string;
+    rawRequest: Record<string, unknown>;
+    rawResponse: Record<string, unknown>;
+  }> {
+    const correlationId = randomUUID();
+    const claimRefNum = `STUB-CL-${randomUUID().slice(0, 8).toUpperCase()}`;
+    return {
+      acknowledged: true,
+      claimRefNum,
+      correlationId,
+      rawRequest: {
+        bundleType: 'Claim',
+        use: 'claim',
+        tenantId: input.tenantId,
+        claimId: input.claimId,
+        finalAmount: input.finalAmount,
+      },
+      rawResponse: {
+        bundleType: 'ClaimResponse',
+        outcome: 'queued',
+        claimRefNum,
+        correlationId,
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
   private parseFailList(): ReadonlySet<string> {
     const raw = this.config.get('NHCX_STUB_MRN_FAIL_LIST', { infer: true });
     if (!raw) return new Set();
