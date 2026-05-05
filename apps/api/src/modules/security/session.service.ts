@@ -28,7 +28,9 @@ export class SessionService {
   // Enforce per-user concurrent-session cap. Called inside the same tx
   // that creates the new session, BEFORE the create — we evict the
   // oldest until the count is below the cap, leaving room for the
-  // incoming session.
+  // incoming session. The caller MUST hand us a tx running in
+  // platform_admin context — session_token_history's RLS only allows
+  // platform_admin inserts. (finalizeLogin already does this.)
   //
   // Eviction is FIFO by createdAt. Each evicted session gets a
   // SESSION_REVOKED audit row + the refreshTokenHash logged into
@@ -57,7 +59,7 @@ export class SessionService {
           refreshTokenHash: s.refreshTokenHash,
           rotatedAt: new Date(),
         },
-      }).catch(() => undefined);
+      });
       await tx.session.delete({ where: { id: s.id } });
       await this.audit.recordWithTx(tx, {
         tenantId,
@@ -98,6 +100,10 @@ export class SessionService {
   // Revoke a specific session for the user. Refuses to revoke the
   // current session (call /auth/logout for that). Returns true if a
   // session was revoked.
+  //
+  // Runs in platform_admin context because session_token_history's RLS
+  // only allows platform_admin inserts (it's an internal reuse-detection
+  // ledger, not a tenant-facing table).
   async revoke(
     tenantId: string,
     userId: string,
@@ -107,30 +113,36 @@ export class SessionService {
     actorUserAgent: string | null,
   ): Promise<boolean> {
     if (sessionId === currentSessionId) return false;
-    return this.prisma.runInTenantContext(tenantId, 'tenant', async (tx) => {
-      const target = await tx.session.findUnique({ where: { id: sessionId } });
-      if (!target || target.userId !== userId) return false;
-      await tx.sessionTokenHistory.create({
-        data: {
-          sessionId: target.id,
-          userId: target.userId,
-          refreshTokenHash: target.refreshTokenHash,
-          rotatedAt: new Date(),
-        },
-      }).catch(() => undefined);
-      await tx.session.delete({ where: { id: target.id } });
-      await this.audit.recordWithTx(tx, {
-        tenantId,
-        actorUserId: userId,
-        actorType: 'user',
-        action: AuditEvents.SESSION_REVOKED,
-        resourceType: 'session',
-        resourceId: target.id,
-        after: { reason: 'self_service_revoke' },
-        ipAddress: actorIp,
-        userAgent: actorUserAgent,
-      });
-      return true;
-    });
+    return this.prisma.runInTenantContext(
+      '00000000-0000-0000-0000-000000000000',
+      'platform_admin',
+      async (tx) => {
+        const target = await tx.session.findUnique({ where: { id: sessionId } });
+        if (!target || target.userId !== userId || target.tenantId !== tenantId) {
+          return false;
+        }
+        await tx.sessionTokenHistory.create({
+          data: {
+            sessionId: target.id,
+            userId: target.userId,
+            refreshTokenHash: target.refreshTokenHash,
+            rotatedAt: new Date(),
+          },
+        });
+        await tx.session.delete({ where: { id: target.id } });
+        await this.audit.recordWithTx(tx, {
+          tenantId,
+          actorUserId: userId,
+          actorType: 'user',
+          action: AuditEvents.SESSION_REVOKED,
+          resourceType: 'session',
+          resourceId: target.id,
+          after: { reason: 'self_service_revoke' },
+          ipAddress: actorIp,
+          userAgent: actorUserAgent,
+        });
+        return true;
+      },
+    );
   }
 }
