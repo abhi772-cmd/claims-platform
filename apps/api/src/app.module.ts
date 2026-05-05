@@ -16,6 +16,7 @@ import { DocumentModule } from './modules/document';
 import { EligibilityModule } from './modules/eligibility';
 import { HealthModule } from './modules/health/health.module';
 import { IntegrationModule } from './modules/integration';
+import { MasterDataModule } from './modules/master-data';
 import { MfaModule } from './modules/mfa';
 import { NotificationModule } from './modules/notification';
 import { OnboardingModule } from './modules/onboarding';
@@ -84,6 +85,7 @@ import { UserModule } from './modules/user/user.module';
     DischargeModule,
     ClaimSubmitModule,
     SettlementModule,
+    MasterDataModule,
     HealthModule,
     TenantModule,
     UserModule,

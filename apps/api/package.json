@@ -17,6 +17,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset --force --skip-seed",
     "db:seed": "ts-node --transpile-only --project tsconfig.json prisma/seed.ts",
+    "db:seed:master": "ts-node --transpile-only --project tsconfig.json prisma/seed-master-data.ts",
     "prisma:generate": "prisma generate"
   },
   "dependencies": {
