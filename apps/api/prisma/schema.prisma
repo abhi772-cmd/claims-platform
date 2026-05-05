@@ -512,22 +512,50 @@ model Settlement {
 // File metadata only — binaries live in OVH Object Storage. v1 stores
 // references with a synthetic storage key; the real upload pipeline
 // lands in Slice P alongside the NHCX adapter.
+// File metadata + lifecycle. Binaries live in OVH Object Storage. The
+// row goes through three states:
+//   uploadStatus='pending'   row created on upload-init; client has the
+//                            presigned PUT URL but hasn't completed the
+//                            transfer yet.
+//   uploadStatus='completed' client called finalize → server HEAD'd the
+//                            object → etag + sizeBytes confirmed on the
+//                            row. Discharge / claim-submit flows only
+//                            count rows in this state.
+//   uploadStatus='failed'    finalize failed (object missing, size
+//                            mismatch, etc.). Stays in this state until
+//                            cleanup or retry.
+//
+// The legacy upload-stub flow short-circuits straight to 'completed'
+// with synthesised storageKey + sizeBytes — it's still used by tests
+// and the dev environment when STORAGE_MODE=stub.
 model Document {
-  id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String   @db.Uuid
-  claimId          String   @db.Uuid
-  documentType     String   // see DocumentType enum in contracts
-  storageBucket    String
-  storageKey       String
-  etag             String?
-  contentType      String
-  sizeBytes        Int
-  originalFilename String
-  uploadedAt       DateTime @default(now())
-  uploadedById     String?  @db.Uuid
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @db.Uuid
+  claimId           String   @db.Uuid
+  documentType      String   // see DocumentType enum in contracts
+  storageBucket     String
+  storageKey        String
+  etag              String?
+  contentType       String
+  // sizeBytes is the CLIENT-DECLARED size on init; finalize replaces it
+  // with the server-observed size from S3 HEAD. Both are nominally the
+  // same — they diverge only when the upload is corrupted or the client
+  // lied, and finalize rejects in those cases.
+  sizeBytes         Int
+  originalFilename  String
+  uploadStatus      String   @default("completed") // 'pending' | 'completed' | 'failed'
+  // sha256 hex-encoded if the client provides it. Optional in V1; the
+  // virus-scan + EOB ingestion paths in Sprint 3 will require it.
+  contentSha256     String?
+  // Last finalize failure reason — surfaces back to the UI on retry.
+  uploadError       String?
+  finalizedAt       DateTime?
+  uploadedAt        DateTime @default(now())
+  uploadedById      String?  @db.Uuid
 
   @@index([tenantId, claimId])
   @@index([claimId, documentType])
+  @@index([tenantId, uploadStatus])
   @@map("document")
 }
 

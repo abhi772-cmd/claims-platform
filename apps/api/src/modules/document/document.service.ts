@@ -1,9 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
-import { type Document, type DocumentType } from '@claims/contracts';
-import { Injectable } from '@nestjs/common';
+import {
+  type Document,
+  type DocumentType,
+  type DocumentUploadStatus,
+} from '@claims/contracts';
+import { Inject, Injectable } from '@nestjs/common';
 
+import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { STORAGE_ADAPTER, type StorageAdapter } from '../storage';
 
 export interface UploadStubInput {
   tenantId: string;
@@ -15,12 +21,40 @@ export interface UploadStubInput {
   sizeBytes: number;
 }
 
+export interface UploadInitInput {
+  tenantId: string;
+  claimId: string;
+  actorUserId: string;
+  documentType: DocumentType;
+  originalFilename: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
+export interface UploadInitResult {
+  document: Document;
+  uploadUrl: string;
+  expiresAt: string;
+  requiredHeaders: Record<string, string>;
+}
+
+export interface FinalizeUploadInput {
+  tenantId: string;
+  claimId: string;
+  documentId: string;
+  contentSha256?: string;
+}
+
 @Injectable()
 export class DocumentService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(STORAGE_ADAPTER) private readonly storage: StorageAdapter,
+  ) {}
 
-  // V1 stub: synthesise a storage key + bucket. The real upload pipeline
-  // (presigned URLs, virus scan, etc.) lands in Slice P.
+  // V1 stub flow: synthesise + create the row in 'completed' state in
+  // a single tx. Behaviour preserved for the existing upload-stub
+  // endpoint and tests that don't exercise the real S3 path.
   async uploadStub(input: UploadStubInput): Promise<Document> {
     const storageBucket = 'claims-stub';
     const storageKey = `${input.tenantId}/${input.claimId}/${randomUUID()}-${input.originalFilename}`;
@@ -36,10 +70,120 @@ export class DocumentService {
           sizeBytes: input.sizeBytes,
           originalFilename: input.originalFilename,
           uploadedById: input.actorUserId,
+          uploadStatus: 'completed',
+          finalizedAt: new Date(),
         },
       }),
     );
     return toDocument(row);
+  }
+
+  // Init flow: server picks the storage key, signs the URL, creates a
+  // 'pending' Document row. The client uploads to the URL directly,
+  // then calls finalize() to flip the row to 'completed'.
+  async initUpload(input: UploadInitInput): Promise<UploadInitResult> {
+    const documentId = randomUUID();
+    const presigned = await this.storage.presignUpload({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      documentId,
+      contentType: input.contentType,
+      declaredSizeBytes: input.sizeBytes,
+      originalFilename: input.originalFilename,
+    });
+
+    const row = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
+      tx.document.create({
+        data: {
+          id: documentId,
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          documentType: input.documentType,
+          storageBucket: presigned.storageBucket,
+          storageKey: presigned.storageKey,
+          contentType: input.contentType,
+          sizeBytes: input.sizeBytes,
+          originalFilename: input.originalFilename,
+          uploadedById: input.actorUserId,
+          uploadStatus: 'pending',
+        },
+      }),
+    );
+
+    return {
+      document: toDocument(row),
+      uploadUrl: presigned.uploadUrl,
+      expiresAt: presigned.expiresAt,
+      requiredHeaders: presigned.requiredHeaders,
+    };
+  }
+
+  async finalizeUpload(input: FinalizeUploadInput): Promise<Document> {
+    const row = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
+      tx.document.findUnique({ where: { id: input.documentId } }),
+    );
+    if (!row || row.tenantId !== input.tenantId || row.claimId !== input.claimId) {
+      throw new ValidationFailedError({ documentId: ['Document not found.'] });
+    }
+    if (row.uploadStatus === 'completed') {
+      // Already finalized — idempotent return.
+      return toDocument(row);
+    }
+    if (row.uploadStatus === 'failed') {
+      throw new ValidationFailedError({
+        documentId: ['Upload previously failed; re-init required.'],
+      });
+    }
+
+    let etag: string;
+    let actualSizeBytes: number;
+    try {
+      const head = await this.storage.finalize({
+        storageBucket: row.storageBucket,
+        storageKey: row.storageKey,
+      });
+      etag = head.etag;
+      actualSizeBytes = head.actualSizeBytes;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      const failedRow = await this.prisma.runInTenantContext(
+        input.tenantId,
+        'tenant',
+        (tx) =>
+          tx.document.update({
+            where: { id: input.documentId },
+            data: {
+              uploadStatus: 'failed',
+              uploadError: message.slice(0, 500),
+            },
+          }),
+      );
+      void failedRow;
+      throw new ValidationFailedError({
+        documentId: [`Upload finalize failed: ${message}`],
+      });
+    }
+
+    // For the stub adapter, actualSizeBytes is 0 (no real upload happened).
+    // Trust the declared size in that case so the row keeps the value the
+    // client passed at init time.
+    const sizeToRecord = actualSizeBytes > 0 ? actualSizeBytes : row.sizeBytes;
+
+    const updated = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
+      tx.document.update({
+        where: { id: input.documentId },
+        data: {
+          etag,
+          sizeBytes: sizeToRecord,
+          uploadStatus: 'completed',
+          finalizedAt: new Date(),
+          uploadError: null,
+          ...(input.contentSha256 !== undefined ? { contentSha256: input.contentSha256 } : {}),
+        },
+      }),
+    );
+
+    return toDocument(updated);
   }
 
   async list(tenantId: string, claimId: string): Promise<Document[]> {
@@ -52,13 +196,18 @@ export class DocumentService {
     return rows.map(toDocument);
   }
 
+  // Used by discharge / claim-submit to gate progression on completed
+  // uploads only — pending rows don't count toward checklist
+  // satisfaction.
   async hasDocumentType(
     tenantId: string,
     claimId: string,
     type: DocumentType,
   ): Promise<boolean> {
     const count = await this.prisma.runInTenantContext(tenantId, 'tenant', (tx) =>
-      tx.document.count({ where: { claimId, documentType: type } }),
+      tx.document.count({
+        where: { claimId, documentType: type, uploadStatus: 'completed' },
+      }),
     );
     return count > 0;
   }
@@ -74,6 +223,10 @@ function toDocument(row: {
   contentType: string;
   sizeBytes: number;
   originalFilename: string;
+  uploadStatus: string;
+  contentSha256: string | null;
+  uploadError: string | null;
+  finalizedAt: Date | null;
   uploadedAt: Date;
   uploadedById: string | null;
 }): Document {
@@ -87,6 +240,10 @@ function toDocument(row: {
     contentType: row.contentType,
     sizeBytes: row.sizeBytes,
     originalFilename: row.originalFilename,
+    uploadStatus: row.uploadStatus as DocumentUploadStatus,
+    contentSha256: row.contentSha256,
+    uploadError: row.uploadError,
+    finalizedAt: row.finalizedAt ? row.finalizedAt.toISOString() : null,
     uploadedAt: row.uploadedAt.toISOString(),
     uploadedById: row.uploadedById,
   };

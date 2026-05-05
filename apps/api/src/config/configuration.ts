@@ -23,6 +23,19 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
   }
   const env = parsed.data;
 
+  // When STORAGE_MODE=real, the S3 connection settings must be present.
+  if (env.STORAGE_MODE === 'real') {
+    const missing: string[] = [];
+    if (!env.OVH_S3_ENDPOINT) missing.push('OVH_S3_ENDPOINT');
+    if (!env.OVH_S3_REGION) missing.push('OVH_S3_REGION');
+    if (!env.OVH_S3_BUCKET) missing.push('OVH_S3_BUCKET');
+    if (!env.OVH_S3_ACCESS_KEY) missing.push('OVH_S3_ACCESS_KEY');
+    if (!env.OVH_S3_SECRET_KEY) missing.push('OVH_S3_SECRET_KEY');
+    if (missing.length > 0) {
+      throw new ConfigError({ STORAGE_MODE: [`real mode requires: ${missing.join(', ')}`] });
+    }
+  }
+
   // When NHCX_MODE=real, the connection settings + keys must be present.
   // Surface the misconfiguration as a single ConfigError up front.
   if (env.NHCX_MODE === 'real') {

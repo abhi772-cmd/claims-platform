@@ -25,6 +25,7 @@ import { PasswordModule } from './modules/password';
 import { PreauthModule } from './modules/preauth';
 import { AppSecurityModule } from './modules/security';
 import { SettlementModule } from './modules/settlement';
+import { StorageModule } from './modules/storage';
 import { TenantModule } from './modules/tenant/tenant.module';
 import { UserModule } from './modules/user/user.module';
 
@@ -79,6 +80,7 @@ import { UserModule } from './modules/user/user.module';
     OnboardingModule,
     IntegrationModule,
     NhcxModule,
+    StorageModule,
     ClaimModule,
     CaseModule,
     EligibilityModule,

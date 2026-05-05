@@ -1,8 +1,14 @@
 import {
+  type Document,
   type DocumentListResponse,
   Permissions,
   type UploadDocumentStubRequest,
   UploadDocumentStubRequestSchema,
+  type UploadFinalizeRequest,
+  UploadFinalizeRequestSchema,
+  type UploadInitRequest,
+  UploadInitRequestSchema,
+  type UploadInitResponse,
 } from '@claims/contracts';
 import {
   Body,
@@ -44,6 +50,9 @@ export class DocumentController {
     return { documents };
   }
 
+  // Legacy single-shot upload — synthesises storage refs + creates a
+  // 'completed' row. Kept for tests + dev where STORAGE_MODE=stub. Real
+  // clients should use upload-init + finalize.
   @Post('upload-stub')
   @HttpCode(201)
   @RequirePermission(Permissions.CASE_CREATE)
@@ -53,7 +62,7 @@ export class DocumentController {
     @Body(new ZodValidationPipe(UploadDocumentStubRequestSchema))
     body: UploadDocumentStubRequest,
     @CurrentUser() user: Express.AuthenticatedUser,
-  ): Promise<{ document: Awaited<ReturnType<DocumentService['uploadStub']>> }> {
+  ): Promise<{ document: Document }> {
     await this.assertOwns(user.tenantId, caseId, claimId);
     const document = await this.documents.uploadStub({
       tenantId: user.tenantId,
@@ -63,6 +72,48 @@ export class DocumentController {
       originalFilename: body.originalFilename,
       contentType: body.contentType,
       sizeBytes: body.sizeBytes,
+    });
+    return { document };
+  }
+
+  // Two-step real upload: init → client PUTs bytes → finalize.
+  @Post('upload-init')
+  @HttpCode(201)
+  @RequirePermission(Permissions.CASE_CREATE)
+  async uploadInit(
+    @Param('caseId', new ParseUUIDPipe()) caseId: string,
+    @Param('claimId', new ParseUUIDPipe()) claimId: string,
+    @Body(new ZodValidationPipe(UploadInitRequestSchema)) body: UploadInitRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<UploadInitResponse> {
+    await this.assertOwns(user.tenantId, caseId, claimId);
+    return this.documents.initUpload({
+      tenantId: user.tenantId,
+      claimId,
+      actorUserId: user.userId,
+      documentType: body.documentType,
+      originalFilename: body.originalFilename,
+      contentType: body.contentType,
+      sizeBytes: body.sizeBytes,
+    });
+  }
+
+  @Post(':documentId/finalize')
+  @HttpCode(200)
+  @RequirePermission(Permissions.CASE_CREATE)
+  async finalize(
+    @Param('caseId', new ParseUUIDPipe()) caseId: string,
+    @Param('claimId', new ParseUUIDPipe()) claimId: string,
+    @Param('documentId', new ParseUUIDPipe()) documentId: string,
+    @Body(new ZodValidationPipe(UploadFinalizeRequestSchema)) body: UploadFinalizeRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<{ document: Document }> {
+    await this.assertOwns(user.tenantId, caseId, claimId);
+    const document = await this.documents.finalizeUpload({
+      tenantId: user.tenantId,
+      claimId,
+      documentId,
+      ...(body.contentSha256 !== undefined ? { contentSha256: body.contentSha256 } : {}),
     });
     return { document };
   }
