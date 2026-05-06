@@ -36,6 +36,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { z } from 'zod';
 
 import { MasterDataService, type ReadCtx } from './master-data.service';
@@ -107,6 +108,7 @@ const ResolveChecklistQuerySchema = z.object({
   admissionType: z.enum(['planned', 'emergency', 'day_care']).optional(),
 });
 
+@ApiTags('master-data')
 @Controller()
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class MasterDataController {

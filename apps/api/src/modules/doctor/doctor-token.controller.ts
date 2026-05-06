@@ -21,6 +21,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { type Request } from 'express';
 
 import { DoctorTokenService } from './doctor-token.service';
@@ -30,6 +31,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
+@ApiTags('doctor')
 @Controller('preauth/doctor-tokens')
 export class DoctorTokenController {
   constructor(private readonly tokens: DoctorTokenService) {}

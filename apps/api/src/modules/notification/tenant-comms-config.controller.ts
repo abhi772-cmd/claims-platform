@@ -5,6 +5,7 @@ import {
   type TenantCommsConfigSummary,
 } from '@claims/contracts';
 import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 
 import { TenantCommsConfigService } from './tenant-comms-config.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -17,6 +18,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 // the redacted summary and PATCH overrides. Secrets (smtp.password,
 // sms.apiKey) are write-only — the GET response replaces them with
 // boolean flags.
+@ApiTags('tenant-comms-config')
 @Controller('tenant/comms-config')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class TenantCommsConfigController {

@@ -6,6 +6,7 @@ import {
   Permissions,
 } from '@claims/contracts';
 import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { type Response } from 'express';
 import { z } from 'zod';
 
@@ -23,6 +24,7 @@ const ListQuerySchema = AuditLogFilterSchema.extend({
 
 const ExportQuerySchema = AuditLogFilterSchema;
 
+@ApiTags('audit')
 @Controller('audit')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class AuditController {

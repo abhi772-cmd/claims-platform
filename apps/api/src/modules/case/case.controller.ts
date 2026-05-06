@@ -20,6 +20,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { type Request } from 'express';
 
 import { CaseService } from './case.service';
@@ -29,6 +30,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
+@ApiTags('cases')
 @Controller('cases')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class CaseController {

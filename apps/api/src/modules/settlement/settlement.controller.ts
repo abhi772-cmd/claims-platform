@@ -21,6 +21,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 
 import { SettlementService } from './settlement.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -32,6 +33,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CaseService } from '../case';
 import { ClaimService } from '../claim';
 
+@ApiTags('settlement')
 @Controller('cases/:caseId/claims/:claimId/settlement')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class SettlementController {

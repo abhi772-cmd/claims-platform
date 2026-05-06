@@ -12,6 +12,7 @@ import {
   type ReadinessReport,
 } from '@claims/contracts';
 import { Body, Controller, Get, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { type Request } from 'express';
 
 import { OnboardingService } from './onboarding.service';
@@ -24,6 +25,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
+@ApiTags('tenant-onboarding')
 @Controller('tenant')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OnboardingController {

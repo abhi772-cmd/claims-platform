@@ -1,5 +1,6 @@
 import { Controller, Get } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ApiTags } from '@nestjs/swagger';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
@@ -29,6 +30,7 @@ interface ReadinessResponse {
   };
 }
 
+@ApiTags('health')
 @Controller('health')
 export class HealthController {
   constructor(

@@ -74,6 +74,16 @@ describe('OpenAPI mount', () => {
       // walks all registered controllers.
       expect(res.body.paths['/ping']).toBeDefined();
       expect(res.body.paths['/ping'].get).toBeDefined();
+      // Slice AK — tag descriptions are declared at the document
+      // level. The smoke-test app only mounts PingModule (no
+      // controllers carrying our @ApiTags), so we just assert the
+      // tag descriptions are present on the document. Real-app tags
+      // get exercised by the per-controller fan-out in production.
+      const tags = (res.body.tags ?? []) as { name: string; description?: string }[];
+      const expectedTags = ['auth', 'cases', 'preauth', 'settlement', 'appeal'];
+      for (const expected of expectedTags) {
+        expect(tags.find((t) => t.name === expected)).toBeDefined();
+      }
     } finally {
       await app.close();
     }
