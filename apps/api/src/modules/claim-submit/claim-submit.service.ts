@@ -20,7 +20,13 @@ export interface SubmitInput extends StartInput {
   finalAmount: number;
 }
 
-export interface DecisionInput extends StartInput {
+export interface DecisionInput {
+  tenantId: string;
+  claimId: string;
+  // Null when the decision arrives via the NHCX inbound webhook —
+  // there's no logged-in user; the platform applies the transition
+  // on behalf of the gateway.
+  actorUserId: string | null;
   kind: ClaimDecisionKind;
   approvedAmount?: number;
   reason?: string;

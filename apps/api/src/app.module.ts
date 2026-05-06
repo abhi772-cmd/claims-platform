@@ -22,6 +22,7 @@ import { IntegrationModule } from './modules/integration';
 import { MasterDataModule } from './modules/master-data';
 import { MfaModule } from './modules/mfa';
 import { NhcxModule } from './modules/nhcx';
+import { NhcxInboundModule } from './modules/nhcx/inbound/nhcx-inbound.module';
 import { NotificationModule } from './modules/notification';
 import { OnboardingModule } from './modules/onboarding';
 import { PasswordModule } from './modules/password';
@@ -85,6 +86,7 @@ import { UserModule } from './modules/user/user.module';
     OnboardingModule,
     IntegrationModule,
     NhcxModule,
+    NhcxInboundModule,
     StorageModule,
     VirusScanModule,
     PatientModule,
