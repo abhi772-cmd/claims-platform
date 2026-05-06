@@ -74,3 +74,62 @@ export const SettlementResponseSchema = z.object({
   status: z.string(),
 });
 export type SettlementResponse = z.infer<typeof SettlementResponseSchema>;
+
+// Slice AL — payer remittance batch. Operators receive a remittance
+// file (CSV / Excel) from the payer with one row per paid claim;
+// rather than calling /settlement/receipt N times, they POST a batch
+// here and get back per-row status. Matching is by claim.claimRefNum
+// (set at claim submit time). Rows that don't match an open
+// settlement are returned in `unmatched` so ops can handle them
+// manually — we don't auto-create settlements just because a remittance
+// row showed up.
+
+export const RemittanceRowSchema = z.object({
+  // The payer's reference for the claim — matches Claim.claimRefNum.
+  claimRefNum: z.string().min(1).max(128),
+  receivedAmount: z.number().int().nonnegative(),
+  receivedAt: z.string().datetime().optional(),
+  // Bank transaction id from the remittance file. Captured for
+  // audit; not currently persisted on Settlement (that's a Sprint 5
+  // hardening item — needs a schema change). Logged at the moment.
+  bankTxnId: z.string().max(128).optional(),
+  // When the remittance shows the payer recognising less than expected,
+  // the operator typically annotates with the rejection codes the
+  // payer sent. Free-form because formats vary across TPAs.
+  shortPaymentReasons: z.array(z.string().max(200)).max(20).optional(),
+});
+export type RemittanceRow = z.infer<typeof RemittanceRowSchema>;
+
+export const RemittanceBatchRequestSchema = z.object({
+  rows: z.array(RemittanceRowSchema).min(1).max(1000),
+});
+export type RemittanceBatchRequest = z.infer<typeof RemittanceBatchRequestSchema>;
+
+export const RemittanceMatchOutcomeSchema = z.enum([
+  'applied',
+  'unmatched_no_claim',
+  'unmatched_no_settlement',
+  'failed',
+]);
+export type RemittanceMatchOutcome = z.infer<typeof RemittanceMatchOutcomeSchema>;
+
+export const RemittanceRowResultSchema = z.object({
+  claimRefNum: z.string(),
+  outcome: RemittanceMatchOutcomeSchema,
+  // Set when outcome === 'applied'. The settlement's reconciliation
+  // status after recording the receipt — caller can spot which rows
+  // landed as short_paid vs manual_match_pending.
+  reconciliationStatus: z.string().optional(),
+  // Set on outcome === 'failed' so callers can show a per-row error.
+  error: z.string().optional(),
+});
+export type RemittanceRowResult = z.infer<typeof RemittanceRowResultSchema>;
+
+export const RemittanceBatchResponseSchema = z.object({
+  totalRows: z.number().int().nonnegative(),
+  appliedCount: z.number().int().nonnegative(),
+  unmatchedCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  results: z.array(RemittanceRowResultSchema),
+});
+export type RemittanceBatchResponse = z.infer<typeof RemittanceBatchResponseSchema>;
