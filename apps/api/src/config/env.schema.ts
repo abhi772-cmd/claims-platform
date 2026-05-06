@@ -153,6 +153,13 @@ export const EnvSchema = z.object({
   NHCX_PRIVATE_KEY_BASE64_V2: OptionalString,
   // Default request timeout for real-mode HTTP calls (ms).
   NHCX_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+
+  // OpenAPI / Swagger UI mount (Slice AB).
+  //   true  — exposes /api/docs (Swagger UI) + /api/docs-json (raw spec)
+  //   false — both routes return 404
+  // On in non-prod by default for dev convenience; ops decides whether
+  // to flip it on in production behind an internal-only ingress.
+  SWAGGER_ENABLED: BooleanLike.default(true),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

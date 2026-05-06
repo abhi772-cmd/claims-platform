@@ -9,6 +9,7 @@ import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { DomainExceptionFilter } from './common/filters/domain-exception.filter';
 import { type AppConfig } from './config/configuration';
+import { mountOpenApi } from './openapi';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -29,6 +30,11 @@ async function bootstrap(): Promise<void> {
     origin: config.get('CORS_ORIGIN', { infer: true }),
     credentials: true,
   });
+
+  // Mount the OpenAPI spec + Swagger UI under /api/docs. Off by
+  // default in production until ops decides whether to expose it
+  // publicly or behind an internal-only ingress (see SWAGGER_ENABLED).
+  mountOpenApi(app, config);
 
   const port = config.get('PORT', { infer: true });
   await app.listen(port);
