@@ -14,6 +14,7 @@ import {
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { type AppConfig } from '../../../config/configuration';
 import { ClaimSubmitService } from '../../claim-submit/claim-submit.service';
+import { DischargeService } from '../../discharge/discharge.service';
 import { EligibilityService } from '../../eligibility/eligibility.service';
 import { PreauthService } from '../../preauth/preauth.service';
 import {
@@ -66,6 +67,7 @@ export class NhcxInboundService {
     private readonly eligibility: EligibilityService,
     private readonly preauth: PreauthService,
     private readonly claimSubmit: ClaimSubmitService,
+    private readonly discharge: DischargeService,
     private readonly config: ConfigService<AppConfig, true>,
     @Optional() @Inject(NHCX_KEY_RESOLVER) private readonly keyResolver: NhcxKeyResolver | null,
   ) {}
@@ -236,33 +238,73 @@ export class NhcxInboundService {
       });
       summary = { ...summary, parsed, claimStatus: out.status };
     } else if (operation === 'communication/request') {
-      const parsed = parseCommunication(decrypted);
-      if (parsed.kind === 'query') {
-        // Inbound payer query → routed through preauth.applyDecision
-        // with kind=query_received so a PreauthQuery row is created
-        // and the claim transitions to QUERY_RAISED. (Same path the
-        // admin escape hatch uses today — we just feed it from the
-        // gateway instead.)
-        const out = await this.preauth.applyDecision({
+      // Three different things route through communication/request,
+      // disambiguated by the matching outbound's operation:
+      //   1. discharge.submit outbound → discharge ack (Slice AF)
+      //   2. preauth.query.respond outbound → query response ack
+      //      (we already drove the state transition synchronously
+      //      when we sent it; this is just the gateway confirming
+      //      the message was relayed)
+      //   3. no matching outbound → payer-initiated query, routed
+      //      through preauth.applyDecision with kind=query_received
+      //      (same path Slice Z established).
+      const outboundOp = await this.lookupOutboundOperation(
+        row.tenantId,
+        input.correlationId,
+      );
+      if (outboundOp === 'discharge.submit') {
+        const out = await this.discharge.handleInboundResponse({
           tenantId: row.tenantId,
           claimId: row.claimId,
-          actorUserId: null,
-          kind: 'query_received',
-          queryText: parsed.text,
+          correlationId: input.correlationId,
         });
-        summary = { ...summary, parsed, claimStatus: out.status };
+        summary = { ...summary, outboundOp, claimStatus: out.status };
       } else {
-        // 'response' — log only. The original outbound query response
-        // already drove the state transition; this is the gateway
-        // confirming our message was relayed.
-        this.log.log(
-          `nhcx communication response received correlationId=${input.correlationId}`,
-        );
-        summary = { ...summary, parsed };
+        const parsed = parseCommunication(decrypted);
+        if (parsed.kind === 'query') {
+          const out = await this.preauth.applyDecision({
+            tenantId: row.tenantId,
+            claimId: row.claimId,
+            actorUserId: null,
+            kind: 'query_received',
+            queryText: parsed.text,
+          });
+          summary = { ...summary, parsed, claimStatus: out.status };
+        } else {
+          this.log.log(
+            `nhcx communication response received correlationId=${input.correlationId}`,
+          );
+          summary = { ...summary, parsed };
+        }
       }
     }
 
     await this.markSucceeded(inboundMessageId, summary, decrypted);
+  }
+
+  // Look up the outbound integration_message row that paired this
+  // inbound's correlationId. Returns the outbound's operation, or
+  // null when no matching outbound exists. Used by the
+  // communication/request handler to disambiguate discharge ack vs.
+  // payer query.
+  private async lookupOutboundOperation(
+    tenantId: string,
+    correlationId: string,
+  ): Promise<string | null> {
+    const out = await this.prisma.runInTenantContext(
+      tenantId,
+      'platform_admin',
+      (tx) =>
+        tx.integrationMessage.findFirst({
+          where: {
+            correlationId,
+            direction: 'outbound',
+            integration: 'nhcx',
+          },
+          select: { operation: true },
+        }),
+    );
+    return out?.operation ?? null;
   }
 
   // Decrypt the compact JWE using the private key indicated by the
