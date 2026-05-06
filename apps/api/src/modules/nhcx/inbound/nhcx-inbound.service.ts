@@ -156,7 +156,14 @@ export class NhcxInboundService {
     try {
       await this.processInternal(inboundMessageId, input);
     } catch (err) {
-      const errorName = err instanceof Error ? err.name : 'Error';
+      // err.constructor.name reports the actual JS class
+      // (e.g. InvalidClaimTransitionError); err.name is just whatever
+      // the parent class declared (DomainError, Error). We want the
+      // most-specific name for failure classification.
+      const errorName =
+        err instanceof Error
+          ? (err.constructor.name === 'Error' ? err.name : err.constructor.name)
+          : 'Error';
       const message = err instanceof Error ? err.message : String(err);
       this.log.error(
         `nhcx inbound processing failed correlationId=${input.correlationId} err=${errorName}: ${message}`,
