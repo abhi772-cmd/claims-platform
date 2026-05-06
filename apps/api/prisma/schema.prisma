@@ -186,6 +186,14 @@ model Tenant {
   // ("203.0.113.0/24", "2001:db8::/32") or single IPs. Empty array (the
   // default) means no restriction. platform_admin bypasses regardless.
   ipAllowlist     Json                 @default("[]")
+  // Per-tenant communication channel configuration. Empty object
+  // means "use the platform-default env config" (SMTP_HOST,
+  // SMTP_PORT, SMTP_FROM, the SMS console-stub). Operators override
+  // per-tenant via /admin/tenant/comms-config. Secrets (smtp.password,
+  // sms.apiKey) live on the row gated by RLS; the read endpoint
+  // returns a redacted summary, never the raw values. KMS-wrapping
+  // those fields lands in Sprint 5.
+  commsConfig     Json                 @default("{}")
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 

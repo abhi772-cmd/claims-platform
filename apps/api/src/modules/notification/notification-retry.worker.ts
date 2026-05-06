@@ -145,9 +145,9 @@ export class NotificationRetryWorker implements OnApplicationBootstrap, OnApplic
 
     try {
       if (row.channel === 'email' && rendered.email) {
-        await this.email.send(row.recipient, rendered.email);
+        await this.email.send(row.tenantId, row.recipient, rendered.email);
       } else if (row.channel === 'sms' && rendered.sms) {
-        await this.sms.send(row.recipient, rendered.sms);
+        await this.sms.send(row.tenantId, row.recipient, rendered.sms);
       } else {
         // Channel mismatch (e.g. row says 'email' but the template only
         // has 'sms'). Permanent failure.

@@ -37,12 +37,12 @@ export class NotificationService {
     const rendered = renderTemplate(input.templateKey, input.data);
     if (input.email && rendered.email) {
       await this.send(input.tenantId, 'email', input.templateKey, input.email, async () => {
-        await this.email.send(input.email!, rendered.email!);
+        await this.email.send(input.tenantId, input.email!, rendered.email!);
       }, input.data);
     }
     if (input.sms && rendered.sms) {
       await this.send(input.tenantId, 'sms', input.templateKey, input.sms, async () => {
-        await this.sms.send(input.sms!, rendered.sms!);
+        await this.sms.send(input.tenantId, input.sms!, rendered.sms!);
       }, input.data);
     }
   }
@@ -101,14 +101,14 @@ export class NotificationService {
       const emailRowId = rowIds.emailRowId;
       const recipient = recipients.email;
       await this.deliverAndMark(tenantId, emailRowId, () =>
-        this.email.send(recipient, rendered.email!),
+        this.email.send(tenantId, recipient, rendered.email!),
       );
     }
     if (rowIds.smsRowId && rendered.sms && recipients.sms) {
       const smsRowId = rowIds.smsRowId;
       const recipient = recipients.sms;
       await this.deliverAndMark(tenantId, smsRowId, () =>
-        this.sms.send(recipient, rendered.sms!),
+        this.sms.send(tenantId, recipient, rendered.sms!),
       );
     }
   }

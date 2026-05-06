@@ -41,6 +41,7 @@ const ROLE_SEEDS: RoleSeed[] = [
       'payer.master.edit',
       'package.master.sync',
       'audit.view',
+      'tenant.comms_config.update',
     ],
   },
   {
@@ -52,6 +53,7 @@ const ROLE_SEEDS: RoleSeed[] = [
       'user.deactivate',
       'tenant.update',
       'tenant.lifecycle.transition',
+      'tenant.comms_config.update',
       'payer.master.view',
       'payer.master.edit',
       'package.master.sync',
