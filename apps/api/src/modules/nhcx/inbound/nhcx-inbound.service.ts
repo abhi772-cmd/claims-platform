@@ -226,14 +226,13 @@ export class NhcxInboundService {
       summary = { ...summary, parsed, claimStatus: out.status };
     } else if (operation === 'claim/on_submit') {
       const parsed = parseClaimResponse(decrypted);
-      const out = await this.claimSubmit.applyDecision({
+      // Slice AE: same two-step ack→decision shape as Slice AD's
+      // preauth handler.
+      const out = await this.claimSubmit.handleInboundResponse({
         tenantId: row.tenantId,
         claimId: row.claimId,
-        actorUserId: null,
-        kind: parsed.kind,
-        ...(parsed.approvedAmount !== undefined ? { approvedAmount: parsed.approvedAmount } : {}),
-        ...(parsed.reason !== undefined ? { reason: parsed.reason } : {}),
-        ...(parsed.queryText !== undefined ? { queryText: parsed.queryText } : {}),
+        correlationId: input.correlationId,
+        parsed,
       });
       summary = { ...summary, parsed, claimStatus: out.status };
     } else if (operation === 'communication/request') {
