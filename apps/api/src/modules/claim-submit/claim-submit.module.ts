@@ -4,9 +4,10 @@ import { ClaimSubmitController } from './claim-submit.controller';
 import { ClaimSubmitService } from './claim-submit.service';
 import { CaseModule } from '../case';
 import { ClaimModule } from '../claim';
+import { DocumentModule } from '../document';
 
 @Module({
-  imports: [ClaimModule, CaseModule],
+  imports: [ClaimModule, CaseModule, DocumentModule],
   controllers: [ClaimSubmitController],
   providers: [ClaimSubmitService],
   exports: [ClaimSubmitService],

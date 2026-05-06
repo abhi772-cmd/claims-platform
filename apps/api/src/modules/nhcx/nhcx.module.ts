@@ -1,6 +1,7 @@
 import { Global, Module, type Provider } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { FhirContextService } from './fhir-context.service';
 import { NHCX_ADAPTER, type NhcxAdapter } from './nhcx-adapter.interface';
 import { NhcxJweAdapter } from './nhcx-jwe.adapter';
 import {
@@ -36,6 +37,7 @@ const adapterProvider: Provider = {
     EnvKeyResolver,
     NhcxKeyResolverProvider,
     adapterProvider,
+    FhirContextService,
   ],
   exports: [
     NHCX_ADAPTER,
@@ -43,6 +45,7 @@ const adapterProvider: Provider = {
     NhcxStubAdapter,
     NhcxJweAdapter,
     EnvKeyResolver,
+    FhirContextService,
   ],
 })
 export class NhcxModule {}

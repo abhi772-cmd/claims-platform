@@ -70,12 +70,14 @@ export class NhcxStubAdapter implements NhcxAdapter {
       acknowledged: true,
       payerRefNum,
       correlationId,
+      // Echo the full enriched input back so integration tests can
+      // verify orchestrator → adapter wiring (patient + coverage +
+      // diagnosis fields). The JWE adapter materialises these into a
+      // real FHIR Bundle; the stub keeps them as a flat object.
       rawRequest: {
         bundleType: 'Claim',
         use: 'preauthorization',
-        tenantId: input.tenantId,
-        claimId: input.claimId,
-        requestedAmount: input.requestedAmount,
+        ...input,
       },
       rawResponse: {
         bundleType: 'ClaimResponse',
@@ -132,12 +134,12 @@ export class NhcxStubAdapter implements NhcxAdapter {
       acknowledged: true,
       claimRefNum,
       correlationId,
+      // Echo the full enriched input (patient + coverage + clinical
+      // fields + document ids) so tests can verify wiring.
       rawRequest: {
         bundleType: 'Claim',
         use: 'claim',
-        tenantId: input.tenantId,
-        claimId: input.claimId,
-        finalAmount: input.finalAmount,
+        ...input,
       },
       rawResponse: {
         bundleType: 'ClaimResponse',

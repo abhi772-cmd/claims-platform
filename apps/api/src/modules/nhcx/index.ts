@@ -25,3 +25,4 @@ export {
   type NhcxKeyResolver,
   EnvKeyResolver,
 } from './nhcx-key-resolver';
+export { FhirContextService, type FhirContext } from './fhir-context.service';

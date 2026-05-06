@@ -81,6 +81,11 @@ export class EligibilityService {
       eventType: 'eligibility.requested',
       actorUserId: input.actorUserId,
       payload: { policyNumber: input.policyNumber, payerCode: input.payerCode },
+      // Stamp payerCode on the materialised claim so subsequent phase
+      // services (preauth, discharge, claim-submit, communication) can
+      // build the coverage actor for outbound FHIR Bundles without
+      // re-passing it.
+      ...(input.payerCode !== undefined ? { patch: { payerCode: input.payerCode } } : {}),
     });
 
     // Outbound ledger row — separate tx so ClaimService.transition's

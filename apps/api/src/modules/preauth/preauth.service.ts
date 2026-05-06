@@ -10,7 +10,7 @@ import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ClaimService } from '../claim';
 import { IntegrationMessageService } from '../integration';
-import { NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
+import { FhirContextService, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 
 export interface SaveDraftInput {
   tenantId: string;
@@ -54,6 +54,7 @@ export class PreauthService {
     private readonly prisma: PrismaService,
     private readonly claims: ClaimService,
     private readonly integration: IntegrationMessageService,
+    private readonly fhirContext: FhirContextService,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
   ) {}
 
@@ -130,11 +131,31 @@ export class PreauthService {
       },
     });
 
-    // 3. Adapter call (outside tx).
+    // 3. Adapter call (outside tx). Slice AA enrichment: pass the
+    // FHIR context (patient + coverage) so the JWE adapter builds a
+    // real Claim use=preauthorization Bundle. The stub ignores these
+    // fields; coverage may be undefined when the case never ran
+    // eligibility with a payerCode (legacy case path), in which case
+    // the adapter falls back to its lightweight-payload behaviour.
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
     const adapterResult = await this.nhcx.submitPreauth({
       tenantId: input.tenantId,
       claimId: input.claimId,
       requestedAmount: draft.requestedAmount,
+      ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
+      ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
+      ...(draft.diagnosisIcdCode !== null ? { diagnosisIcdCode: draft.diagnosisIcdCode } : {}),
+      ...(draft.diagnosisDescription !== null
+        ? { diagnosisDescription: draft.diagnosisDescription }
+        : {}),
+      ...(draft.plannedProcedure !== null ? { plannedProcedure: draft.plannedProcedure } : {}),
+      ...(draft.procedureCode !== null ? { procedureCode: draft.procedureCode } : {}),
+      ...(draft.estimatedLengthOfStayDays !== null
+        ? { estimatedLengthOfStayDays: draft.estimatedLengthOfStayDays }
+        : {}),
+      ...(draft.clinicalJustification !== null
+        ? { clinicalJustification: draft.clinicalJustification }
+        : {}),
     });
 
     // 4. Ledger rows (outbound + inbound) + transition queued → submitted.
@@ -272,13 +293,15 @@ export class PreauthService {
       });
       return tx.claim.findUniqueOrThrow({ where: { id: input.claimId } });
     });
-    void claim;
-
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
     const adapterResult = await this.nhcx.respondPreauthQuery({
       tenantId: input.tenantId,
       claimId: input.claimId,
       queryId: input.queryId,
       responseText: input.responseText,
+      ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
+      ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
+      ...(claim.preauthRefNum !== null ? { inReplyToRefNum: claim.preauthRefNum } : {}),
     });
 
     const outboundId = await this.prisma.runInTenantContext(
