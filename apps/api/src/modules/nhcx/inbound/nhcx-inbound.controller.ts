@@ -6,6 +6,7 @@ import {
   NhcxInboundRequestSchema,
 } from '@claims/contracts';
 import { Body, Controller, Headers, HttpCode, Logger, Post } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 
 import { NhcxInboundService } from './nhcx-inbound.service';
 import { ValidationFailedError } from '../../../common/errors/validation-errors';
@@ -27,6 +28,7 @@ import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 //     after the response is sent.
 //   - Operation type comes from the `x-hcx-operation` header (a
 //     known set per HCX 0.7.1). correlationId from `x-hcx-correlation-id`.
+@ApiTags('nhcx-inbound')
 @Controller('nhcx/inbound')
 export class NhcxInboundController {
   private readonly log = new Logger(NhcxInboundController.name);

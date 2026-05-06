@@ -19,6 +19,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 
 import { AppealService } from './appeal.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -29,6 +30,7 @@ import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CaseService } from '../case';
 
+@ApiTags('appeal')
 @Controller('cases/:caseId/claims/:claimId/appeal')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class AppealController {

@@ -15,6 +15,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { type Request } from 'express';
 
 import { CaseService } from './case.service';
@@ -30,6 +31,7 @@ import { ClaimService } from '../claim';
 // transitions come from the rail adapters (NHCX / PMJAY) in later
 // slices; this exposes the event timeline + an admin escape hatch
 // gated by case.assign for ops use.
+@ApiTags('claims')
 @Controller('cases/:caseId/claims/:claimId')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ClaimController {

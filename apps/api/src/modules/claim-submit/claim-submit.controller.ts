@@ -18,6 +18,7 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 
 import { ClaimSubmitService } from './claim-submit.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
@@ -28,6 +29,7 @@ import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CaseService } from '../case';
 
+@ApiTags('claim-submission')
 @Controller('cases/:caseId/claims/:claimId/claim-submission')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ClaimSubmitController {

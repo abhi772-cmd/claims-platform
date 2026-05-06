@@ -16,6 +16,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { type Request } from 'express';
 
 import { EligibilityService } from './eligibility.service';
@@ -28,6 +29,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CaseService } from '../case';
 import { IntegrationMessageService } from '../integration';
 
+@ApiTags('eligibility')
 @Controller('cases/:caseId/claims/:claimId')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class EligibilityController {

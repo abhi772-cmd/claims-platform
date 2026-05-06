@@ -4,6 +4,7 @@ import {
   Permissions,
 } from '@claims/contracts';
 import { Body, Controller, Get, Put, Req, UseGuards } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { type Request } from 'express';
 
 import { IpAllowlistService } from './ip-allowlist.service';
@@ -13,6 +14,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
+@ApiTags('tenant-security')
 @Controller('tenant/security')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class TenantSecurityController {

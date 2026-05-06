@@ -1,5 +1,6 @@
 import { Permissions, type InviteUserRequest, InviteUserRequestSchema, type InviteUserResponse } from '@claims/contracts';
 import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
 import { type Request } from 'express';
 
 import { InviteService } from './invite.service';
@@ -9,6 +10,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
+@ApiTags('tenant-users')
 @Controller('tenant/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class UserAdminController {
