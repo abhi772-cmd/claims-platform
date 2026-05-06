@@ -70,10 +70,15 @@ export class TenantCommsConfigService {
         ignoreTls: smtp.ignoreTls ?? false,
       };
     }
+    // Coerce SMTP_PORT to a number — depending on how the env is
+    // populated at boot, ConfigService may surface the raw env string
+    // here even though our schema parses it to a number. The summary
+    // contract guarantees a number, so normalise at the boundary.
+    const envPort = this.config.get('SMTP_PORT', { infer: true });
     return {
       source: 'env',
       host: this.config.get('SMTP_HOST', { infer: true }),
-      port: this.config.get('SMTP_PORT', { infer: true }),
+      port: typeof envPort === 'number' ? envPort : Number(envPort),
       from: this.config.get('SMTP_FROM', { infer: true }),
       username: null,
       password: null,
