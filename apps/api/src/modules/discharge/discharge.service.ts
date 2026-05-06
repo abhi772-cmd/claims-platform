@@ -5,7 +5,7 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { ClaimService } from '../claim';
 import { DocumentService } from '../document';
 import { IntegrationMessageService } from '../integration';
-import { NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
+import { FhirContextService, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 
 export interface DischargeInput {
   tenantId: string;
@@ -20,6 +20,7 @@ export class DischargeService {
     private readonly claims: ClaimService,
     private readonly documents: DocumentService,
     private readonly integration: IntegrationMessageService,
+    private readonly fhirContext: FhirContextService,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
   ) {}
 
@@ -51,10 +52,13 @@ export class DischargeService {
     const docs = await this.documents.list(input.tenantId, input.claimId);
     const documentIds = docs.map((d) => d.id);
 
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
     const adapter = await this.nhcx.submitDischarge({
       tenantId: input.tenantId,
       claimId: input.claimId,
       documentIds,
+      ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
+      ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
     });
 
     const outboundId = await this.prisma.runInTenantContext(

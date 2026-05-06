@@ -7,8 +7,9 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ClaimService } from '../claim';
+import { DocumentService } from '../document';
 import { IntegrationMessageService } from '../integration';
-import { NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
+import { FhirContextService, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 
 export interface StartInput {
   tenantId: string;
@@ -39,6 +40,8 @@ export class ClaimSubmitService {
     private readonly prisma: PrismaService,
     private readonly claims: ClaimService,
     private readonly integration: IntegrationMessageService,
+    private readonly documents: DocumentService,
+    private readonly fhirContext: FhirContextService,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
   ) {}
 
@@ -66,11 +69,31 @@ export class ClaimSubmitService {
       patch: { claimAmount: input.finalAmount },
     });
 
-    // Adapter call.
+    // Adapter call. Slice AA enrichment: pass FHIR context + the
+    // preauth draft's diagnosis / procedure fields + uploaded document
+    // ids so the JWE adapter materialises a real Claim use=claim
+    // Bundle. Fields are pulled from the preauth draft because the
+    // claim-submit phase doesn't capture them again — they were frozen
+    // at preauth time. Documents come from the materialised list.
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
+    const draft = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
+      tx.preauthDraft.findUnique({ where: { claimId: input.claimId } }),
+    );
+    const docs = await this.documents.list(input.tenantId, input.claimId);
     const adapter = await this.nhcx.submitClaim({
       tenantId: input.tenantId,
       claimId: input.claimId,
       finalAmount: input.finalAmount,
+      ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
+      ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
+      documentIds: docs.map((d) => d.id),
+      ...(draft?.diagnosisIcdCode ? { diagnosisIcdCode: draft.diagnosisIcdCode } : {}),
+      ...(draft?.diagnosisDescription ? { diagnosisDescription: draft.diagnosisDescription } : {}),
+      ...(draft?.plannedProcedure ? { plannedProcedure: draft.plannedProcedure } : {}),
+      ...(draft?.procedureCode ? { procedureCode: draft.procedureCode } : {}),
+      ...(draft?.clinicalJustification
+        ? { clinicalJustification: draft.clinicalJustification }
+        : {}),
     });
 
     // Ledger rows + transition queued → submitted.

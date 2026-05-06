@@ -40,6 +40,7 @@ export interface TransitionInput {
     preauthRefNum?: string;
     claimRefNum?: string;
     payerRefNum?: string;
+    payerCode?: string;
     submittedAt?: Date;
     approvedAt?: Date;
     paidAt?: Date;

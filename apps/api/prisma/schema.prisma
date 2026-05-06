@@ -133,6 +133,10 @@ model Claim {
   preauthRefNum   String?
   claimRefNum     String?
   payerRefNum     String?
+  // Captured at eligibility time. Drives the coverage actor on every
+  // subsequent FHIR R4 outbound (preauth, discharge, claim, communication)
+  // so we don't re-pass the payer code on every request.
+  payerCode       String?
   assignedToUserId String?  @db.Uuid
   initiatedAt     DateTime  @default(now())
   submittedAt     DateTime?
