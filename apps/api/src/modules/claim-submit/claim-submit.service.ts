@@ -3,9 +3,11 @@ import {
   type ClaimSubmissionResponse,
 } from '@claims/contracts';
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { type AppConfig } from '../../config/configuration';
 import { ClaimService } from '../claim';
 import { DocumentService } from '../document';
 import { IntegrationMessageService } from '../integration';
@@ -42,6 +44,7 @@ export class ClaimSubmitService {
     private readonly integration: IntegrationMessageService,
     private readonly documents: DocumentService,
     private readonly fhirContext: FhirContextService,
+    private readonly config: ConfigService<AppConfig, true>,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
   ) {}
 
@@ -112,6 +115,38 @@ export class ClaimSubmitService {
         return row.id;
       },
     );
+    // Slice AE: real mode = the gateway will POST a claim/on_submit
+    // callback that runs the QUEUED → SUBMITTED ack + the decision
+    // transition. Stop at QUEUED here. Same shape as Slice AD's
+    // preauth flip.
+    //
+    // Stamp claimRefNum on the claim row even though we're not
+    // transitioning past QUEUED — the JWE adapter returns it
+    // synchronously (it's in the gateway's HTTP response envelope)
+    // and ops want to see it immediately. The patch is on the
+    // claim_event we already wrote at submitted_internally; since
+    // ClaimService.transition.patch only fires at transition time,
+    // we go through the prisma model directly here.
+    if (this.config.get('NHCX_MODE', { infer: true }) === 'real') {
+      const pendingSnap = await this.prisma.runInTenantContext(
+        input.tenantId,
+        'tenant',
+        async (tx) => {
+          await tx.claim.update({
+            where: { id: input.claimId },
+            data: { claimRefNum: adapter.claimRefNum },
+          });
+          return tx.claim.findUniqueOrThrow({ where: { id: input.claimId } });
+        },
+      );
+      void outboundId;
+      return {
+        status: pendingSnap.status,
+        claimRefNum: adapter.claimRefNum,
+        correlationId: adapter.correlationId,
+      };
+    }
+
     await this.integration.markSucceeded({
       tenantId: input.tenantId,
       outboundId,
@@ -183,5 +218,50 @@ export class ClaimSubmitService {
       patch,
     });
     return { status: snap.status, approvedAmount: snap.approvedAmount };
+  }
+
+  // Slice AE entry point. Called by NhcxInboundService when a
+  // claim/on_submit callback arrives. Same two-step shape as Slice AD
+  // for preauth: ack QUEUED → SUBMITTED first (if needed), then run
+  // the decision via applyDecision.
+  async handleInboundResponse(input: {
+    tenantId: string;
+    claimId: string;
+    correlationId: string;
+    parsed: {
+      kind: 'approved' | 'rejected' | 'partially_approved' | 'query_received';
+      approvedAmount?: number;
+      reason?: string;
+      queryText?: string;
+    };
+    claimRefNum?: string;
+  }): Promise<{ status: string; approvedAmount: number | null }> {
+    const claim = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'platform_admin',
+      (tx) => tx.claim.findUniqueOrThrow({ where: { id: input.claimId } }),
+    );
+    if (claim.status === 'CLAIM_QUEUED') {
+      await this.claims.transition({
+        tenantId: input.tenantId,
+        claimId: input.claimId,
+        eventType: 'claim.acknowledged',
+        actorUserId: null,
+        correlationId: input.correlationId,
+        ...(input.claimRefNum !== undefined ? { patch: { claimRefNum: input.claimRefNum } } : {}),
+      });
+    }
+
+    return this.applyDecision({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      actorUserId: null,
+      kind: input.parsed.kind,
+      ...(input.parsed.approvedAmount !== undefined
+        ? { approvedAmount: input.parsed.approvedAmount }
+        : {}),
+      ...(input.parsed.reason !== undefined ? { reason: input.parsed.reason } : {}),
+      ...(input.parsed.queryText !== undefined ? { queryText: input.parsed.queryText } : {}),
+    });
   }
 }
