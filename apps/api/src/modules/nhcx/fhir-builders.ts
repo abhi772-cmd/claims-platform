@@ -20,6 +20,14 @@ export interface FhirActorIds {
   receiverCode: string;
 }
 
+export interface FhirDeterminismDeps {
+  // Optional factories used by snapshot tests to produce reproducible
+  // bundles. Production callers omit both; defaults are crypto.randomUUID
+  // and the system clock.
+  uuid?: () => string;
+  now?: () => Date;
+}
+
 export interface FhirPatientFields {
   // Plaintext display name + DoB. Encrypted IDs (Aadhaar, ABHA) live on
   // a separate Identifier on the Patient resource so the payer can
@@ -45,14 +53,14 @@ export interface FhirCoverageFields {
   memberId: string;
 }
 
-export interface FhirEligibilityRequestInput {
+export interface FhirEligibilityRequestInput extends FhirDeterminismDeps {
   actors: FhirActorIds;
   patient: FhirPatientFields;
   coverage: FhirCoverageFields;
   serviceDate: string; // YYYY-MM-DD
 }
 
-export interface FhirPreauthSubmitInput {
+export interface FhirPreauthSubmitInput extends FhirDeterminismDeps {
   actors: FhirActorIds;
   patient: FhirPatientFields;
   coverage: FhirCoverageFields;
@@ -78,7 +86,7 @@ export interface FhirClaimSubmitInput extends FhirPreauthSubmitInput {
   documentIds: string[];
 }
 
-export interface FhirCommunicationInput {
+export interface FhirCommunicationInput extends FhirDeterminismDeps {
   actors: FhirActorIds;
   // Identifies the original request the communication is in reply to.
   inReplyToRefNum?: string;
@@ -112,7 +120,8 @@ const HCX_PROFILE_COMMUNICATION = 'https://ig.hcxprotocol.io/v0.7.1/StructureDef
 
 const DEFAULT_BUNDLE_SYSTEM = 'https://ig.hcxprotocol.io';
 
-const URN = (resource: string): string => `urn:uuid:${randomUUID()}-${resource}`;
+const makeUrn = (uuid: () => string) => (resource: string): string =>
+  `urn:uuid:${uuid()}-${resource}`;
 
 function patientResource(p: FhirPatientFields, urn: string): Record<string, unknown> {
   const identifier: Array<Record<string, unknown>> = [
@@ -175,7 +184,10 @@ function coverageResource(
 // ---- Public builders ----------------------------------------
 
 export function buildEligibilityRequestBundle(input: FhirEligibilityRequestInput): FhirBundle {
-  const bundleId = randomUUID();
+  const uuid = input.uuid ?? randomUUID;
+  const ts = (input.now ?? (() => new Date()))().toISOString();
+  const URN = makeUrn(uuid);
+  const bundleId = uuid();
   const patientUrn = URN('patient');
   const insurerUrn = URN('insurer');
   const providerUrn = URN('provider');
@@ -189,7 +201,7 @@ export function buildEligibilityRequestBundle(input: FhirEligibilityRequestInput
     purpose: ['benefits', 'validation'],
     patient: { reference: patientUrn },
     servicedDate: input.serviceDate,
-    created: new Date().toISOString(),
+    created: ts,
     insurer: { reference: insurerUrn },
     provider: { reference: providerUrn },
     insurance: [{ coverage: { reference: coverageUrn } }],
@@ -199,12 +211,12 @@ export function buildEligibilityRequestBundle(input: FhirEligibilityRequestInput
     resourceType: 'Bundle',
     id: bundleId,
     meta: {
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: ts,
       profile: [HCX_PROFILE_ELIGIBILITY],
     },
     identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
     type: 'collection',
-    timestamp: new Date().toISOString(),
+    timestamp: ts,
     entry: [
       { fullUrl: requestUrn, resource: eligibilityRequest },
       { fullUrl: patientUrn, resource: patientResource(input.patient, patientUrn) },
@@ -229,6 +241,7 @@ function claimResource(
   providerUrn: string,
   coverageUrn: string,
   urn: string,
+  ts: string,
   finalAmountPaise?: number,
   documentIds?: string[],
 ): Record<string, unknown> {
@@ -253,7 +266,7 @@ function claimResource(
     },
     use,
     patient: { reference: patientUrn },
-    created: new Date().toISOString(),
+    created: ts,
     insurer: { reference: insurerUrn },
     provider: { reference: providerUrn },
     priority: { coding: [{ code: 'normal' }] },
@@ -336,7 +349,10 @@ function claimResource(
 }
 
 export function buildPreauthSubmitBundle(input: FhirPreauthSubmitInput): FhirBundle {
-  const bundleId = randomUUID();
+  const uuid = input.uuid ?? randomUUID;
+  const ts = (input.now ?? (() => new Date()))().toISOString();
+  const URN = makeUrn(uuid);
+  const bundleId = uuid();
   const patientUrn = URN('patient');
   const insurerUrn = URN('insurer');
   const providerUrn = URN('provider');
@@ -347,12 +363,12 @@ export function buildPreauthSubmitBundle(input: FhirPreauthSubmitInput): FhirBun
     resourceType: 'Bundle',
     id: bundleId,
     meta: {
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: ts,
       profile: [HCX_PROFILE_PREAUTH],
     },
     identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
     type: 'collection',
-    timestamp: new Date().toISOString(),
+    timestamp: ts,
     entry: [
       {
         fullUrl: claimUrn,
@@ -364,6 +380,7 @@ export function buildPreauthSubmitBundle(input: FhirPreauthSubmitInput): FhirBun
           providerUrn,
           coverageUrn,
           claimUrn,
+          ts,
         ),
       },
       { fullUrl: patientUrn, resource: patientResource(input.patient, patientUrn) },
@@ -389,7 +406,7 @@ export function buildClaimSubmitBundle(input: FhirClaimSubmitInput): FhirBundle 
   const providerUrn = (bundle.entry.find((e) => e.resource['resourceType'] === 'Organization' && (e.resource['identifier'] as Array<{ value: string }>)[0]?.value === input.actors.senderCode)?.fullUrl ?? '') as string;
   const coverageUrn = (bundle.entry.find((e) => e.resource['resourceType'] === 'Coverage')?.fullUrl ?? '') as string;
   const claimEntryIdx = bundle.entry.findIndex((e) => e.resource['resourceType'] === 'Claim');
-  const claimUrn = bundle.entry[claimEntryIdx]?.fullUrl ?? URN('claim');
+  const claimUrn = bundle.entry[claimEntryIdx]?.fullUrl ?? makeUrn(input.uuid ?? randomUUID)('claim');
 
   bundle.entry[claimEntryIdx] = {
     fullUrl: claimUrn,
@@ -401,6 +418,7 @@ export function buildClaimSubmitBundle(input: FhirClaimSubmitInput): FhirBundle 
       providerUrn,
       coverageUrn,
       claimUrn,
+      bundle.timestamp,
       input.finalAmount,
       input.documentIds,
     ),
@@ -410,7 +428,10 @@ export function buildClaimSubmitBundle(input: FhirClaimSubmitInput): FhirBundle 
 }
 
 export function buildCommunicationBundle(input: FhirCommunicationInput): FhirBundle {
-  const bundleId = randomUUID();
+  const uuid = input.uuid ?? randomUUID;
+  const ts = (input.now ?? (() => new Date()))().toISOString();
+  const URN = makeUrn(uuid);
+  const bundleId = uuid();
   const senderUrn = URN('sender');
   const recipientUrn = URN('recipient');
   const communicationUrn = URN('communication');
@@ -419,7 +440,7 @@ export function buildCommunicationBundle(input: FhirCommunicationInput): FhirBun
     resourceType: 'Communication',
     id: communicationUrn,
     status: 'completed',
-    sent: new Date().toISOString(),
+    sent: ts,
     sender: { reference: senderUrn },
     recipient: [{ reference: recipientUrn }],
     payload: [{ contentString: input.payload }],
@@ -439,12 +460,12 @@ export function buildCommunicationBundle(input: FhirCommunicationInput): FhirBun
     resourceType: 'Bundle',
     id: bundleId,
     meta: {
-      lastUpdated: new Date().toISOString(),
+      lastUpdated: ts,
       profile: [HCX_PROFILE_COMMUNICATION],
     },
     identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
     type: 'collection',
-    timestamp: new Date().toISOString(),
+    timestamp: ts,
     entry: [
       { fullUrl: communicationUrn, resource: communication },
       { fullUrl: senderUrn, resource: organizationResource(input.actors.senderCode, undefined) },

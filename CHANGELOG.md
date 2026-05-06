@@ -4,6 +4,26 @@ Notable changes to the DigiSparsh Claims Platform. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) but oriented around
 sprint slices rather than calendar releases.
 
+## Sprint 3 — Production hardening (May 2026)
+
+Sprint 3 slices R–X are merged on `main` but their per-slice CHANGELOG
+entries have not yet been backfilled. See `git log --grep "Sprint 3"`
+for the merged set.
+
+### Y — FHIR builder snapshot lock (this PR)
+
+- Optional `uuid` + `now` factory injection on the four NHCX FHIR R4
+  builder inputs (`FhirDeterminismDeps`). Production callers omit them;
+  defaults remain `crypto.randomUUID` and the system clock.
+- `apps/api/src/modules/nhcx/fhir-builders.snapshot.spec.ts` — 4 tests
+  building each bundle with deterministic factories and asserting deep
+  equality against pretty-printed reference fixtures in
+  `reference/fhir-bundles/`. Set `UPDATE_FIXTURES=1` to regenerate
+  intentionally; the diff lands in the PR for review.
+- `reference/fhir-bundles/{eligibility-request,preauth-submit,claim-submit,communication}.json`
+  — committed canonical bundles (the directory CLAUDE.md already points
+  at for contract tests).
+
 ## Sprint 1 — Auth + onboarding (May 2026)
 
 Authentication, RBAC, MFA, sessions, doctor signature, tenant onboarding

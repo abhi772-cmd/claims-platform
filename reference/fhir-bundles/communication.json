@@ -1,0 +1,76 @@
+{
+  "resourceType": "Bundle",
+  "id": "00000000-0000-4000-8000-000000000001",
+  "meta": {
+    "lastUpdated": "2026-05-01T10:00:00.000Z",
+    "profile": [
+      "https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-CommunicationBundle.html"
+    ]
+  },
+  "identifier": {
+    "system": "https://ig.hcxprotocol.io",
+    "value": "00000000-0000-4000-8000-000000000001"
+  },
+  "type": "collection",
+  "timestamp": "2026-05-01T10:00:00.000Z",
+  "entry": [
+    {
+      "fullUrl": "urn:uuid:00000000-0000-4000-8000-000000000004-communication",
+      "resource": {
+        "resourceType": "Communication",
+        "id": "urn:uuid:00000000-0000-4000-8000-000000000004-communication",
+        "status": "completed",
+        "sent": "2026-05-01T10:00:00.000Z",
+        "sender": {
+          "reference": "urn:uuid:00000000-0000-4000-8000-000000000002-sender"
+        },
+        "recipient": [
+          {
+            "reference": "urn:uuid:00000000-0000-4000-8000-000000000003-recipient"
+          }
+        ],
+        "payload": [
+          {
+            "contentString": "Patient was admitted on 2026-05-01."
+          }
+        ],
+        "inResponseTo": [
+          {
+            "identifier": {
+              "system": "urn:digisparsh:claim:payerRefNum",
+              "value": "PA-12345"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:00000000-0000-4000-8000-000000000002-sender",
+      "resource": {
+        "resourceType": "Organization",
+        "id": "urn:digisparsh:org:SENDER1",
+        "identifier": [
+          {
+            "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-organization",
+            "value": "SENDER1"
+          }
+        ],
+        "name": "SENDER1"
+      }
+    },
+    {
+      "fullUrl": "urn:uuid:00000000-0000-4000-8000-000000000003-recipient",
+      "resource": {
+        "resourceType": "Organization",
+        "id": "urn:digisparsh:org:RECEIVER1",
+        "identifier": [
+          {
+            "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-organization",
+            "value": "RECEIVER1"
+          }
+        ],
+        "name": "RECEIVER1"
+      }
+    }
+  ]
+}
