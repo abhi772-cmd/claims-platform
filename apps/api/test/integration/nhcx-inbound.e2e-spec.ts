@@ -43,17 +43,26 @@ jest.setTimeout(180_000);
 
 // Wait for the fire-and-forget process() in NhcxInboundController to
 // finish writing back to integration_message. Polls the row's status
-// at 50ms cadence with a 5s ceiling.
+// at 50ms cadence with a 10s ceiling.
+//
+// We read via a platform_admin tx so RLS doesn't hide the row. The
+// claims_migrator role goes through RLS by design (no BYPASSRLS), so
+// a bare findFirst returns null even though the row exists.
 async function waitForStatusChange(
   prisma: PrismaClient,
   correlationId: string,
-  ceilingMs = 5000,
+  ceilingMs = 10_000,
 ): Promise<{ status: string; failureClass: string | null }> {
   const start = Date.now();
   while (Date.now() - start < ceilingMs) {
-    const row = await prisma.integrationMessage.findFirst({
-      where: { correlationId, direction: 'inbound', integration: 'nhcx' },
-      select: { status: true, failureClass: true },
+    const row = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
+      );
+      return tx.integrationMessage.findFirst({
+        where: { correlationId, direction: 'inbound', integration: 'nhcx' },
+        select: { status: true, failureClass: true },
+      });
     });
     if (row && row.status !== 'pending') return row;
     await new Promise((r) => setTimeout(r, 50));
@@ -61,6 +70,51 @@ async function waitForStatusChange(
   throw new Error(
     `inbound row for correlationId=${correlationId} did not leave status=pending within ${ceilingMs}ms`,
   );
+}
+
+async function readInboundRow(
+  prisma: PrismaClient,
+  correlationId: string,
+): Promise<{ status: string; failureClass: string | null; tenantId: string; operation: string } | null> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(
+      Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
+    );
+    return tx.integrationMessage.findFirst({
+      where: { correlationId, direction: 'inbound', integration: 'nhcx' },
+      select: { status: true, failureClass: true, tenantId: true, operation: true },
+    });
+  });
+}
+
+async function readInboundRows(
+  prisma: PrismaClient,
+  correlationId: string,
+): Promise<{ id: string }[]> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(
+      Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
+    );
+    return tx.integrationMessage.findMany({
+      where: { correlationId, direction: 'inbound', integration: 'nhcx' },
+      select: { id: true },
+    });
+  });
+}
+
+async function readClaimRow(
+  prisma: PrismaClient,
+  claimId: string,
+): Promise<{ status: string; approvedAmount: number | null } | null> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(
+      Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
+    );
+    return tx.claim.findUnique({
+      where: { id: claimId },
+      select: { status: true, approvedAmount: true },
+    });
+  });
 }
 
 function buildEligibilityBundle(verified: boolean): Record<string, unknown> {
@@ -275,9 +329,7 @@ describe('Slice Z — NHCX inbound webhook', () => {
       expect(out.failureClass).toBe('state-machine');
     }
 
-    const inbound = await migrator.integrationMessage.findFirst({
-      where: { correlationId: eligibilityCorrelationId, direction: 'inbound' },
-    });
+    const inbound = await readInboundRow(migrator, eligibilityCorrelationId);
     expect(inbound).not.toBeNull();
     expect(inbound!.operation).toBe('coverageeligibility/on_check');
     expect(inbound!.tenantId).toBe(tenantId);
@@ -334,7 +386,7 @@ describe('Slice Z — NHCX inbound webhook', () => {
     const out = await waitForStatusChange(migrator, preauthCorrelationId);
     expect(out.status).toBe('succeeded');
 
-    const claim = await migrator.claim.findUnique({ where: { id: claimId } });
+    const claim = await readClaimRow(migrator, claimId);
     expect(claim).not.toBeNull();
     expect(claim!.status).toBe('PREAUTH_APPROVED');
     expect(claim!.approvedAmount).toBe(220000);
@@ -361,9 +413,7 @@ describe('Slice Z — NHCX inbound webhook', () => {
     const second = await send();
     expect(second.status).toBe(200);
 
-    const rows = await migrator.integrationMessage.findMany({
-      where: { correlationId: eligibilityCorrelationId, direction: 'inbound' },
-    });
+    const rows = await readInboundRows(migrator, eligibilityCorrelationId);
     expect(rows.length).toBe(1);
   });
 
@@ -380,9 +430,7 @@ describe('Slice Z — NHCX inbound webhook', () => {
       .set('x-hcx-operation', 'coverageeligibility/on_check')
       .send({ payload: jwe, type: 'JWEPayload' });
     expect(res.status).toBe(200);
-    const rows = await migrator.integrationMessage.findMany({
-      where: { correlationId: orphanCorrelationId },
-    });
+    const rows = await readInboundRows(migrator, orphanCorrelationId);
     expect(rows.length).toBe(0);
   });
 
