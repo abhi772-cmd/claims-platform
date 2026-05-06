@@ -4,6 +4,191 @@ Notable changes to the DigiSparsh Claims Platform. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) but oriented around
 sprint slices rather than calendar releases.
 
+## Sprint 4 — NHCX bidirectional + appeal lifecycle (May 2026)
+
+Ten slices (Z–AI). Theme: close the NHCX integration loop. Sprint 2/3
+shipped outbound only; Sprint 4 wires inbound webhooks, threads FHIR
+enrichment through every phase, flips all four NHCX outbound flows
+to callback-driven in real mode, and adds the appeal lifecycle that
+the state machine has been waiting on since Sprint 2.
+
+### Z — NHCX inbound webhook + FHIR response dispatcher (PR #30)
+
+- New public endpoint `POST /nhcx/inbound`. Persists raw payload to
+  `integration_message` synchronously, returns 200 within ms, then
+  fires async decrypt + dispatch via `.catch`'d fire-and-forget so
+  failures land on the row.
+- `NhcxInboundService.receive` does idempotency check + outbound
+  match + persist (all under `platform_admin` GUC because integration_
+  message has FORCE ROW LEVEL SECURITY). `process` decrypts via the
+  Slice U key resolver, parses with new FHIR helpers, dispatches to
+  existing service `applyDecision` paths.
+- Four FHIR response parsers (`CoverageEligibilityResponse`,
+  `ClaimResponse` for preauth + final, `Communication`) — pure
+  functions, 15 unit tests, tolerant of HCX 0.7.1 shape variations.
+- 6 integration tests against an in-process JWE: eligibility +
+  preauth dispatch, idempotency, unknown correlationId, missing
+  header → 422, malformed JWE → row-failed-crypto.
+- Bugs caught in CI: RLS-blocked polling (claims_migrator goes
+  through RLS), idempotency collision with Slice K's synthetic
+  inbound (differentiated on operation), RLS-blocked service reads
+  (wrapped all integration_message reads in platform_admin tx),
+  failure classification missing state-machine class
+  (`err.constructor.name`, not `err.name`).
+
+### AA — FHIR R4 enrichment for non-eligibility phases (PR #31)
+
+- Slice T wired the FHIR builders into the JWE adapter for eligibility
+  only. AA threads `patient + coverage + clinical fields + document
+  ids` from preauth / discharge / claim-submit / communication-respond
+  orchestrators so all four phases produce real FHIR Bundles.
+- New `Claim.payerCode` column + migration. Captured at
+  `eligibility.requested`; drives the coverage actor for every
+  subsequent phase without re-passing it.
+- `FhirContextService.build(tenantId, claimId)` — shared helper that
+  walks case → patient → decrypted PII → AdapterPatientFields +
+  AdapterCoverageFields. Replaces ad-hoc per-service inlining.
+- `NhcxStubAdapter` echoes the full enriched input as `rawRequest`
+  on `submitPreauth` + `submitClaim` so integration tests verify
+  orchestrator → adapter wiring without a live gateway.
+- 6 integration tests: payerCode stamp, preauth/discharge/claim/
+  communication enrichment, legacy case (no payer at eligibility)
+  keeps coverage undefined → adapter falls back to lightweight
+  payload.
+
+### AB — OpenAPI spec + Swagger UI mount (PR #32)
+
+- Originally planned as Slice Y, deferred when Y became the FHIR
+  snapshot lock. `@nestjs/swagger@7.4` (Nest-10-compatible major;
+  v11+ expects a newer `@nestjs/core` path that doesn't exist in
+  pinned 10.3.9 — caught at test time).
+- `src/openapi.ts` mounts `/api/docs` (Swagger UI) + `/api/docs-json`
+  (raw OpenAPI 3 spec). Cookie-auth security scheme declared globally;
+  the UI's "Authorize" button drops the JWT into the right cookie.
+- `SWAGGER_ENABLED` env knob (default `true`); production deployments
+  flip to `false` for a 404 on both routes.
+- 2 unit tests: spec is structurally valid + cookie-auth scheme
+  present + routes auto-discovered + disable flag works.
+- Auto-tagged from controller class names; per-controller `@ApiTags`
+  polish is a follow-up cleanup slice (17 controllers).
+
+### AC — Eligibility callback-driven in real mode (PR #33)
+
+- Removes the duplicate-transition bandaid Slice Z's eligibility test
+  had to assert: `expect(['succeeded', 'failed']).toContain(...)`.
+  In real mode, the orchestrator now stops at
+  `ELIGIBILITY_CHECK_PENDING` and the gateway's webhook callback runs
+  the verified/failed transition cleanly.
+- `EligibilityService.run` gated on `NHCX_MODE`. Real mode skips the
+  synthetic inbound row + the auto-transition. Outbound row stays
+  `pending` until the inbound dispatcher pairs the callback.
+- New `eligibility-callback-driven.e2e-spec` exercises the real-mode
+  path against an in-process mock NHCX gateway (Slice P pattern).
+
+### AD — Preauth callback-driven in real mode (PR #34)
+
+- Same shape as AC but with preauth's two-step state-machine path
+  (`DRAFTING → QUEUED → SUBMITTED → APPROVED|REJECTED|...`).
+  Orchestrator stops at QUEUED in real mode.
+- New `PreauthService.handleInboundResponse` runs the two-step
+  transition: ack `QUEUED → SUBMITTED` (with `payerRefNum` stamped
+  if available) then delegates to `applyDecision`. Idempotent: ack
+  is skipped when claim is already at SUBMITTED (admin escape-hatch
+  path).
+- `NhcxInboundService.preauth/on_submit` routes through the new
+  handler. `applyDecision` stays as the admin escape hatch.
+- New `preauth-callback-driven.e2e-spec` against the mock gateway.
+
+### AE — Claim-submit callback-driven in real mode (PR #35)
+
+- Symmetric with AD but with `claim.*` events. Orchestrator stops at
+  `CLAIM_QUEUED`; `ClaimSubmitService.handleInboundResponse` runs
+  ack + decision.
+- `claimRefNum` is stamped synchronously on the claim row at the
+  QUEUED step (the JWE adapter's response envelope has it; Sprint 5
+  follow-up extends `parseClaimResponse` to extract identifier so
+  the stamp moves to the callback).
+- New `claim-submit-callback-driven.e2e-spec` walks the full
+  pipeline (eligibility + preauth callbacks → discharge synchronous
+  → claim submit + callback → CLAIM_APPROVED).
+
+### AF — Discharge callback-driven in real mode (PR #36)
+
+- Last NHCX phase to flip. Discharge has the simplest state-machine
+  path (no payer decision — single `DISCHARGE_PENDING →
+  DISCHARGE_SUBMITTED` transition) but uses `communication/request`
+  for the inbound, so the dispatcher disambiguates three shapes via
+  a new `lookupOutboundOperation` helper:
+    1. matching outbound = `discharge.submit` → discharge ack (this
+       slice)
+    2. matching outbound = `preauth.query.respond` → query response
+       ack (log-only; the state transition already happened
+       synchronously when sent)
+    3. no matching outbound → payer-initiated query (Slice Z
+       behaviour)
+- Sprint 4 milestone: with AF, all four NHCX outbound flows are
+  callback-driven in real mode.
+- New `discharge-callback-driven.e2e-spec` + cleanup of AE's test
+  (which relied on discharge auto-transitioning).
+
+### AG — Sender-code allowlist on /nhcx/inbound (PR #37)
+
+- Defense-in-depth on top of Slice Z's JWE-intrinsic auth. The
+  webhook is public; the JWE provides cryptographic guarantees
+  *after* decryption succeeds, but doesn't prove the sender claims
+  to be a known payer until we open the ciphertext.
+- `NhcxSenderAllowlistService` — process-local cache (60s TTL,
+  invalidate hook for write-through). Source of truth: `Payer.hcxCode`
+  for active rows. Reads under `platform_admin` tx (Payer table has
+  FORCE ROW LEVEL SECURITY).
+- Default-permit when empty so test rigs without seeded payers keep
+  working. Production gets enforcement once the Slice O master-data
+  seed loads.
+- New `'rejected_sender'` outcome surfaces in logs without writing
+  an integration_message row. Controller still returns 200 (NHA
+  must not retry on a configuration mismatch).
+- 6 unit + 5 integration tests.
+
+### AH — Appeal lifecycle (PR #38)
+
+- The appeal state-machine path has been in `claim.state-machine.ts`
+  since Sprint 2 with no service or controller. Operators have been
+  doing appeals out-of-band; AH gives them the in-product flow.
+- `Appeal` Prisma model + migration `20260521_appeal` with the
+  standard tenant-scoped RLS policies. One row per appeal cycle,
+  status (`initiated|submitted|resolved`), resolution kind + amount,
+  supporting documents.
+- `AppealService.start / submit / resolve` driving `appeal.started →
+  appeal.submitted → appeal.resolved`. Approved + partially_approved
+  stamp `approvedAmount` on the claim row.
+- 4 endpoints under `/cases/:c/claims/:cl/appeal/{start,submit,
+  resolve}` + `GET` for the open appeal. `settlement.appeal`
+  permission gate on writes; `case.view` on the GET.
+- Settlement boundary kept clean: AppealService only drives
+  `appeal.*` events. Auto-chain to settlement is a Sprint 5 backlog
+  item.
+- 8 integration tests covering happy + rejection + RBAC + double-
+  submit + approved-without-amount validation.
+
+### AI — Appeal panel on case detail (PR #39)
+
+- Wires the AH appeal API to the case detail page. Panel visibility
+  gated on three lifecycle bands:
+    - **eligible** (PREAUTH_REJECTED / CLAIM_REJECTED / SHORT_PAID)
+      → "Ground for appeal" textarea + Start button
+    - **live** (APPEAL_INITIATED / APPEAL_SUBMITTED / APPEAL_RESOLVED)
+      → action for the current step
+    - **historical** (PAYMENT_* / WRITTEN_OFF / CLOSED with an
+      existing appeal row) → read-only summary
+- `CaseApi` gains `getAppeal / startAppeal / submitAppeal /
+  resolveAppeal`.
+- Resolve form switches between approved / partially_approved /
+  rejected, hides the approvedAmount input on rejected (matches API
+  validation).
+- Post-resolve hint points operators at the SettlementPanel for the
+  next step (write-off / expect payment) — preserves AH's explicit
+  no-auto-chain boundary.
+
 ## Sprint 3 — Production hardening (May 2026)
 
 Eight slices (R–Y) on top of the Sprint 2 business-domain skeleton.
