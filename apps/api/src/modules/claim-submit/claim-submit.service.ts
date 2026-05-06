@@ -119,11 +119,25 @@ export class ClaimSubmitService {
     // callback that runs the QUEUED → SUBMITTED ack + the decision
     // transition. Stop at QUEUED here. Same shape as Slice AD's
     // preauth flip.
+    //
+    // Stamp claimRefNum on the claim row even though we're not
+    // transitioning past QUEUED — the JWE adapter returns it
+    // synchronously (it's in the gateway's HTTP response envelope)
+    // and ops want to see it immediately. The patch is on the
+    // claim_event we already wrote at submitted_internally; since
+    // ClaimService.transition.patch only fires at transition time,
+    // we go through the prisma model directly here.
     if (this.config.get('NHCX_MODE', { infer: true }) === 'real') {
       const pendingSnap = await this.prisma.runInTenantContext(
         input.tenantId,
-        'platform_admin',
-        (tx) => tx.claim.findUniqueOrThrow({ where: { id: input.claimId } }),
+        'tenant',
+        async (tx) => {
+          await tx.claim.update({
+            where: { id: input.claimId },
+            data: { claimRefNum: adapter.claimRefNum },
+          });
+          return tx.claim.findUniqueOrThrow({ where: { id: input.claimId } });
+        },
       );
       void outboundId;
       return {
