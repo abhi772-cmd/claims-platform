@@ -6,6 +6,7 @@ import { SecurityHeadersMiddleware } from './common/middleware/security-headers.
 import { PrismaModule } from './common/prisma/prisma.module';
 import { SecurityModule } from './common/security/security.module';
 import { loadConfig } from './config/configuration';
+import { AppealModule } from './modules/appeal';
 import { AuditModule } from './modules/audit';
 import { AuthModule } from './modules/auth/auth.module';
 import { CaseModule } from './modules/case';
@@ -98,6 +99,7 @@ import { UserModule } from './modules/user/user.module';
     DischargeModule,
     ClaimSubmitModule,
     SettlementModule,
+    AppealModule,
     MasterDataModule,
     HealthModule,
     TenantModule,

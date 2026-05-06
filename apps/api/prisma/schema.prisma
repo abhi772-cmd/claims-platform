@@ -686,6 +686,55 @@ model PreauthQuery {
   @@map("preauth_query")
 }
 
+// Slice AH — appeal lifecycle.
+// Created when an operator starts an appeal against a rejected
+// preauth, rejected claim, or short-paid settlement (the three
+// states that have an appeal.started outbound transition).
+//
+//   started  → the operator captured the rejection reason and the
+//              ground we're appealing on; claim moves to
+//              APPEAL_INITIATED.
+//   submitted → evidence is finalised + sent to the payer (in this
+//               slice the "send" is a stub — real outbound to the
+//               payer's appeals desk lands in a Sprint 5 slice). The
+//               claim moves to APPEAL_SUBMITTED.
+//   resolved  → operator records the payer's decision (approved /
+//               partially_approved / rejected). When the resolution
+//               has an approved amount, settlement.expectPayment
+//               drives payment.expected (APPEAL_RESOLVED → PAYMENT_
+//               PENDING). When fully rejected, the operator's next
+//               step is claim.written_off (APPEAL_RESOLVED →
+//               WRITTEN_OFF).
+//
+// Indexed by (tenantId, claimId) — at most one open appeal per claim
+// at a time, but the table allows history (a second appeal on a
+// re-rejected outcome remains possible without schema changes).
+model Appeal {
+  id                  String    @id @default(uuid()) @db.Uuid
+  tenantId            String    @db.Uuid
+  claimId             String    @db.Uuid
+  // Free-form ground for the appeal — operator-authored. Required
+  // at start time so the audit trail captures the rationale.
+  reason              String
+  // Optional structured supporting-document references (Document.id)
+  // collected at submit time. JSONB so we can extend without a
+  // schema change.
+  supportingDocuments Json      @default("[]")
+  // Lifecycle phase: 'initiated' | 'submitted' | 'resolved'.
+  status              String    @default("initiated")
+  // Resolution captured at /resolve. Free text + structured outcome.
+  resolutionKind      String?   // 'approved' | 'partially_approved' | 'rejected'
+  resolutionNote      String?
+  approvedAmount      Int?
+  startedAt           DateTime  @default(now())
+  submittedAt         DateTime?
+  resolvedAt          DateTime?
+  startedByUserId     String?   @db.Uuid
+
+  @@index([tenantId, claimId, startedAt])
+  @@map("appeal")
+}
+
 // Every external-system call (NHCX, PMJAY, ABDM, OpenAI, SMTP) writes
 // a row here, both directions. Outbound rows start at status='pending';
 // adapter completion flips to 'sent' / 'succeeded' / 'failed'. The
