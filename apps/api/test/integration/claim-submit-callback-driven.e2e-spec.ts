@@ -335,11 +335,10 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
     await waitForInbound(migrator, paSubmit.body.correlationId, 'preauth/on_submit');
     expect((await readClaim(migrator, claimId))?.status).toBe('PREAUTH_APPROVED');
 
-    // 3. Discharge: stub adapter still auto-transitions in stub-style
-    // because Slice AE doesn't flip discharge yet (separate slice).
-    // Real mode submit calls discharge/submit on the mock gateway and
-    // the orchestrator drives DISCHARGE_PENDING → DISCHARGE_SUBMITTED
-    // synchronously today. Upload the required document first.
+    // 3. Discharge: post-Slice AF, real mode also stops at PENDING and
+    // requires the gateway's communication/request callback to advance
+    // to SUBMITTED. Upload the required document, initiate, submit,
+    // then fire the inbound to ack.
     const upload = await request(app.getHttpServer())
       .post(`/cases/${caseId}/claims/${claimId}/documents/upload-stub`)
       .set('Cookie', cookies)
@@ -358,6 +357,51 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
       .post(`/cases/${caseId}/claims/${claimId}/discharge/submit`)
       .set('Cookie', cookies)
       .send({});
+    // Look up the discharge outbound's correlationId so we can fire
+    // the gateway's ack on it.
+    const dsCorr = await migrator.$transaction(async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
+      );
+      const r = await tx.integrationMessage.findFirst({
+        where: {
+          claimId,
+          direction: 'outbound',
+          integration: 'nhcx',
+          operation: 'discharge.submit',
+        },
+        select: { correlationId: true },
+      });
+      return r?.correlationId ?? null;
+    });
+    expect(dsCorr).not.toBeNull();
+    {
+      const jwe = await encryptToParticipant(
+        {
+          resourceType: 'Bundle',
+          type: 'collection',
+          entry: [
+            {
+              resource: {
+                resourceType: 'Communication',
+                status: 'completed',
+                inResponseTo: [{ reference: 'Communication/discharge' }],
+                payload: [{ contentString: 'Discharge acknowledged.' }],
+              },
+            },
+          ],
+        },
+        usKeys.pubPem,
+        'v1',
+      );
+      const res = await request(app.getHttpServer())
+        .post('/nhcx/inbound')
+        .set('x-hcx-correlation-id', dsCorr!)
+        .set('x-hcx-operation', 'communication/request')
+        .send({ payload: jwe, type: 'JWEPayload' });
+      expect(res.status).toBe(200);
+    }
+    await waitForInbound(migrator, dsCorr!, 'communication/request');
 
     // 4. Claim submit. Slice AE: orchestrator stops at CLAIM_QUEUED.
     await request(app.getHttpServer())
