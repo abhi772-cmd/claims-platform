@@ -30,7 +30,10 @@ export interface SubmitInput {
 export interface DecisionInput {
   tenantId: string;
   claimId: string;
-  actorUserId: string;
+  // Null when the decision arrives via the NHCX inbound webhook —
+  // there's no logged-in user; the platform applies the transition
+  // on behalf of the gateway. claim_event.actorUserId stays null.
+  actorUserId: string | null;
   kind: PreauthDecisionKind;
   approvedAmount?: number;
   reason?: string;

@@ -209,4 +209,40 @@ export class EligibilityService {
       status: snap.status,
     };
   }
+
+  // Slice Z entry point. Called by the NHCX inbound dispatcher when a
+  // CoverageEligibilityResponse arrives via webhook. The outbound
+  // integration_message + initial transition (ELIGIBILITY_CHECK_PENDING)
+  // already happened during run(); here we only flip the claim to
+  // verified or failed, mirroring the second-tx logic from run().
+  //
+  // No actorUserId: the inbound dispatcher acts as the platform on
+  // behalf of the gateway. State-machine transitions accept null actor.
+  async handleInboundResponse(input: {
+    tenantId: string;
+    claimId: string;
+    correlationId: string;
+    parsed: { verified: boolean; planName?: string; sumInsured?: number; failureReason?: string };
+  }): Promise<{ status: string }> {
+    const eventType = input.parsed.verified ? 'eligibility.verified' : 'eligibility.failed';
+    const payload: Record<string, unknown> = {};
+    if (input.parsed.verified) {
+      if (input.parsed.planName !== undefined) payload['planName'] = input.parsed.planName;
+      if (input.parsed.sumInsured !== undefined) payload['sumInsured'] = input.parsed.sumInsured;
+    } else if (input.parsed.failureReason !== undefined) {
+      payload['failureReason'] = input.parsed.failureReason;
+    }
+    const snap = await this.claims.transition({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      eventType,
+      actorUserId: null,
+      correlationId: input.correlationId,
+      payload,
+    });
+    this.log.log(
+      `eligibility ${input.parsed.verified ? 'verified' : 'failed'} via inbound claimId=${input.claimId} correlationId=${input.correlationId}`,
+    );
+    return { status: snap.status };
+  }
 }
