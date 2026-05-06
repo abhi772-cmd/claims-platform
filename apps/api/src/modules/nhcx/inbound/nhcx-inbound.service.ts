@@ -73,78 +73,77 @@ export class NhcxInboundService {
   // Step 1 — synchronous. The controller must complete this and reply
   // 200 within the gateway's timeout (typically 5s). We do exactly two
   // things here: idempotency check + persist.
+  //
+  // Both reads + the create run as platform_admin because we don't yet
+  // know the tenantId (it's resolved from the matching outbound row).
+  // integration_message has FORCE ROW LEVEL SECURITY, so a bare query
+  // outside any tenant context returns zero rows.
   async receive(
     input: InboundDispatchInput,
   ): Promise<InboundDispatchResult> {
-    // Idempotency: NHA may retry on transient failures. A repeat
-    // correlationId+operation on the inbound side is benign — log + skip.
-    // We also filter on operation because the Slice K orchestrator
-    // writes a synthetic inbound row for stub-mode responses (operation
-    // = the outbound op like 'eligibility.verify'). The gateway-callback
-    // inbound uses an HCX operation name like 'coverageeligibility/on_check',
-    // so the two never collide.
-    const existing = await this.prisma.integrationMessage.findFirst({
-      where: {
-        correlationId: input.correlationId,
-        direction: 'inbound',
-        integration: 'nhcx',
-        operation: input.operation,
-      },
-      select: { id: true, tenantId: true, status: true },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.role', 'platform_admin', true)`;
+
+      // Idempotency: NHA may retry on transient failures. A repeat
+      // correlationId+operation on the inbound side is benign — log + skip.
+      // We also filter on operation because the Slice K orchestrator
+      // writes a synthetic inbound row for stub-mode responses (operation
+      // = the outbound op like 'eligibility.verify'). The gateway-callback
+      // inbound uses an HCX operation name like 'coverageeligibility/on_check',
+      // so the two never collide.
+      const existing = await tx.integrationMessage.findFirst({
+        where: {
+          correlationId: input.correlationId,
+          direction: 'inbound',
+          integration: 'nhcx',
+          operation: input.operation,
+        },
+        select: { id: true, tenantId: true, status: true },
+      });
+      if (existing) {
+        this.log.log(
+          `nhcx inbound duplicate correlationId=${input.correlationId} existingId=${existing.id} status=${existing.status}`,
+        );
+        return { inboundMessageId: existing.id, outcome: 'duplicate' as const };
+      }
+
+      // Find the matching outbound row to learn which tenant + claim
+      // this callback belongs to. Without it we have no tenant context
+      // to write the inbound row under. If no outbound exists this is
+      // either a misrouted callback or a bundle we never sent.
+      const outbound = await tx.integrationMessage.findFirst({
+        where: {
+          correlationId: input.correlationId,
+          direction: 'outbound',
+          integration: 'nhcx',
+        },
+        select: { id: true, tenantId: true, claimId: true, operation: true },
+      });
+      if (!outbound) {
+        this.log.warn(
+          `nhcx inbound has no matching outbound correlationId=${input.correlationId} operation=${input.operation}`,
+        );
+        return { inboundMessageId: '', outcome: 'invalid' as const };
+      }
+
+      // Persist the inbound row. Still inside the platform_admin tx so
+      // the INSERT WITH CHECK passes (the policy allows
+      // platform_admin OR tenantId-match).
+      const inboundRow = await tx.integrationMessage.create({
+        data: {
+          tenantId: outbound.tenantId,
+          ...(outbound.claimId !== null ? { claimId: outbound.claimId } : {}),
+          direction: 'inbound',
+          integration: 'nhcx',
+          operation: input.operation,
+          correlationId: input.correlationId,
+          status: 'pending',
+          rawRequest: input.body as never,
+        },
+        select: { id: true },
+      });
+      return { inboundMessageId: inboundRow.id, outcome: 'accepted' as const };
     });
-    if (existing) {
-      this.log.log(
-        `nhcx inbound duplicate correlationId=${input.correlationId} existingId=${existing.id} status=${existing.status}`,
-      );
-      return { inboundMessageId: existing.id, outcome: 'duplicate' };
-    }
-
-    // Find the matching outbound row to learn which tenant + claim
-    // this callback belongs to. Without it we have no tenant context
-    // to write the inbound row under. If no outbound exists this is
-    // either a misrouted callback or a bundle we never sent — log
-    // and reject by writing nothing.
-    const outbound = await this.prisma.integrationMessage.findFirst({
-      where: {
-        correlationId: input.correlationId,
-        direction: 'outbound',
-        integration: 'nhcx',
-      },
-      select: { id: true, tenantId: true, claimId: true, operation: true },
-    });
-    if (!outbound) {
-      this.log.warn(
-        `nhcx inbound has no matching outbound correlationId=${input.correlationId} operation=${input.operation}`,
-      );
-      // Persist a tenantless row would violate RLS — instead drop it
-      // and rely on gateway-side correlation for forensics. We still
-      // return 200 to the controller so the gateway doesn't retry.
-      return { inboundMessageId: '', outcome: 'invalid' };
-    }
-
-    // Persist the inbound row in the matching outbound's tenant
-    // context so RLS holds. Status starts as 'pending'; the async
-    // step flips to 'succeeded' / 'failed'.
-    const inboundRow = await this.prisma.runInTenantContext(
-      outbound.tenantId,
-      'platform_admin',
-      (tx) =>
-        tx.integrationMessage.create({
-          data: {
-            tenantId: outbound.tenantId,
-            ...(outbound.claimId !== null ? { claimId: outbound.claimId } : {}),
-            direction: 'inbound',
-            integration: 'nhcx',
-            operation: input.operation,
-            correlationId: input.correlationId,
-            status: 'pending',
-            rawRequest: input.body as never,
-          },
-          select: { id: true },
-        }),
-    );
-
-    return { inboundMessageId: inboundRow.id, outcome: 'accepted' };
   }
 
   // Step 2 — async-ish. Called immediately after receive() from the
@@ -169,9 +168,12 @@ export class NhcxInboundService {
     inboundMessageId: string,
     input: InboundDispatchInput,
   ): Promise<void> {
-    const row = await this.prisma.integrationMessage.findUnique({
-      where: { id: inboundMessageId },
-      select: { tenantId: true, claimId: true, status: true },
+    const row = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.role', 'platform_admin', true)`;
+      return tx.integrationMessage.findUnique({
+        where: { id: inboundMessageId },
+        select: { tenantId: true, claimId: true, status: true },
+      });
     });
     if (!row) {
       this.log.warn(`nhcx inbound message disappeared id=${inboundMessageId}`);
@@ -287,35 +289,27 @@ export class NhcxInboundService {
     summary: Record<string, unknown>,
     decryptedBundle: unknown,
   ): Promise<void> {
-    const row = await this.prisma.integrationMessage.findUnique({
-      where: { id: inboundMessageId },
-      select: { tenantId: true },
-    });
-    if (!row) return;
-    await this.prisma.runInTenantContext(row.tenantId, 'platform_admin', (tx) =>
-      tx.integrationMessage.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.role', 'platform_admin', true)`;
+      await tx.integrationMessage.update({
         where: { id: inboundMessageId },
         data: {
           status: 'succeeded',
           completedAt: new Date(),
           rawResponse: { summary, decrypted: decryptedBundle } as never,
         },
-      }),
-    );
+      });
+    });
   }
 
   private async markFailed(
     inboundMessageId: string,
     failureMessage: string,
   ): Promise<void> {
-    const row = await this.prisma.integrationMessage.findUnique({
-      where: { id: inboundMessageId },
-      select: { tenantId: true },
-    });
-    if (!row) return;
     const failureClass = classifyFailure(failureMessage);
-    await this.prisma.runInTenantContext(row.tenantId, 'platform_admin', (tx) =>
-      tx.integrationMessage.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.role', 'platform_admin', true)`;
+      await tx.integrationMessage.update({
         where: { id: inboundMessageId },
         data: {
           status: 'failed',
@@ -323,8 +317,8 @@ export class NhcxInboundService {
           failureClass,
           rawResponse: { failureMessage } as never,
         },
-      }),
-    );
+      });
+    });
   }
 }
 
