@@ -213,14 +213,15 @@ export class NhcxInboundService {
       summary = { ...summary, parsed, claimStatus: out.status };
     } else if (operation === 'preauth/on_submit') {
       const parsed = parsePreauthResponse(decrypted);
-      const out = await this.preauth.applyDecision({
+      // Slice AD: route through handleInboundResponse so the
+      // QUEUED → SUBMITTED ack runs first when the claim is in real-
+      // mode pending. applyDecision still works for the admin escape
+      // hatch where the claim is already at SUBMITTED.
+      const out = await this.preauth.handleInboundResponse({
         tenantId: row.tenantId,
         claimId: row.claimId,
-        actorUserId: null,
-        kind: parsed.kind,
-        ...(parsed.approvedAmount !== undefined ? { approvedAmount: parsed.approvedAmount } : {}),
-        ...(parsed.reason !== undefined ? { reason: parsed.reason } : {}),
-        ...(parsed.queryText !== undefined ? { queryText: parsed.queryText } : {}),
+        correlationId: input.correlationId,
+        parsed,
       });
       summary = { ...summary, parsed, claimStatus: out.status };
     } else if (operation === 'claim/on_submit') {
