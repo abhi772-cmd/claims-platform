@@ -6,23 +6,389 @@ sprint slices rather than calendar releases.
 
 ## Sprint 3 — Production hardening (May 2026)
 
-Sprint 3 slices R–X are merged on `main` but their per-slice CHANGELOG
-entries have not yet been backfilled. See `git log --grep "Sprint 3"`
-for the merged set.
+Eight slices (R–Y) on top of the Sprint 2 business-domain skeleton.
+Theme: every Sprint 2 stub picks up a production sibling, and the
+multi-tenant surface gets the encryption / scanning / per-tenant
+config that compliance asks for. CI gate now also runs MinIO + the
+FHIR snapshot tests.
 
-### Y — FHIR builder snapshot lock (this PR)
+### R — Encrypted patient PII (PR #21)
+
+- `Patient` model with envelope-encrypted Aadhaar / ABHA / policy /
+  mobile / email — AES-256-GCM with per-tenant DEK derived via
+  HKDF-SHA256 from `PII_KMS_ROOT_KEY_BASE64`. Ciphertext blob is
+  `base64(iv || ct || tag)` with `keyVersion` stored alongside so
+  rotation doesn't require atomic re-encrypt.
+- Exact-match lookup hashes (`aadhaarHash`, `mobileHash`) co-located
+  with the ciphertext so we find a patient without a full-table
+  decrypt scan.
+- `CaseService.create` atomically creates the `Patient` row inside the
+  same tenant tx when `CreateCaseRequest.patient` is supplied. Legacy
+  cases (no PII) keep `patientId = null`.
+- Real OVH KMS deferred to Sprint 5; config loader rejects
+  `PII_KMS_MODE=real`. Production-only enforcement of
+  `PII_KMS_ROOT_KEY_BASE64` so non-prod test harnesses don't have to
+  mint a 32-byte key.
+- 12 unit + 4 integration tests.
+
+### S — Document virus-scan + lifecycle sweep (PR #22)
+
+- `VirusScanAdapter` interface + three impls gated by
+  `VIRUS_SCAN_MODE` — `off` / `stub` (EICAR detect) / `real`
+  (ClamAV INSTREAM, deferred to Sprint 5).
+- `finalizeUpload` runs the scanner; infected rows flip
+  `scanStatus='infected'` + return 422. `hasDocumentType()` now
+  requires `scanStatus IN ('clean','skipped')` so infected uploads
+  never satisfy the discharge / claim-submit checklist.
+- `DocumentLifecycleWorker` sweeps `pending` rows older than
+  `DOC_PENDING_TTL_MINUTES` (default 60) to `failed`, so stale uploads
+  stop showing up as "still uploading".
+- 5 unit + 3 integration tests.
+
+### T — Real FHIR R4 bundle builders (PR #23)
+
+- Four pure-function builders for the HCX 0.7.1 profile:
+  `CoverageEligibilityRequest` (eligibility), `Claim use=preauthorization`
+  (preauth submit), `Claim use=claim` (final submit with `Binary` refs),
+  `Communication` (query response + discharge submit).
+- `NhcxJweAdapter` materialises bundles when patient/coverage/clinical
+  fields are supplied; falls back to the legacy lightweight payload
+  otherwise so the stub and existing call sites keep working.
+- Eligibility service forwards plaintext patient fields + decrypts the
+  linked `Patient` row to populate `dateOfBirth` / `gender` / `abhaId`.
+  Aadhaar / mobile / email never leave the database.
+- Sprint 5 follow-up: forward enriched fields from preauth /
+  discharge / claim-submit too. Eligibility was wired first as the
+  highest-traffic NHCX call.
+- 11 unit + 1 integration test.
+
+### U — ABDM token cache + NHCX key rotation (PR #24)
+
+- `TokenCache` — process-local TTL cache for ABDM OAuth2 tokens with
+  concurrent-miss collapse (no thundering herd at expiry).
+  `HprRealAdapter` reads via the cache + `httpJsonWith401Retry`
+  invalidates and remints on a 401 then retries the original call once.
+- `EnvKeyResolver` (NHCX) maps version strings to PEM blobs. Active
+  version (`NHCX_PRIVATE_KEY_VERSION`, default `v1`) drives outbound
+  encryption (`kid` stamped on the JWE header). Inbound JWEs decrypt
+  using the version named in their `kid`, so v1 ciphertext from NHCX
+  still opens after we cut over to v2 outbound. Adding v3 = a new env
+  slot + a one-line resolver entry.
+- `nhcx.crypto.readJweKid` exposes `decodeProtectedHeader` so the
+  adapter reads `kid` without partial-decrypting the payload.
+- 12 unit + 2 integration tests.
+
+### V — Audit viewer + streaming CSV export (PR #25)
+
+- `GET /audit` — paginated list with filters (from / to, action,
+  resourceType, resourceId, actorUserId, correlationId), gated by
+  `audit.view`.
+- `GET /audit/export.csv` — same filters, streamed via the underlying
+  Express response. `AuditService.streamForExport` is an async
+  generator yielding 500-row batches; controller pipes straight to
+  `res.write`. 100k-row hard cap so memory stays bounded.
+- `apps/web/.../admin/audit/page.tsx` — filter inputs, paginated
+  table, "Download CSV" anchor that opens the export URL with cookies
+  attached so the browser handles streaming + the download flow.
+- 6 integration tests including a cross-tenant isolation canary.
+
+### W — Real-MinIO S3 round-trip + finalize-failure tests (PR #26)
+
+- `test/setup/minio-container.ts` spins up MinIO via testcontainers
+  and creates the test bucket. Drop-in S3 API surface so SigV4
+  presigned PUT + HEAD work unchanged against it.
+- `document-real-s3.e2e-spec.ts` — happy path (upload-init → PUT
+  bytes via the presigned URL with `fetch` mirroring the browser →
+  finalize captures the real etag and observed content-length) and
+  failure path (skip the PUT → finalize HEAD returns 404 → row flips
+  to `failed` with `uploadError`, surface 422).
+- Closes the two gaps called out in the Slice P2 PR.
+- `cross-env NODE_OPTIONS=--experimental-vm-modules` on the
+  integration runner so the AWS SDK v3's dynamic imports
+  (middleware-retry) resolve under Jest. `cross-env` added as a devDep
+  for portable shell behaviour.
+- Post-CreateBucket `HeadBucket` poll (5x / 200ms) handles MinIO's
+  occasional bucket-visibility lag after create.
+
+### X — Per-tenant SMTP + SMS config (PR #27)
+
+- `Tenant.commsConfig` JSONB stores per-tenant overrides for the
+  SMTP relay and SMS provider; falls back to platform env defaults
+  when unset.
+- `TenantCommsConfigService` resolves + caches per-tenant config (60s
+  TTL, invalidate on write). `EmailAdapter` and `SmsAdapter` thread
+  `tenantId` through every send so per-tenant Transporters and SMS
+  providers select cleanly. `TextGuru` provider is a logging stub
+  today; real HTTP integration in Sprint 5.
+- `PATCH /tenant/comms-config` edits, `GET` returns a redacted summary
+  (`passwordSet` / `apiKeySet` flags — never raw secrets). New
+  permission `tenant.comms_config.update` gates both verbs; seeded
+  into `tenant_admin` and `platform_admin`.
+- `apps/web/.../admin/comms-config/page.tsx` — operator form that
+  preserves existing secrets when the password / api-key fields are
+  left blank.
+- Bug fix: `SMTP_PORT` coerced to number at the resolver boundary
+  because `ConfigService` can surface raw env strings.
+- 6 unit + 5 integration tests.
+
+### Y — FHIR builder snapshot lock (PR #28)
 
 - Optional `uuid` + `now` factory injection on the four NHCX FHIR R4
-  builder inputs (`FhirDeterminismDeps`). Production callers omit them;
-  defaults remain `crypto.randomUUID` and the system clock.
+  builder inputs (`FhirDeterminismDeps`). Production callers omit
+  them; defaults remain `crypto.randomUUID` and the system clock.
 - `apps/api/src/modules/nhcx/fhir-builders.snapshot.spec.ts` — 4 tests
-  building each bundle with deterministic factories and asserting deep
-  equality against pretty-printed reference fixtures in
+  building each bundle with deterministic factories and asserting
+  deep equality against pretty-printed reference fixtures in
   `reference/fhir-bundles/`. Set `UPDATE_FIXTURES=1` to regenerate
   intentionally; the diff lands in the PR for review.
 - `reference/fhir-bundles/{eligibility-request,preauth-submit,claim-submit,communication}.json`
-  — committed canonical bundles (the directory CLAUDE.md already points
-  at for contract tests).
+  — committed canonical bundles (the directory CLAUDE.md already
+  pointed at for contract tests).
+
+## Sprint 2 — Business domain + real adapters (May 2026)
+
+Nine slices (I–Q) building the case → preauth → discharge → claim →
+settlement pipeline on top of the Sprint 1 auth surface, plus the
+first real-network NHCX / ABDM / S3 adapters and the production-deploy
+hardening. CI gate adds the integration_message ledger canaries.
+
+### I — Event-sourced claim aggregate engine (PR #10)
+
+- Three new tables: `case` (minimal — patient details are placeholder
+  strings until the encrypted Patient model lands in Slice R),
+  `claim` (materialised state), `claim_event` (append-only via RLS).
+- Full 35-status `ClaimStatus` enum + 38 `ClaimEventType` verbs lifted
+  verbatim from `docs/04-state-machines.md`. Explicit transition table
+  (~55 rows) with O(1) lookups; module-load asserts uniqueness so a
+  duplicate transition fails fast.
+- `ClaimService.create` / `transition` / `findById` / `listEvents`.
+  Every transition opens a tenant-context tx, validates `(from, event)`,
+  writes a `ClaimEvent`, updates the materialised `claim.status`
+  atomically, and auto-stamps `submittedAt` / `approvedAt` / `paidAt`
+  / `closedAt` based on the resulting status.
+- `ClaimReconstructionService.replay` — pure function over the event
+  log. Reports `{status, eventCount, history, consistent}`.
+- `claim_event` has `USING(false)` on UPDATE/DELETE so application
+  code that tries to mutate a recorded event is silently rejected.
+- 11 unit + 6 integration tests.
+
+### J — Case + claim CRUD over HTTP (PR #11)
+
+- `POST /cases` creates the `Case` row AND mints the first `Claim`
+  via `ClaimService.create` (two writes, separate txs) so callers
+  get a fully-shaped aggregate from one round-trip. Atomic wrapping
+  deferred until the encrypted Patient model lands.
+- `CaseController` — `POST` / `GET` / `GET /:id` / `PATCH`, gated by
+  `case.create` / `case.view` / `case.assign`.
+- `ClaimController` — `GET /cases/:cid/claims/:clid/events` (timeline)
+  + `POST .../transitions` (admin manual transition gated by
+  `case.assign` — production transitions come from rail adapters).
+- Wire shapes: `CaseSummary` (list page) + `CaseDetail` (detail page,
+  embeds claims) + `ClaimEventListItem` (timeline). Server-side
+  pagination clamped to `[1, 200]`.
+- Web: `/cases` list with status filter, `/cases/new` create form,
+  `/cases/[id]` detail panel with claims + timeline.
+- 8 integration tests including cross-tenant invisibility canary.
+
+### K — NHCX-stub eligibility cycle + integration_message ledger (PR #12)
+
+- `IntegrationMessage` model — every external call (NHCX, PMJAY,
+  ABDM, OpenAI, SMTP, TextGuru) writes a paired outbound + inbound
+  row sharing one `correlationId`. `status` flips
+  `pending → succeeded | failed`; `failureClass` classifies
+  network / auth / validation / 5xx.
+- `IntegrationMessageService.recordOutboundWithTx` (atomic with the
+  surrounding state change), `markSucceeded` (updates outbound +
+  writes inbound), `markFailed`, `listForClaim`.
+- `NhcxStubAdapter` — env-driven verify result with per-MRN fail-list
+  override. Mirrors the eventual real-adapter shape so swap is
+  contained to one file in Slice P. 5ms mock latency.
+- `EligibilityService` orchestrator — opens a tenant tx, transitions
+  `eligibility.requested`, calls the adapter outside the tx (no
+  network round-trip while holding locks), writes paired ledger rows
+  under one correlationId, transitions to `ELIGIBILITY_VERIFIED` or
+  `ELIGIBILITY_FAILED`.
+- `POST /cases/:c/claims/:cl/eligibility` (`case.create`) +
+  `GET .../integration-messages` (`case.view`).
+- Web: case detail gains an Eligibility action panel + ledger view.
+- 6 integration tests.
+
+### L — Pre-auth phase end to end (PR #13)
+
+- `preauth_draft` (one row per claim, unique on `claimId`, upsert);
+  per-field state captured in `submittedSnapshot` at submit so a
+  later edit can't silently change what we believe we sent.
+- `preauth_query` — payer-raised queries; `respondedAt` /
+  `responseText` flip on response.
+- `NhcxStubAdapter` gains `submitPreauth` / `respondPreauthQuery`.
+  `EligibilityModule` now exports the adapter so `PreauthModule`
+  shares it (one fewer instance).
+- `PreauthService` — `saveDraft` (upsert), `submit` (required-field
+  check, `DRAFTING → QUEUED`, adapter call, paired ledger rows,
+  `QUEUED → SUBMITTED` with `payerRefNum` stamped on the claim),
+  `applyDecision` (admin escape hatch + path Slice P's adapter
+  callback wires through), `respondToQuery`.
+- Endpoints under `/cases/:c/claims/:cl/preauth` gated separately by
+  `preauth.draft` / `preauth.submit` / `preauth.respond_query` /
+  `case.assign`.
+- Web: `PreauthPanel` on case detail. Form binds to the draft;
+  Save / Submit are split. Form goes read-only once the claim leaves
+  `DRAFTING` / `QUEUED`.
+- 7 integration tests.
+
+### M — Discharge + claim submit phase end to end (PR #14)
+
+- `Document` model — file metadata only; binaries land in S3 in
+  Slice P2. Tenant-scoped, indexed on `(claimId, documentType)` so
+  the required-doc check is a cheap count.
+- `DocumentService.uploadStub` creates a synthetic
+  `storageBucket` / `storageKey` so downstream flows have a row to
+  link.
+- `NhcxStubAdapter` gains `submitDischarge` / `submitClaim` —
+  acknowledged-only, decisions still arrive via the admin endpoint.
+- `DischargeService.initiate` / `submit` — submit guards on at-least-
+  one document of type `discharge_summary`; missing → 422.
+- `ClaimSubmitService.start` / `submit` / `applyDecision`. `submit`
+  takes `finalAmount` on the wire (the requested pre-auth amount
+  was an estimate; `finalAmount` is what we're actually billing).
+- Endpoints under `/cases/:c/claims/:cl/{documents, discharge,
+  claim-submission}` with permission gates per verb.
+- Web: `ClaimPhasePanel` on case detail with inline document upload
+  stub + discharge / claim submit buttons gated on status.
+- 7 integration tests.
+
+### N — Settlement: payment, EOB, reconciliation, write-off (PR #15)
+
+- `Settlement` model — one row per claim, unique on `claimId`. Tracks
+  `expectedAmount`, `receivedAmount`, `deductionAmount`, structured
+  `deductions` JSONB, `shortPaymentReasons`, `eobDocumentId` (FK-by-id
+  to `Document`), `reconciliationStatus`
+  (`manual_match_pending → auto_matched | short_paid | discrepancy`),
+  `closedAt`.
+- `SettlementService` — `expectPayment` (idempotent upsert + drives
+  `payment.expected`), `recordReceipt` (auto-classifies `short_paid`
+  when `received < expected`, drives `payment.received` →
+  `payment.short_paid`, stamps `paidAmount` on the claim),
+  `reconcile`, `writeOff` (drives `claim.written_off` — terminal-
+  bound), `close` (drives `claim.closed` + stamps `closedAt`).
+- Endpoints under `/cases/:c/claims/:cl/settlement` gated by
+  `case.assign` / `settlement.upload_eob` /
+  `settlement.categorize_deduct` / `settlement.write_off`.
+- Web: `SettlementPanel` on the case detail page, status-conditional
+  CTAs (receipt, reconcile, write-off, close) from `CLAIM_APPROVED`
+  through `CLOSED`.
+- State-machine fix mid-slice: `payment.short_paid` only follows
+  `payment.received`, never directly from `PAYMENT_PENDING`. Same
+  materialised state, valid event sequence.
+- 7 integration tests.
+
+### O — Master data: payer, package, ICD, billing, checklist (PR #16)
+
+- Platform-level catalogues (no `tenantId`) — `Payer` (TPA / insurer /
+  SHA / CGHS / self with NHCX participant code), `Package` (PMJAY HBP
+  + private-rail tariff), `IcdCode` (ICD-10-CM with description
+  search), `BillingCode`, `DocumentChecklistRule`.
+- `resolveChecklist` picks the most-specific rule per `documentType`
+  with a (phase, rail) → optional payer / package / admissionType
+  precedence.
+- RLS — SELECT open to any authenticated context, INSERT/UPDATE/DELETE
+  `platform_admin` only. Endpoints under `/payers`, `/packages`,
+  `/icd-codes`, `/billing-codes`, `/document-checklist-rules` gated by
+  `payer.master.{view,edit}` / `package.master.sync` /
+  `document_checklist.edit`.
+- Seed: `pnpm db:seed:master` loads 10 payers, 14 packages, 21 ICD
+  codes, 15 billing codes, 13 checklist rules — idempotent.
+- Side change: `ZodValidationPipe` now uses
+  `ZodType<T, ZodTypeDef, unknown>` so schemas with `.transform()`
+  pass the constraint.
+- 7 integration tests.
+
+### P — Real NHCX JWE adapter + mode switch (PR #17)
+
+- `NhcxAdapter` interface lifted into its own `@Global` module with
+  two impls: `NhcxStubAdapter` (existing behaviour) and
+  `NhcxJweAdapter` (RSA-OAEP-256 + A256GCM JWE wrapping over native
+  `fetch`, configurable gateway URL).
+- `NHCX_MODE=stub|real` (default `stub`). Real mode requires
+  `NHCX_GATEWAY_URL`, `NHCX_PARTICIPANT_CODE`,
+  `NHCX_PRIVATE_KEY_BASE64`, `NHCX_GATEWAY_PUBLIC_KEY_BASE64` —
+  config loader rejects boot when missing.
+- Consumers (eligibility, preauth, discharge, claim-submit) now
+  inject the `NHCX_ADAPTER` token instead of the concrete class so
+  swap is transparent.
+- `nhcx.crypto` — `jose` v5 (pinned for CJS interop). Imported keys
+  are cached keyed on PEM string so per-request encryption isn't
+  paying the SPKI parse cost.
+- 3 unit + 4 integration tests against an in-process mock gateway:
+  encrypt/decrypt round-trip, opaque-on-the-wire (PHI never appears
+  plaintext), HTTP 503 surfaces as a thrown error, payload propagation.
+
+### P2 — S3 presigned upload pipeline (PR #18)
+
+- `StorageAdapter` interface + two impls: `StubStorageAdapter`
+  (synthetic refs, dev + tests) and `S3StorageAdapter` (presigned
+  PUTs against an S3-compatible service via AWS SDK v3 — OVH default,
+  works against MinIO / AWS S3 too).
+- `STORAGE_MODE=stub|real`; real mode requires
+  `OVH_S3_{ENDPOINT,REGION,BUCKET,ACCESS_KEY,SECRET_KEY}`.
+- `Document` table extended: `uploadStatus`
+  (`pending|completed|failed`), `contentSha256`, `uploadError`,
+  `finalizedAt`. Existing rows backfill to `completed`.
+- Two new endpoints — `POST .../documents/upload-init` allocates a key,
+  signs a PUT URL, creates the `pending` row; `POST .../finalize` HEADs
+  the object, captures `etag` + size, flips the row to `completed`.
+  Legacy `/upload-stub` retained for backward compat + dev.
+- `hasDocumentType()` now requires `uploadStatus='completed'` so
+  pending uploads don't satisfy the discharge / claim checklist.
+- 2 unit + 4 integration tests.
+
+### P3 — Real ABDM HPR adapter + two-step OTP flow (PR #19)
+
+- `HprAdapter` interface + `HPR_ADAPTER` token. Two impls:
+    - `HprStubAdapter` — moved from `doctor/hpr.service.ts`. Allowlist
+      + fixed-OTP gating. Now exposes `requestOtp()` returning a
+      synthetic `transactionId` so the two-step flow works in stub
+      mode.
+    - `HprRealAdapter` — talks to ABDM Sandbox over `fetch`:
+      `/gateway/v0.5/sessions` (access token), `/api/v1/auth/init`
+      (txnId), `/api/v1/auth/confirmWithMobileOTP` (x-token),
+      `/api/v2/hpr/healthcareprofessional/{hprId}` (profile).
+      Failures bucket up into `HprVerificationFailedError` so callers
+      can't distinguish "wrong OTP" from "wrong HPR" (D-014).
+- `HPR_MODE=stub|real` (default `stub`). Real mode requires
+  `ABDM_BASE_URL` / `ABDM_CLIENT_ID` / `ABDM_CLIENT_SECRET`;
+  `ABDM_HTTP_TIMEOUT_MS` bounds each leg.
+- `DoctorTokenService` injects `HPR_ADAPTER` and exposes
+  `requestHprOtp()`. `SignWithDoctorTokenInput` grows an optional
+  `hprTransactionId` — required by the real adapter (links the OTP
+  back to init), ignored by the stub.
+- New endpoint `POST /preauth/doctor-tokens/:rawToken/hpr-init` (step
+  1 of the two-step real-ABDM flow).
+- 5 unit + 5 integration tests against a mock ABDM sandbox.
+
+### Q — Security headers + retry worker + readiness probe (PR #20)
+
+- Security-headers middleware, hand-rolled rather than helmet so the
+  policy is auditable. CSP (`default-src 'none'`,
+  `connect-src CORS_ORIGIN`), `X-Content-Type-Options`,
+  `X-Frame-Options DENY`, `Referrer-Policy no-referrer`,
+  `Permissions-Policy` denying camera/mic/etc, COOP `same-origin`,
+  CORP `same-site`. HSTS gated on `COOKIE_SECURE` — production
+  preload-grade, non-prod `max-age=300` to avoid locking dev. Express
+  `X-Powered-By` stripped.
+- `NotificationRetryWorker` — in-process timer that drains
+  `notification_outbox` rows in `queued|failed` state with
+  `attempts < cap`. Exponential back-off (0s / 60s / 5m / 30m / 2h).
+  Permanent failures (unknown template, channel mismatch) burn all
+  attempts atomically. Disable in tests via
+  `NOTIFICATION_RETRY_DISABLED=true`.
+- `/health/ready` reports database connectivity,
+  `_prisma_migrations` freshness (every applied migration finished +
+  not rolled back), bound adapter modes (nhcx / hpr / storage), and
+  build provenance — load balancers can pull instances out of
+  rotation when migrations are mid-flight or rolled back.
+- 4 unit (security headers) + 6 unit (retry back-off schedule) +
+  4 integration tests.
 
 ## Sprint 1 — Auth + onboarding (May 2026)
 
