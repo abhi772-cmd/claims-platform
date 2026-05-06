@@ -14,6 +14,7 @@ export * from './preauth.schema';
 export * from './document.schema';
 export * from './claim-submit.schema';
 export * from './settlement.schema';
+export * from './appeal.schema';
 export * from './master-data.schema';
 export * from './audit.schema';
 export * from './problem-details.schema';
