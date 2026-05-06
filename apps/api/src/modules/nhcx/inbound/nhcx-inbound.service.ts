@@ -11,6 +11,7 @@ import {
   parseEligibilityResponse,
   parsePreauthResponse,
 } from './fhir-response-parsers';
+import { NhcxSenderAllowlistService } from './nhcx-sender-allowlist.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { type AppConfig } from '../../../config/configuration';
 import { ClaimSubmitService } from '../../claim-submit/claim-submit.service';
@@ -37,12 +38,16 @@ export interface InboundDispatchResult {
   // The integration_message row id we wrote synchronously. Returned
   // so the controller can echo it back if needed.
   inboundMessageId: string;
-  // 'accepted' = persisted + scheduled. 'duplicate' = already had a
-  // row for this correlationId (idempotency guard fired). 'invalid'
-  // = malformed payload or missing key — controller still returns
-  // 200 (the gateway shouldn't retry on a bad request) but ops sees
-  // the failure on the row.
-  outcome: 'accepted' | 'duplicate' | 'invalid';
+  // 'accepted'        = persisted + scheduled.
+  // 'duplicate'       = already had a row for this correlationId
+  //                     (idempotency guard fired).
+  // 'invalid'         = no matching outbound row; misrouted callback.
+  // 'rejected_sender' = the x-hcx-sender-code is not in the payer
+  //                     allowlist (Slice AG). Controller still
+  //                     returns 200 to the gateway (NHA shouldn't
+  //                     retry on a configuration mismatch), but no
+  //                     row is written.
+  outcome: 'accepted' | 'duplicate' | 'invalid' | 'rejected_sender';
 }
 
 // Slice Z core. Two responsibilities:
@@ -68,6 +73,7 @@ export class NhcxInboundService {
     private readonly preauth: PreauthService,
     private readonly claimSubmit: ClaimSubmitService,
     private readonly discharge: DischargeService,
+    private readonly senderAllowlist: NhcxSenderAllowlistService,
     private readonly config: ConfigService<AppConfig, true>,
     @Optional() @Inject(NHCX_KEY_RESOLVER) private readonly keyResolver: NhcxKeyResolver | null,
   ) {}
@@ -83,6 +89,14 @@ export class NhcxInboundService {
   async receive(
     input: InboundDispatchInput,
   ): Promise<InboundDispatchResult> {
+    // Slice AG: drop the request before we even touch Postgres if
+    // the sender code isn't in the payer allowlist. The webhook is
+    // public; this is the cheap defense-in-depth gate that catches
+    // misrouted callbacks (and bad-faith senders) before they get to
+    // touch the integration_message ledger.
+    if (!(await this.senderAllowlist.isAllowed(input.senderCode))) {
+      return { inboundMessageId: '', outcome: 'rejected_sender' };
+    }
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.role', 'platform_admin', true)`;
 

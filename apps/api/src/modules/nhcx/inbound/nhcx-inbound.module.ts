@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { NhcxInboundController } from './nhcx-inbound.controller';
 import { NhcxInboundService } from './nhcx-inbound.service';
+import { NhcxSenderAllowlistService } from './nhcx-sender-allowlist.service';
 import { ClaimSubmitModule } from '../../claim-submit/claim-submit.module';
 import { DischargeModule } from '../../discharge/discharge.module';
 import { EligibilityModule } from '../../eligibility/eligibility.module';
@@ -14,7 +15,7 @@ import { PreauthModule } from '../../preauth/preauth.module';
 @Module({
   imports: [EligibilityModule, PreauthModule, ClaimSubmitModule, DischargeModule],
   controllers: [NhcxInboundController],
-  providers: [NhcxInboundService],
-  exports: [NhcxInboundService],
+  providers: [NhcxInboundService, NhcxSenderAllowlistService],
+  exports: [NhcxInboundService, NhcxSenderAllowlistService],
 })
 export class NhcxInboundModule {}
