@@ -4,10 +4,12 @@ import {
   type PreauthDraftResponse,
 } from '@claims/contracts';
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { InvalidClaimTransitionError } from '../../common/errors/claim-errors';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { type AppConfig } from '../../config/configuration';
 import { ClaimService } from '../claim';
 import { IntegrationMessageService } from '../integration';
 import { FhirContextService, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
@@ -55,6 +57,7 @@ export class PreauthService {
     private readonly claims: ClaimService,
     private readonly integration: IntegrationMessageService,
     private readonly fhirContext: FhirContextService,
+    private readonly config: ConfigService<AppConfig, true>,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
   ) {}
 
@@ -183,6 +186,27 @@ export class PreauthService {
         return row.id;
       },
     );
+
+    // Slice AD: real mode = the gateway will POST a preauth/on_submit
+    // callback that runs the QUEUED → SUBMITTED ack + the decision
+    // transition. The orchestrator stops at QUEUED here. Outbound
+    // integration_message stays at status='pending' until the inbound
+    // dispatcher pairs the callback with this correlationId.
+    if (this.config.get('NHCX_MODE', { infer: true }) === 'real') {
+      const pendingSnap = await this.prisma.runInTenantContext(
+        input.tenantId,
+        'platform_admin',
+        (tx) => tx.claim.findUniqueOrThrow({ where: { id: input.claimId } }),
+      );
+      // Hide outboundId by using it once for log clarity — keeps the
+      // 'unused variable' lint happy without changing semantics.
+      void outboundId;
+      return {
+        status: pendingSnap.status,
+        payerRefNum: adapterResult.payerRefNum,
+        correlationId: adapterResult.correlationId,
+      };
+    }
 
     await this.integration.markSucceeded({
       tenantId: input.tenantId,
@@ -349,6 +373,65 @@ export class PreauthService {
         status: claim?.status ?? 'INITIATED',
         updatedAt: row.updatedAt.toISOString(),
       };
+    });
+  }
+
+  // Slice AD entry point. Called by NhcxInboundService when a
+  // preauth/on_submit callback arrives. Two state-machine steps in
+  // one method:
+  //
+  //   1. If the claim is at PREAUTH_QUEUED (real-mode flow — Slice AD
+  //      orchestrator stops there), run preauth.acknowledged_by_payer
+  //      first to drive QUEUED → SUBMITTED. Stamp payerRefNum if the
+  //      gateway returned one (parsed off the FHIR response).
+  //   2. Run the decision transition (SUBMITTED → APPROVED / REJECTED /
+  //      PARTIALLY_APPROVED / QUERY_RAISED) by delegating to
+  //      applyDecision.
+  //
+  // applyDecision stays as the admin escape-hatch entry point for
+  // claims that arrived at SUBMITTED some other way.
+  async handleInboundResponse(input: {
+    tenantId: string;
+    claimId: string;
+    correlationId: string;
+    parsed: {
+      kind: PreauthDecisionKind;
+      approvedAmount?: number;
+      reason?: string;
+      queryText?: string;
+    };
+    payerRefNum?: string;
+  }): Promise<{ status: string; approvedAmount: number | null }> {
+    // Step 1: ack if the claim is still queued.
+    const claim = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'platform_admin',
+      (tx) => tx.claim.findUniqueOrThrow({ where: { id: input.claimId } }),
+    );
+    if (claim.status === 'PREAUTH_QUEUED') {
+      await this.claims.transition({
+        tenantId: input.tenantId,
+        claimId: input.claimId,
+        eventType: 'preauth.acknowledged_by_payer',
+        actorUserId: null,
+        correlationId: input.correlationId,
+        ...(input.payerRefNum !== undefined
+          ? { patch: { payerRefNum: input.payerRefNum, preauthRefNum: input.payerRefNum } }
+          : {}),
+      });
+    }
+
+    // Step 2: run the decision via applyDecision.
+    return this.applyDecision({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      actorUserId: null,
+      kind: input.parsed.kind,
+      ...(input.parsed.approvedAmount !== undefined
+        ? { approvedAmount: input.parsed.approvedAmount }
+        : {}),
+      ...(input.parsed.reason !== undefined ? { reason: input.parsed.reason } : {}),
+      ...(input.parsed.queryText !== undefined ? { queryText: input.parsed.queryText } : {}),
     });
   }
 }
