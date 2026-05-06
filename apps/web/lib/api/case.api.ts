@@ -1,4 +1,6 @@
 import {
+  type AppealResponse,
+  type AppealSummary,
   type CaseDetail,
   type ClaimDecisionRequest,
   type ClaimDecisionResponse,
@@ -21,8 +23,11 @@ import {
   type PreauthSubmitResponse,
   type ReconcileRequest,
   type RecordReceiptRequest,
+  type ResolveAppealRequest,
   type Settlement,
   type SettlementResponse,
+  type StartAppealRequest,
+  type SubmitAppealRequest,
   type UpdateCaseRequest,
   type UploadDocumentStubRequest,
   type UploadFinalizeRequest,
@@ -257,5 +262,44 @@ export const CaseApi = {
     apiRequest<SettlementResponse>(
       `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/settlement/close`,
       { method: 'POST', body: {} },
+    ),
+
+  // Appeal lifecycle (Slice AH/AI).
+  getAppeal: (
+    caseId: string,
+    claimId: string,
+  ): Promise<{ appeal: AppealSummary | null }> =>
+    apiRequest<{ appeal: AppealSummary | null }>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/appeal`,
+    ),
+
+  startAppeal: (
+    caseId: string,
+    claimId: string,
+    body: StartAppealRequest,
+  ): Promise<AppealResponse> =>
+    apiRequest<AppealResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/appeal/start`,
+      { method: 'POST', body },
+    ),
+
+  submitAppeal: (
+    caseId: string,
+    claimId: string,
+    body: SubmitAppealRequest,
+  ): Promise<AppealResponse> =>
+    apiRequest<AppealResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/appeal/submit`,
+      { method: 'POST', body },
+    ),
+
+  resolveAppeal: (
+    caseId: string,
+    claimId: string,
+    body: ResolveAppealRequest,
+  ): Promise<AppealResponse> =>
+    apiRequest<AppealResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/appeal/resolve`,
+      { method: 'POST', body },
     ),
 };
