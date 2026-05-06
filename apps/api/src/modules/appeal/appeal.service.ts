@@ -3,6 +3,7 @@ import {
   type AppealResponse,
   type AppealStatus,
   type AppealSummary,
+  type PaymentMode,
 } from '@claims/contracts';
 import { Injectable, Logger } from '@nestjs/common';
 
@@ -10,6 +11,7 @@ import { InvalidClaimTransitionError } from '../../common/errors/claim-errors';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ClaimService } from '../claim';
+import { SettlementService } from '../settlement';
 
 export interface StartAppealInput {
   tenantId: string;
@@ -51,6 +53,13 @@ export interface ResolveAppealInput {
 //              triggered separately via SettlementService — keeping
 //              that boundary so settlement remains the only writer
 //              of payment-related state.
+// Default payment mode for the auto-chained settlement when an appeal
+// resolves favourably and the claim doesn't already have a settlement
+// row to reuse the mode from. Slice AJ — operators can change this
+// later via the standard SettlementPanel; we just need a non-null
+// default to drive payment.expected synchronously.
+const DEFAULT_AUTO_CHAIN_PAYMENT_MODE: PaymentMode = 'cashless_tpa';
+
 @Injectable()
 export class AppealService {
   private readonly log = new Logger(AppealService.name);
@@ -58,6 +67,7 @@ export class AppealService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly claims: ClaimService,
+    private readonly settlement: SettlementService,
   ) {}
 
   async start(input: StartAppealInput): Promise<AppealResponse> {
@@ -182,7 +192,63 @@ export class AppealService {
         },
       }),
     );
-    return { appeal: toSummary(row), claimStatus: snap.status };
+
+    // 3. Slice AJ — auto-chain favourable resolutions into settlement.
+    // Saves the operator a click and matches the production flow: a
+    // payer's appeal approval is the trigger to expect payment.
+    //
+    // For 'rejected' we deliberately leave the claim at APPEAL_RESOLVED.
+    // Write-off requires a free-text reason that the operator must
+    // author, so auto-chaining there would either invent the reason
+    // or silently drop it.
+    //
+    // The settlement boundary stays clean: AppealService doesn't write
+    // payment-state events itself; it delegates to SettlementService
+    // which is the only writer of payment.* transitions.
+    let claimStatus = snap.status;
+    if (input.kind === 'approved' || input.kind === 'partially_approved') {
+      // If a settlement row already exists for this claim (e.g. the
+      // appeal followed a SHORT_PAID resolution), reuse its payment
+      // mode so we don't downgrade an established choice. Otherwise
+      // fall back to the default.
+      const existingSettlement = await this.settlement.getByClaim(
+        input.tenantId,
+        input.claimId,
+      );
+      const paymentMode: PaymentMode =
+        (existingSettlement?.paymentMode as PaymentMode | undefined) ??
+        DEFAULT_AUTO_CHAIN_PAYMENT_MODE;
+      try {
+        await this.settlement.expectPayment({
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          actorUserId: input.actorUserId,
+          paymentMode,
+          ...(input.approvedAmount !== undefined
+            ? { expectedAmount: input.approvedAmount }
+            : {}),
+        });
+        // Re-read claim status — settlement has driven it forward.
+        const refreshed = await this.claims.findById(input.tenantId, input.claimId);
+        if (refreshed) claimStatus = refreshed.status;
+        this.log.log(
+          `appeal auto-chained to expectPayment claimId=${input.claimId} mode=${paymentMode}`,
+        );
+      } catch (err) {
+        // If settlement.expectPayment trips on something we can't
+        // recover from synchronously (the claim got into an
+        // unexpected state between transitions, etc.), leave the
+        // claim at APPEAL_RESOLVED and surface the issue in logs.
+        // Operators can call /settlement/expect manually as the
+        // pre-AJ fallback.
+        const message = err instanceof Error ? err.message : String(err);
+        this.log.warn(
+          `appeal auto-chain failed claimId=${input.claimId} err=${message} — operator will need to call /settlement/expect manually`,
+        );
+      }
+    }
+
+    return { appeal: toSummary(row), claimStatus };
   }
 
   async getOpenForClaim(

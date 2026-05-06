@@ -291,7 +291,7 @@ describe('Slice AH — appeal lifecycle', () => {
     expect(second.status).toBe(422);
   });
 
-  it('resolve approved stamps approvedAmount on claim + appeal', async () => {
+  it('resolve approved stamps approvedAmount + auto-chains to PAYMENT_PENDING', async () => {
     const cookies = await loginAs(ADMIN);
     const { caseId, claimId } = await caseAtPreauthRejected(cookies, 'MRN-AP-6');
     await request(app.getHttpServer())
@@ -314,14 +314,16 @@ describe('Slice AH — appeal lifecycle', () => {
     expect(res.body.appeal.status).toBe('resolved');
     expect(res.body.appeal.resolutionKind).toBe('partially_approved');
     expect(res.body.appeal.approvedAmount).toBe(175_000);
-    expect(res.body.claimStatus).toBe('APPEAL_RESOLVED');
+    // Slice AJ — claim is now PAYMENT_PENDING, not APPEAL_RESOLVED.
+    // The auto-chain delegates to SettlementService.expectPayment.
+    expect(res.body.claimStatus).toBe('PAYMENT_PENDING');
 
     const claim = await readClaim(migrator, claimId);
-    expect(claim?.status).toBe('APPEAL_RESOLVED');
+    expect(claim?.status).toBe('PAYMENT_PENDING');
     expect(claim?.approvedAmount).toBe(175_000);
   });
 
-  it('resolve rejected does not require approvedAmount', async () => {
+  it('resolve rejected does not auto-chain — claim stays at APPEAL_RESOLVED', async () => {
     const cookies = await loginAs(ADMIN);
     const { caseId, claimId } = await caseAtPreauthRejected(cookies, 'MRN-AP-7');
     await request(app.getHttpServer())
@@ -339,6 +341,11 @@ describe('Slice AH — appeal lifecycle', () => {
     expect(res.status).toBe(200);
     expect(res.body.appeal.resolutionKind).toBe('rejected');
     expect(res.body.appeal.approvedAmount).toBeNull();
+    // Slice AJ — rejected resolutions deliberately do NOT auto-chain.
+    // The operator runs /settlement/write-off with a free-text reason
+    // we won't invent for them.
+    expect(res.body.claimStatus).toBe('APPEAL_RESOLVED');
+    expect((await readClaim(migrator, claimId))?.status).toBe('APPEAL_RESOLVED');
   });
 
   it('resolve approved without approvedAmount → 422', async () => {
