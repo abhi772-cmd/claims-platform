@@ -77,15 +77,18 @@ export class NhcxInboundService {
     input: InboundDispatchInput,
   ): Promise<InboundDispatchResult> {
     // Idempotency: NHA may retry on transient failures. A repeat
-    // correlationId on the inbound side is benign — log + skip.
-    // The lookup runs in platform_admin context because we don't yet
-    // know the tenantId (it's resolved from the matching outbound row
-    // during async processing).
+    // correlationId+operation on the inbound side is benign — log + skip.
+    // We also filter on operation because the Slice K orchestrator
+    // writes a synthetic inbound row for stub-mode responses (operation
+    // = the outbound op like 'eligibility.verify'). The gateway-callback
+    // inbound uses an HCX operation name like 'coverageeligibility/on_check',
+    // so the two never collide.
     const existing = await this.prisma.integrationMessage.findFirst({
       where: {
         correlationId: input.correlationId,
         direction: 'inbound',
         integration: 'nhcx',
+        operation: input.operation,
       },
       select: { id: true, tenantId: true, status: true },
     });

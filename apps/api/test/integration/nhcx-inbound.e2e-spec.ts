@@ -59,8 +59,17 @@ async function waitForStatusChange(
       await tx.$executeRaw(
         Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
       );
+      // Filter on operation prefix that matches the HCX inbound op
+      // names (slash separator) so we never pick up the Slice K
+      // orchestrator's synthetic inbound row (which uses outbound op
+      // names like 'eligibility.verify').
       return tx.integrationMessage.findFirst({
-        where: { correlationId, direction: 'inbound', integration: 'nhcx' },
+        where: {
+          correlationId,
+          direction: 'inbound',
+          integration: 'nhcx',
+          operation: { contains: '/' },
+        },
         select: { status: true, failureClass: true },
       });
     });
@@ -81,7 +90,12 @@ async function readInboundRow(
       Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
     );
     return tx.integrationMessage.findFirst({
-      where: { correlationId, direction: 'inbound', integration: 'nhcx' },
+      where: {
+        correlationId,
+        direction: 'inbound',
+        integration: 'nhcx',
+        operation: { contains: '/' },
+      },
       select: { status: true, failureClass: true, tenantId: true, operation: true },
     });
   });
@@ -96,7 +110,12 @@ async function readInboundRows(
       Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
     );
     return tx.integrationMessage.findMany({
-      where: { correlationId, direction: 'inbound', integration: 'nhcx' },
+      where: {
+        correlationId,
+        direction: 'inbound',
+        integration: 'nhcx',
+        operation: { contains: '/' },
+      },
       select: { id: true },
     });
   });
