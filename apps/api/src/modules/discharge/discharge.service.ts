@@ -1,7 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { type AppConfig } from '../../config/configuration';
 import { ClaimService } from '../claim';
 import { DocumentService } from '../document';
 import { IntegrationMessageService } from '../integration';
@@ -15,12 +17,15 @@ export interface DischargeInput {
 
 @Injectable()
 export class DischargeService {
+  private readonly log = new Logger(DischargeService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly claims: ClaimService,
     private readonly documents: DocumentService,
     private readonly integration: IntegrationMessageService,
     private readonly fhirContext: FhirContextService,
+    private readonly config: ConfigService<AppConfig, true>,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
   ) {}
 
@@ -76,6 +81,22 @@ export class DischargeService {
         return row.id;
       },
     );
+
+    // Slice AF: real mode = the gateway will POST a communication/
+    // request callback (HCX 0.7.1's discharge ack flows through the
+    // Communication operation). Stop at DISCHARGE_PENDING here; the
+    // inbound dispatcher's discharge handler runs the
+    // discharge.submitted transition. Single-step, no decision.
+    if (this.config.get('NHCX_MODE', { infer: true }) === 'real') {
+      const pendingSnap = await this.prisma.runInTenantContext(
+        input.tenantId,
+        'platform_admin',
+        (tx) => tx.claim.findUniqueOrThrow({ where: { id: input.claimId } }),
+      );
+      void outboundId;
+      return { status: pendingSnap.status };
+    }
+
     await this.integration.markSucceeded({
       tenantId: input.tenantId,
       outboundId,
@@ -92,6 +113,37 @@ export class DischargeService {
       eventType: 'discharge.submitted',
       actorUserId: input.actorUserId,
       correlationId: adapter.correlationId,
+    });
+    return { status: snap.status };
+  }
+
+  // Slice AF entry point. Called by NhcxInboundService when a
+  // communication/request callback arrives whose matching outbound
+  // was a discharge.submit. Single state-machine step:
+  // DISCHARGE_PENDING → DISCHARGE_SUBMITTED. Idempotent: skips when
+  // the claim is already past PENDING.
+  async handleInboundResponse(input: {
+    tenantId: string;
+    claimId: string;
+    correlationId: string;
+  }): Promise<{ status: string }> {
+    const claim = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'platform_admin',
+      (tx) => tx.claim.findUniqueOrThrow({ where: { id: input.claimId } }),
+    );
+    if (claim.status !== 'DISCHARGE_PENDING') {
+      this.log.log(
+        `discharge inbound — claim ${input.claimId} already at ${claim.status}; skipping transition`,
+      );
+      return { status: claim.status };
+    }
+    const snap = await this.claims.transition({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      eventType: 'discharge.submitted',
+      actorUserId: null,
+      correlationId: input.correlationId,
     });
     return { status: snap.status };
   }

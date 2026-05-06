@@ -1,8 +1,13 @@
-// Slice AE integration test — claim submit in NHCX_MODE=real is
-// callback-driven. The orchestrator transitions CLAIM_DRAFTING →
-// CLAIM_QUEUED and stops; the gateway's claim/on_submit callback
-// drives CLAIM_QUEUED → CLAIM_SUBMITTED → CLAIM_APPROVED via
-// ClaimSubmitService.handleInboundResponse.
+// Slice AF integration test — discharge in NHCX_MODE=real is callback-
+// driven. The orchestrator transitions DISCHARGE_PENDING (via initiate)
+// then submits to the gateway and stops. The gateway's communication/
+// request callback drives DISCHARGE_PENDING → DISCHARGE_SUBMITTED via
+// DischargeService.handleInboundResponse.
+//
+// Disambiguation: the inbound dispatcher routes communication/request
+// through three different code paths depending on the matching
+// outbound's operation. This slice adds the discharge.submit case;
+// payer-query and query-response cases stay unchanged.
 
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
@@ -30,8 +35,6 @@ interface MockGateway {
   shutdown: () => Promise<void>;
 }
 
-// In-process mock NHCX gateway. Each operation gets its own ref num
-// so we can disambiguate which call set which field on the claim.
 async function startMockGateway(
   gatewayPrivPem: string,
   participantPubPem: string,
@@ -68,19 +71,20 @@ async function startMockGateway(
   };
 }
 
-async function readClaim(
+async function readClaimStatus(
   prisma: PrismaClient,
   claimId: string,
-): Promise<{ status: string; approvedAmount: number | null; claimRefNum: string | null } | null> {
-  return prisma.$transaction(async (tx) => {
+): Promise<string | null> {
+  const row = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw(
       Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
     );
     return tx.claim.findUnique({
       where: { id: claimId },
-      select: { status: true, approvedAmount: true, claimRefNum: true },
+      select: { status: true },
     });
   });
+  return row?.status ?? null;
 }
 
 async function readInboundStatus(
@@ -93,12 +97,7 @@ async function readInboundStatus(
       Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
     );
     return tx.integrationMessage.findFirst({
-      where: {
-        correlationId,
-        direction: 'inbound',
-        integration: 'nhcx',
-        operation,
-      },
+      where: { correlationId, direction: 'inbound', integration: 'nhcx', operation },
       select: { status: true, failureClass: true },
     });
   });
@@ -121,7 +120,7 @@ async function waitForInbound(
   );
 }
 
-describe('Slice AE — claim submit callback-driven in real mode', () => {
+describe('Slice AF — discharge callback-driven in real mode', () => {
   let pg: PgHandles;
   let app: INestApplication;
   let migrator: PrismaClient;
@@ -131,7 +130,7 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
   let gwKeys: { pubPem: string; privPem: string };
 
   const PASSWORD = 'CorrectHorseBattery!2026';
-  const ADMIN = 'admin-clcb@clcb-test.local';
+  const ADMIN = 'admin-dscb@dscb-test.local';
 
   beforeAll(async () => {
     pg = await startPostgres();
@@ -185,7 +184,7 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
         Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
       );
       const tenant = await tx.tenant.create({
-        data: { slug: 'tenant-clcb', displayName: 'Claim CB', lifecycleState: 'IN_SETUP' },
+        data: { slug: 'tenant-dscb', displayName: 'Disch CB', lifecycleState: 'IN_SETUP' },
       });
       const role = await tx.role.create({
         data: {
@@ -207,7 +206,7 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
           tenantId: tenant.id,
           email: ADMIN,
           passwordHash,
-          firstName: 'CL',
+          firstName: 'DS',
           lastName: 'Admin',
           status: 'active',
         },
@@ -256,16 +255,16 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
     expect(res.status).toBe(200);
   }
 
-  it('claim submit → QUEUED; claim/on_submit → APPROVED, no state-machine error', async () => {
+  it('discharge submit → PENDING; communication/request callback → SUBMITTED', async () => {
     const cookies = await loginAs(ADMIN);
 
-    // 1. Create case + run eligibility (real mode).
+    // 1. Walk to PREAUTH_APPROVED via the eligibility + preauth callback flows.
     const caseRes = await request(app.getHttpServer())
       .post('/cases')
       .set('Cookie', cookies)
       .send({
-        patientName: 'CL Patient',
-        hospitalMrn: 'MRN-CLCB-1',
+        patientName: 'DS Patient',
+        hospitalMrn: 'MRN-DSCB-1',
         admissionDate: '2026-05-01',
         admissionType: 'planned',
         primaryRail: 'nhcx',
@@ -277,7 +276,6 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
       .post(`/cases/${caseId}/claims/${claimId}/eligibility`)
       .set('Cookie', cookies)
       .send({ payerCode: 'star-health@hcx', policyNumber: 'POL-1' });
-    expect(elig.body.status).toBe('ELIGIBILITY_CHECK_PENDING');
     await fireInbound(elig.body.correlationId, 'coverageeligibility/on_check', {
       resourceType: 'Bundle',
       type: 'collection',
@@ -292,9 +290,7 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
       ],
     });
     await waitForInbound(migrator, elig.body.correlationId, 'coverageeligibility/on_check');
-    expect((await readClaim(migrator, claimId))?.status).toBe('ELIGIBILITY_VERIFIED');
 
-    // 2. Drive into preauth, submit, callback approves.
     await request(app.getHttpServer())
       .post(`/cases/${caseId}/claims/${claimId}/transitions`)
       .set('Cookie', cookies)
@@ -315,7 +311,6 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
       .post(`/cases/${caseId}/claims/${claimId}/preauth/submit`)
       .set('Cookie', cookies)
       .send({});
-    expect(paSubmit.body.status).toBe('PREAUTH_QUEUED');
     await fireInbound(paSubmit.body.correlationId, 'preauth/on_submit', {
       resourceType: 'Bundle',
       type: 'collection',
@@ -333,12 +328,9 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
       ],
     });
     await waitForInbound(migrator, paSubmit.body.correlationId, 'preauth/on_submit');
-    expect((await readClaim(migrator, claimId))?.status).toBe('PREAUTH_APPROVED');
+    expect(await readClaimStatus(migrator, claimId)).toBe('PREAUTH_APPROVED');
 
-    // 3. Discharge: post-Slice AF, real mode also stops at PENDING and
-    // requires the gateway's communication/request callback to advance
-    // to SUBMITTED. Upload the required document, initiate, submit,
-    // then fire the inbound to ack.
+    // 2. Upload discharge_summary, initiate, then submit.
     const upload = await request(app.getHttpServer())
       .post(`/cases/${caseId}/claims/${claimId}/documents/upload-stub`)
       .set('Cookie', cookies)
@@ -349,104 +341,64 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
         sizeBytes: 1024,
       });
     expect(upload.status).toBe(201);
-    await request(app.getHttpServer())
+
+    const initiate = await request(app.getHttpServer())
       .post(`/cases/${caseId}/claims/${claimId}/discharge/initiate`)
       .set('Cookie', cookies)
       .send({});
-    await request(app.getHttpServer())
+    expect(initiate.status).toBe(200);
+    expect(initiate.body.status).toBe('DISCHARGE_PENDING');
+
+    // 3. Submit. Slice AF: real mode stops at DISCHARGE_PENDING.
+    const submit = await request(app.getHttpServer())
       .post(`/cases/${caseId}/claims/${claimId}/discharge/submit`)
       .set('Cookie', cookies)
       .send({});
-    // Look up the discharge outbound's correlationId so we can fire
-    // the gateway's ack on it.
-    const dsCorr = await migrator.$transaction(async (tx) => {
+    expect(submit.status).toBe(200);
+    expect(submit.body.status).toBe('DISCHARGE_PENDING'); // not SUBMITTED yet
+
+    // The discharge outbound integration_message row carries the
+    // correlationId we'll match the gateway callback against.
+    const outbound = await migrator.$transaction(async (tx) => {
       await tx.$executeRaw(
         Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
       );
-      const r = await tx.integrationMessage.findFirst({
+      return tx.integrationMessage.findFirst({
         where: {
           claimId,
           direction: 'outbound',
           integration: 'nhcx',
           operation: 'discharge.submit',
         },
-        select: { correlationId: true },
+        select: { correlationId: true, status: true },
       });
-      return r?.correlationId ?? null;
     });
-    expect(dsCorr).not.toBeNull();
-    {
-      const jwe = await encryptToParticipant(
-        {
-          resourceType: 'Bundle',
-          type: 'collection',
-          entry: [
-            {
-              resource: {
-                resourceType: 'Communication',
-                status: 'completed',
-                inResponseTo: [{ reference: 'Communication/discharge' }],
-                payload: [{ contentString: 'Discharge acknowledged.' }],
-              },
-            },
-          ],
-        },
-        usKeys.pubPem,
-        'v1',
-      );
-      const res = await request(app.getHttpServer())
-        .post('/nhcx/inbound')
-        .set('x-hcx-correlation-id', dsCorr!)
-        .set('x-hcx-operation', 'communication/request')
-        .send({ payload: jwe, type: 'JWEPayload' });
-      expect(res.status).toBe(200);
-    }
-    await waitForInbound(migrator, dsCorr!, 'communication/request');
+    expect(outbound).not.toBeNull();
+    const correlationId = outbound!.correlationId;
+    expect(outbound!.status).toBe('pending'); // markSucceeded was skipped
 
-    // 4. Claim submit. Slice AE: orchestrator stops at CLAIM_QUEUED.
-    await request(app.getHttpServer())
-      .post(`/cases/${caseId}/claims/${claimId}/claim-submission/start`)
-      .set('Cookie', cookies)
-      .send({});
-    const submit = await request(app.getHttpServer())
-      .post(`/cases/${caseId}/claims/${claimId}/claim-submission/submit`)
-      .set('Cookie', cookies)
-      .send({ finalAmount: 240_000 });
-    expect(submit.status).toBe(200);
-    expect(submit.body.status).toBe('CLAIM_QUEUED');
-    expect(submit.body.claimRefNum).toBe('PR-MOCK-CL');
-    const correlationId = submit.body.correlationId as string;
-
-    // No auto-transition.
-    expect((await readClaim(migrator, claimId))?.status).toBe('CLAIM_QUEUED');
-
-    // 5. Gateway sends claim/on_submit with approved decision.
-    await fireInbound(correlationId, 'claim/on_submit', {
+    // 4. Gateway sends communication/request — discharge ack.
+    await fireInbound(correlationId, 'communication/request', {
       resourceType: 'Bundle',
       type: 'collection',
       entry: [
         {
           resource: {
-            resourceType: 'ClaimResponse',
-            outcome: 'complete',
-            disposition: 'Approved',
-            total: [
-              { category: { coding: [{ code: 'benefit' }] }, amount: { value: 235_000 } },
-            ],
+            resourceType: 'Communication',
+            status: 'completed',
+            inResponseTo: [{ reference: 'Communication/discharge-1' }],
+            payload: [{ contentString: 'Discharge acknowledged.' }],
           },
         },
       ],
     });
-    await waitForInbound(migrator, correlationId, 'claim/on_submit');
+    await waitForInbound(migrator, correlationId, 'communication/request');
 
-    const inbound = await readInboundStatus(migrator, correlationId, 'claim/on_submit');
-    expect(inbound?.status).toBe('succeeded');
-    expect(inbound?.failureClass).toBeNull();
+    const inboundRow = await readInboundStatus(migrator, correlationId, 'communication/request');
+    expect(inboundRow?.status).toBe('succeeded');
+    expect(inboundRow?.failureClass).toBeNull();
 
-    // QUEUED → SUBMITTED → APPROVED in one inbound dispatch.
-    const final = await readClaim(migrator, claimId);
-    expect(final?.status).toBe('CLAIM_APPROVED');
-    expect(final?.approvedAmount).toBe(235_000);
-    expect(final?.claimRefNum).toBe('PR-MOCK-CL');
+    // Claim is now DISCHARGE_SUBMITTED.
+    expect(await readClaimStatus(migrator, claimId)).toBe('DISCHARGE_SUBMITTED');
   });
 });
