@@ -1,8 +1,10 @@
 import { type EligibilityResponse } from '@claims/contracts';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { CaseNotFoundError } from '../../common/errors/case-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { type AppConfig } from '../../config/configuration';
 import { ClaimService } from '../claim';
 import { IntegrationMessageService } from '../integration';
 import { NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
@@ -29,6 +31,7 @@ export class EligibilityService {
     private readonly integration: IntegrationMessageService,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
     private readonly patients: PatientService,
+    private readonly config: ConfigService<AppConfig, true>,
   ) {}
 
   // Orchestration:
@@ -155,6 +158,36 @@ export class EligibilityService {
         return row.id;
       },
     );
+
+    // Slice AC: real-mode = the gateway will POST a CoverageEligibility
+    // Response to /nhcx/inbound; that webhook handler runs the
+    // verified/failed transition. In real mode we skip both the
+    // synthetic inbound row and the auto-transition here so the
+    // dispatcher doesn't hit a duplicate-transition. The claim sits at
+    // ELIGIBILITY_CHECK_PENDING until the callback arrives.
+    //
+    // Stub mode keeps the existing behaviour because no real callback
+    // ever fires — the orchestrator IS the simulated gateway.
+    if (this.config.get('NHCX_MODE', { infer: true }) === 'real') {
+      const pendingSnap = await this.prisma.runInTenantContext(
+        input.tenantId,
+        'platform_admin',
+        async (tx) => {
+          // Outbound row stays at status='pending' — it'll be flipped
+          // to 'succeeded'/'failed' when the inbound dispatcher pairs
+          // a callback with this correlationId. No state change here.
+          return tx.claim.findUniqueOrThrow({ where: { id: input.claimId } });
+        },
+      );
+      this.log.log(
+        `eligibility submitted (real mode) claimId=${input.claimId} correlationId=${correlationId} — awaiting gateway callback`,
+      );
+      return {
+        verified: false,
+        correlationId,
+        status: pendingSnap.status,
+      };
+    }
 
     // 3. Mark outbound succeeded + write inbound row + transition claim.
     if (result.verified) {
