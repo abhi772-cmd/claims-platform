@@ -1,42 +1,75 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { createTransport, type Transporter } from 'nodemailer';
 
 import { type RenderedEmail } from './notification.types';
-import { type AppConfig } from '../../config/configuration';
+import { type ResolvedSmtp, TenantCommsConfigService } from './tenant-comms-config.service';
 
-// SMTP-based email adapter. In dev points at Mailhog (1025); in prod points
-// at the tenant's configured SMTP relay. Per-tenant SMTP config lives in
-// Tenant.config and is loaded by the higher-level NotificationService.
+interface CachedTransporter {
+  key: string;
+  transporter: Transporter;
+  fromAddress: string;
+}
+
+// SMTP-based email adapter. Looks up the SMTP relay per-tenant via
+// `TenantCommsConfigService` — when the tenant has no override the
+// resolver returns the platform env defaults (Mailhog in dev). The
+// per-tenant Transporter is cached, keyed by the resolved config
+// fingerprint, so we don't rebuild a connection pool every send.
 @Injectable()
 export class EmailAdapter {
   private readonly log = new Logger(EmailAdapter.name);
-  private readonly transporter: Transporter;
-  private readonly fromAddress: string;
+  private readonly transporters = new Map<string, CachedTransporter>();
 
-  constructor(config: ConfigService<AppConfig, true>) {
-    const host = config.get('SMTP_HOST', { infer: true });
-    const port = config.get('SMTP_PORT', { infer: true });
-    const fromAddress = config.get('SMTP_FROM', { infer: true });
-    this.fromAddress = fromAddress;
-    this.transporter = createTransport({
-      host,
-      port,
-      secure: false,
-      // Mailhog accepts unauthenticated. Real relays will get tenant creds
-      // injected once we move SMTP config to tenant.config.
-      ignoreTLS: true,
-    });
-  }
+  constructor(private readonly comms: TenantCommsConfigService) {}
 
-  async send(to: string, rendered: RenderedEmail): Promise<void> {
-    await this.transporter.sendMail({
-      from: this.fromAddress,
+  async send(tenantId: string, to: string, rendered: RenderedEmail): Promise<void> {
+    const smtp = await this.comms.resolveSmtp(tenantId);
+    const cached = this.getOrCreate(tenantId, smtp);
+    await cached.transporter.sendMail({
+      from: cached.fromAddress,
       to,
       subject: rendered.subject,
       text: rendered.text,
       html: rendered.html,
     });
-    this.log.debug(`email sent to=${to} subject="${rendered.subject}"`);
+    this.log.debug(
+      `email sent tenantId=${tenantId} to=${to} subject="${rendered.subject}" source=${smtp.source}`,
+    );
   }
+
+  private getOrCreate(tenantId: string, smtp: ResolvedSmtp): CachedTransporter {
+    const key = transporterKey(smtp);
+    const existing = this.transporters.get(tenantId);
+    if (existing && existing.key === key) return existing;
+    if (existing) {
+      // Tenant rotated their SMTP — close the old pool before swapping.
+      existing.transporter.close();
+    }
+    const transporter = createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.secure,
+      ignoreTLS: smtp.ignoreTls,
+      ...(smtp.username && smtp.password
+        ? { auth: { user: smtp.username, pass: smtp.password } }
+        : {}),
+    });
+    const entry: CachedTransporter = { key, transporter, fromAddress: smtp.from };
+    this.transporters.set(tenantId, entry);
+    return entry;
+  }
+}
+
+// Fingerprint a resolved SMTP config so transporter cache invalidation
+// happens automatically when the tenant edits any field.
+function transporterKey(smtp: ResolvedSmtp): string {
+  return [
+    smtp.host,
+    smtp.port,
+    smtp.from,
+    smtp.username ?? '',
+    smtp.password ? 'pw' : '',
+    smtp.secure ? '1' : '0',
+    smtp.ignoreTls ? '1' : '0',
+  ].join('|');
 }
