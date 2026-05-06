@@ -156,11 +156,12 @@ export class NhcxInboundService {
     try {
       await this.processInternal(inboundMessageId, input);
     } catch (err) {
+      const errorName = err instanceof Error ? err.name : 'Error';
       const message = err instanceof Error ? err.message : String(err);
       this.log.error(
-        `nhcx inbound processing failed correlationId=${input.correlationId} err=${message}`,
+        `nhcx inbound processing failed correlationId=${input.correlationId} err=${errorName}: ${message}`,
       );
-      await this.markFailed(inboundMessageId, message);
+      await this.markFailed(inboundMessageId, errorName, message);
     }
   }
 
@@ -304,9 +305,10 @@ export class NhcxInboundService {
 
   private async markFailed(
     inboundMessageId: string,
+    errorName: string,
     failureMessage: string,
   ): Promise<void> {
-    const failureClass = classifyFailure(failureMessage);
+    const failureClass = classifyFailure(errorName, failureMessage);
     await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT set_config('app.role', 'platform_admin', true)`;
       await tx.integrationMessage.update({
@@ -315,16 +317,25 @@ export class NhcxInboundService {
           status: 'failed',
           completedAt: new Date(),
           failureClass,
-          rawResponse: { failureMessage } as never,
+          rawResponse: { failureMessage, errorName } as never,
         },
       });
     });
   }
 }
 
-function classifyFailure(message: string): string {
-  if (message.includes('Bundle') || message.includes('FhirParseError')) return 'parse';
-  if (/decrypt|JWE|kid/i.test(message)) return 'crypto';
-  if (/InvalidClaimTransition|state machine/i.test(message)) return 'state-machine';
+function classifyFailure(errorName: string, message: string): string {
+  if (errorName === 'FhirParseError' || message.includes('Bundle')) return 'parse';
+  if (errorName === 'InvalidClaimTransitionError' || /state machine/i.test(message)) {
+    return 'state-machine';
+  }
+  if (
+    errorName === 'JOSEError' ||
+    errorName === 'JWEDecryptionFailed' ||
+    errorName === 'JWEInvalid' ||
+    /decrypt|JWE|kid|jwe/i.test(message)
+  ) {
+    return 'crypto';
+  }
   return 'unknown';
 }
