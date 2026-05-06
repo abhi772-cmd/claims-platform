@@ -167,7 +167,13 @@ describe('Slice W — real S3 (MinIO) upload pipeline', () => {
       },
       body: bytes,
     });
-    expect(putRes.status).toBe(200);
+    if (putRes.status !== 200) {
+      // Surface debugging info so a CI failure shows the URL + body.
+      const body = await putRes.text();
+      throw new Error(
+        `PUT ${init.body.uploadUrl} → HTTP ${putRes.status} body=${body.slice(0, 500)}`,
+      );
+    }
 
     const finalize = await request(app.getHttpServer())
       .post(`/cases/${caseId}/claims/${claimId}/documents/${docId}/finalize`)

@@ -8,7 +8,7 @@
 // the production code path end-to-end without standing up a real OVH
 // bucket.
 
-import { CreateBucketCommand, S3Client } from '@aws-sdk/client-s3';
+import { CreateBucketCommand, HeadBucketCommand, S3Client } from '@aws-sdk/client-s3';
 import { GenericContainer, type StartedTestContainer, Wait } from 'testcontainers';
 
 export interface MinioHandles {
@@ -54,6 +54,19 @@ export async function startMinio(): Promise<MinioHandles> {
     forcePathStyle: true,
   });
   await client.send(new CreateBucketCommand({ Bucket: BUCKET }));
+  // MinIO occasionally takes a beat to settle bucket metadata after
+  // create. Poll HeadBucket up to a few times so we never hand back
+  // an endpoint with a "missing" bucket — that would surface as a
+  // 404 on the first PUT and make the failure look like a test bug.
+  for (let i = 0; i < 5; i += 1) {
+    try {
+      await client.send(new HeadBucketCommand({ Bucket: BUCKET }));
+      break;
+    } catch {
+      await new Promise((r) => setTimeout(r, 200));
+      if (i === 4) throw new Error('MinIO bucket not visible after CreateBucket');
+    }
+  }
   client.destroy();
 
   return {
