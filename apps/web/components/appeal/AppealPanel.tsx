@@ -240,11 +240,12 @@ export function AppealPanel({
       ) : null}
 
       {status === 'APPEAL_RESOLVED' ? (
+        // Slice AJ: favourable resolutions auto-chain to PAYMENT_PENDING
+        // via SettlementService.expectPayment, so a claim that's still
+        // sitting at APPEAL_RESOLVED is necessarily a rejected one.
         <div className="border-t border-neutral-100 pt-3 text-xs text-neutral-500">
-          Appeal resolved. Next step is the settlement panel —{' '}
-          {appeal?.resolutionKind === 'rejected'
-            ? 'use Write off to close out the claim.'
-            : 'use Expect payment to drive the receipt + reconciliation.'}
+          Appeal rejected. Use Write off in the Settlement panel to
+          close out the claim.
         </div>
       ) : null}
     </section>
