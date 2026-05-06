@@ -45,6 +45,7 @@ import {
   UsePipes,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ApiTags } from '@nestjs/swagger';
 import { type CookieOptions, type Request, type Response } from 'express';
 
 import { AuthService } from './auth.service';
@@ -64,6 +65,7 @@ import { SessionService, TrustedDeviceService } from '../security';
 import { InviteService } from '../user/invite.service';
 import { UserService } from '../user/user.service';
 
+@ApiTags('auth')
 @Controller('auth')
 export class AuthController {
   constructor(
