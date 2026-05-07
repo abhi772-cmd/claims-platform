@@ -25,6 +25,7 @@ export interface RecordReceiptInput {
   receivedAmount: number;
   receivedAt?: Date;
   eobDocumentId?: string;
+  bankTxnId?: string;
   shortPaymentReasons?: string[];
 }
 
@@ -131,6 +132,7 @@ export class SettlementService {
             receivedAmount: input.receivedAmount,
             receivedAt: input.receivedAt ?? new Date(),
             ...(input.eobDocumentId !== undefined ? { eobDocumentId: input.eobDocumentId } : {}),
+            ...(input.bankTxnId !== undefined ? { bankTxnId: input.bankTxnId } : {}),
             deductionAmount,
             shortPaymentReasons: (input.shortPaymentReasons ?? []) as never,
             reconciliationStatus: isShort
@@ -254,6 +256,7 @@ function toSettlement(row: {
   shortPaymentReasons: unknown;
   receivedAt: Date | null;
   eobDocumentId: string | null;
+  bankTxnId: string | null;
   reconciliationStatus: string;
   closedAt: Date | null;
 }): Settlement {
@@ -269,6 +272,7 @@ function toSettlement(row: {
       : [],
     receivedAt: row.receivedAt ? row.receivedAt.toISOString() : null,
     eobDocumentId: row.eobDocumentId,
+    bankTxnId: row.bankTxnId,
     reconciliationStatus: row.reconciliationStatus as ReconciliationStatus,
     shortPaymentReasons: Array.isArray(row.shortPaymentReasons)
       ? (row.shortPaymentReasons as string[])

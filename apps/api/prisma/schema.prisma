@@ -569,6 +569,7 @@ model Settlement {
   shortPaymentReasons  Json     @default("[]")
   receivedAt           DateTime?
   eobDocumentId        String?  @db.Uuid
+  bankTxnId            String?
   reconciliationStatus String   @default("manual_match_pending")
   closedAt             DateTime?
   createdAt            DateTime @default(now())

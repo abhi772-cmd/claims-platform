@@ -33,6 +33,7 @@ export const SettlementSchema = z.object({
   deductions: z.array(DeductionLineSchema),
   receivedAt: z.string().datetime().nullable(),
   eobDocumentId: z.string().uuid().nullable(),
+  bankTxnId: z.string().nullable(),
   reconciliationStatus: ReconciliationStatusSchema,
   shortPaymentReasons: z.array(z.string()),
   closedAt: z.string().datetime().nullable(),
@@ -52,6 +53,7 @@ export const RecordReceiptRequestSchema = z.object({
   receivedAmount: z.number().int().nonnegative(),
   receivedAt: z.string().datetime().optional(),
   eobDocumentId: z.string().uuid().optional(),
+  bankTxnId: z.string().max(128).optional(),
   shortPaymentReasons: z.array(z.string().max(200)).max(20).optional(),
 });
 export type RecordReceiptRequest = z.infer<typeof RecordReceiptRequestSchema>;
@@ -89,9 +91,9 @@ export const RemittanceRowSchema = z.object({
   claimRefNum: z.string().min(1).max(128),
   receivedAmount: z.number().int().nonnegative(),
   receivedAt: z.string().datetime().optional(),
-  // Bank transaction id from the remittance file. Captured for
-  // audit; not currently persisted on Settlement (that's a Sprint 5
-  // hardening item — needs a schema change). Logged at the moment.
+  // Bank transaction id from the remittance file. Persisted on the
+  // matched Settlement so finance can reconcile a settlement back to
+  // the originating bank line item.
   bankTxnId: z.string().max(128).optional(),
   // When the remittance shows the payer recognising less than expected,
   // the operator typically annotates with the rejection codes the

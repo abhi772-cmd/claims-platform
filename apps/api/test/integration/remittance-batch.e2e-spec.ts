@@ -42,6 +42,21 @@ async function readClaim(
   });
 }
 
+async function readSettlement(
+  prisma: PrismaClient,
+  claimId: string,
+): Promise<{ bankTxnId: string | null; reconciliationStatus: string } | null> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw(
+      Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
+    );
+    return tx.settlement.findUnique({
+      where: { claimId },
+      select: { bankTxnId: true, reconciliationStatus: true },
+    });
+  });
+}
+
 describe('Slice AL — payer remittance batch', () => {
   let pg: PgHandles;
   let app: INestApplication;
@@ -315,6 +330,14 @@ describe('Slice AL — payer remittance batch', () => {
     expect((await readClaim(migrator, c2.claimId))?.paidAmount).toBe(150_000);
     // c3 stayed at CLAIM_APPROVED (no settlement opened, no transitions).
     expect((await readClaim(migrator, c3.claimId))?.status).toBe('CLAIM_APPROVED');
+
+    // Slice AN — bankTxnId persists on the matched settlement when the
+    // remittance row carries one, and stays null when it doesn't.
+    const s1 = await readSettlement(migrator, c1.claimId);
+    expect(s1?.bankTxnId).toBeNull();
+    const s2 = await readSettlement(migrator, c2.claimId);
+    expect(s2?.bankTxnId).toBe('BANK-9001');
+    expect(s2?.reconciliationStatus).toBe('short_paid');
   });
 
   it('reader without settlement.upload_eob → 403', async () => {
