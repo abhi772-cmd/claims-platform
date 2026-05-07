@@ -94,18 +94,11 @@ export class RemittanceService {
           actorUserId: input.actorUserId,
           receivedAmount: row.receivedAmount,
           ...(row.receivedAt !== undefined ? { receivedAt: new Date(row.receivedAt) } : {}),
+          ...(row.bankTxnId !== undefined ? { bankTxnId: row.bankTxnId } : {}),
           ...(row.shortPaymentReasons !== undefined
             ? { shortPaymentReasons: row.shortPaymentReasons }
             : {}),
         });
-        if (row.bankTxnId !== undefined) {
-          // Sprint 5 hardening item: persist bankTxnId on Settlement
-          // (needs a schema column). For now, log it so ops can
-          // grep + reconcile if a question comes up.
-          this.log.log(
-            `remittance applied claimRefNum=${row.claimRefNum} bankTxnId=${row.bankTxnId} status=${updated.reconciliationStatus}`,
-          );
-        }
         results.push({
           claimRefNum: row.claimRefNum,
           outcome: 'applied',

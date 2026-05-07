@@ -93,6 +93,7 @@ export class SettlementController {
       receivedAmount: body.receivedAmount,
       ...(body.receivedAt !== undefined ? { receivedAt: new Date(body.receivedAt) } : {}),
       ...(body.eobDocumentId !== undefined ? { eobDocumentId: body.eobDocumentId } : {}),
+      ...(body.bankTxnId !== undefined ? { bankTxnId: body.bankTxnId } : {}),
       ...(body.shortPaymentReasons !== undefined
         ? { shortPaymentReasons: body.shortPaymentReasons }
         : {}),
