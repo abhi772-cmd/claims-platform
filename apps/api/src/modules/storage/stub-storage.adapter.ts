@@ -5,7 +5,9 @@ import {
   type FinalizeInput,
   type FinalizeResult,
   type GetObjectInput,
+  type PresignDownloadInput,
   type PresignUploadInput,
+  type PresignedDownload,
   type PresignedUpload,
   type StorageAdapter,
 } from './storage-adapter.interface';
@@ -57,5 +59,16 @@ export class StubStorageAdapter implements StorageAdapter {
     throw new Error(
       `StubStorageAdapter.getObject is not implemented (key=${input.storageKey}). Set STORAGE_MODE=real to read object bytes.`,
     );
+  }
+
+  // Slice AZ — returns a `stub://` URL that nothing actually serves.
+  // Tests use it to confirm wire-up; production with STORAGE_MODE=stub
+  // is a misconfig and the URL would 404 if a browser hit it.
+  async presignDownload(input: PresignDownloadInput): Promise<PresignedDownload> {
+    const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
+    return {
+      url: `stub://${input.storageBucket}/${input.storageKey}`,
+      expiresAt,
+    };
   }
 }

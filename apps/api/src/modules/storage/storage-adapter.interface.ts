@@ -55,6 +55,27 @@ export interface GetObjectInput {
   storageKey: string;
 }
 
+// Slice AZ — operator-facing download. Returns a short-lived
+// presigned GET URL the browser can hit directly so document bytes
+// don't flow through the API server. Same split-of-concerns as the
+// upload presign.
+export interface PresignDownloadInput {
+  storageBucket: string;
+  storageKey: string;
+  // Forces the browser to download with a friendly filename instead
+  // of opening inline. Optional — when omitted, content-disposition
+  // defaults to whatever the bucket's metadata says (typically
+  // `inline` for PDF / image content types).
+  downloadFilename?: string;
+}
+
+export interface PresignedDownload {
+  // Pre-signed GET URL valid for the configured TTL.
+  url: string;
+  // ISO timestamp when the URL stops working.
+  expiresAt: string;
+}
+
 export interface StorageAdapter {
   // Returns the upload URL + the storage references the Document row
   // should record. Pure — no DB writes.
@@ -71,4 +92,10 @@ export interface StorageAdapter {
   // 50 MiB, so this fits comfortably in a worker's heap).
   // Stub mode throws — there are no real bytes to fetch in stub.
   getObject(input: GetObjectInput): Promise<Buffer>;
+
+  // Slice AZ — operator-facing download. The web layer hands the
+  // returned URL to the browser; bytes flow direct from S3 to the
+  // user. Stub mode synthesises a `stub://` URL for tests; the
+  // browser would never actually hit it.
+  presignDownload(input: PresignDownloadInput): Promise<PresignedDownload>;
 }

@@ -1,5 +1,6 @@
 import {
   type Document,
+  type DocumentDownloadResponse,
   type DocumentListResponse,
   type EobExtractRequest,
   EobExtractRequestSchema,
@@ -21,6 +22,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
@@ -126,6 +128,31 @@ export class DocumentController {
       ...(scanBuffer !== undefined ? { scanBuffer } : {}),
     });
     return { document };
+  }
+
+  // Slice AZ — short-lived presigned GET URL so the browser can
+  // pull document bytes direct from S3 without round-tripping
+  // through the API server. RBAC: case.view (the same role that
+  // sees the case can read its documents). Optional ?filename=
+  // overrides the download-as filename for one-off renames.
+  @Get(':documentId/download-url')
+  @RequirePermission(Permissions.CASE_VIEW)
+  async downloadUrl(
+    @Param('caseId', new ParseUUIDPipe()) caseId: string,
+    @Param('claimId', new ParseUUIDPipe()) claimId: string,
+    @Param('documentId', new ParseUUIDPipe()) documentId: string,
+    @Query('filename') filename: string | undefined,
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<DocumentDownloadResponse> {
+    await this.assertOwns(user.tenantId, caseId, claimId);
+    return this.documents.getDownloadUrl({
+      tenantId: user.tenantId,
+      claimId,
+      documentId,
+      ...(typeof filename === 'string' && filename.length > 0
+        ? { downloadFilename: filename }
+        : {}),
+    });
   }
 
   // Slice AW — operator-triggered EOB OCR extraction. Lives on the

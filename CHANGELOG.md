@@ -10,6 +10,30 @@ Theme not yet committed; sprint axis pending the user's call (see
 `docs/sprint-5-exit.md` open questions). First slice is a follow-on
 to the AO signature guard from Sprint 5.
 
+### AZ — Presigned document download URL (PR #59)
+
+- New `GET /cases/:c/claims/:cl/documents/:id/download-url` returns
+  a short-lived presigned GET URL the browser hits direct from S3.
+  Operators can finally view what they uploaded — pre-req for the
+  AY EOB-extract UX (you have to trust what the OCR is reading).
+- `StorageAdapter` gains `presignDownload({ bucket, key,
+  downloadFilename? })`. S3 impl uses `GetObjectCommand` +
+  `ResponseContentDisposition` so the optional override binds to
+  the SigV4 signature (a tampered URL won't change the
+  download-as filename). Stub mode synthesises a `stub://` URL —
+  tests use it to confirm wire-up without standing up MinIO.
+- Same scope guards as the AW eob-extract endpoint: document
+  belongs to (tenant, claim), upload completed, scan clean/skipped.
+  Anything else 422 — we don't hand out URLs to infected or
+  pending uploads. RBAC is `case.view` (anyone who can see the
+  case can download its documents).
+- `?filename=` query override sanitises CR/LF/`"` (the Content-
+  Disposition quoted-string set) but lets unicode pass through.
+- 3 integration tests against the stub storage path: happy path
+  returns `stub://`, cross-claim → 422, filename override
+  doesn't crash the request. Plus a stub-storage unit test for
+  the URL synthesis.
+
 ### AY — EOB extract on the settlement screen (PR #58)
 
 - Wires the AW endpoint into `SettlementPanel.tsx`. When the claim
