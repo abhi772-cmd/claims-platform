@@ -6,6 +6,7 @@ import { NotificationService } from './notification.service';
 import { SmsAdapter } from './sms.adapter';
 import { TenantCommsConfigController } from './tenant-comms-config.controller';
 import { TenantCommsConfigService } from './tenant-comms-config.service';
+import { TextGuruSmsProvider } from './textguru-sms.provider';
 
 @Global()
 @Module({
@@ -13,6 +14,7 @@ import { TenantCommsConfigService } from './tenant-comms-config.service';
   providers: [
     TenantCommsConfigService,
     EmailAdapter,
+    TextGuruSmsProvider,
     SmsAdapter,
     NotificationService,
     NotificationRetryWorker,

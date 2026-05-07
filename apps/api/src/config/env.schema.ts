@@ -167,6 +167,14 @@ export const EnvSchema = z.object({
   // 5-minute TTL we already accept.
   NHCX_INBOUND_SIGNATURE_MAX_SKEW_SECONDS: z.coerce.number().int().positive().default(300),
 
+  // SMS — TextGuru gateway (Slice AR). Optional; only consulted when
+  // a tenant's commsConfig selects provider=textguru. Empty default
+  // keeps the env footprint minimal in dev/test where the console-stub
+  // path is the norm. Production deployments where any tenant uses
+  // textguru must set this to the gateway base URL.
+  TEXTGURU_BASE_URL: OptionalString,
+  TEXTGURU_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+
   // OpenAPI / Swagger UI mount (Slice AB).
   //   true  — exposes /api/docs (Swagger UI) + /api/docs-json (raw spec)
   //   false — both routes return 404
