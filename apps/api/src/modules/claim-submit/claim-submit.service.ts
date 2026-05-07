@@ -1,6 +1,7 @@
 import {
   type ClaimDecisionKind,
   type ClaimSubmissionResponse,
+  type ReprocessReasonCode,
 } from '@claims/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -36,6 +37,19 @@ export interface DecisionInput {
   approvedAmount?: number;
   reason?: string;
   queryText?: string;
+}
+
+// Slice BI — PMJAY CRC (Claim Re-Consideration) request via outbound
+// `task/submit`. PMJAY-only in v1; the controller asserts
+// tenant.pmjayMode === 'on'. Reason flows into the FHIR Task.note
+// for the payer's audit trail; reasonCode dictates which CRC queue
+// the payer routes the request to.
+export interface ReprocessClaimInput {
+  tenantId: string;
+  claimId: string;
+  actorUserId: string;
+  reasonCode: ReprocessReasonCode;
+  reason?: string;
 }
 
 @Injectable()
@@ -188,6 +202,106 @@ export class ClaimSubmitService {
       claimRefNum: adapter.claimRefNum,
       correlationId: adapter.correlationId,
     };
+  }
+
+  // Slice BI — PMJAY CRC reprocess via outbound `task/submit`.
+  // Mirrors PreauthService.cancelPreauth (Slice BH): tenant gate →
+  // claimRefNum check → adapter call → ledger pair → state
+  // transition. The payer's re-decision flows back through the
+  // existing claim/on_submit inbound handler.
+  async reprocessClaim(input: ReprocessClaimInput): Promise<{
+    status: string;
+    correlationId: string;
+  }> {
+    // PMJAY-only in v1 — `task/submit reprocess` is the PMJAY CRC
+    // surface. Non-PMJAY tenants don't have a defined CRC pathway.
+    const tenant = await this.tenants.findById(input.tenantId);
+    if (tenant?.pmjayMode !== 'on') {
+      throw new ValidationFailedError({
+        tenant: ['Claim reprocess is currently a PMJAY-only operation.'],
+      });
+    }
+
+    const claim = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
+      tx.claim.findUniqueOrThrow({
+        where: { id: input.claimId },
+        select: { claimRefNum: true, payerCode: true, status: true },
+      }),
+    );
+    if (!claim.claimRefNum) {
+      throw new ValidationFailedError({
+        claimRefNum: ['Reprocess requires a claim reference issued by the payer.'],
+      });
+    }
+
+    // Cross-check: the operator-supplied reasonCode must match the
+    // claim's current state. 'claimrejected' is only meaningful from
+    // CLAIM_REJECTED; 'partialpayment' is only meaningful from
+    // SHORT_PAID. The state-machine guard catches wrong-status
+    // calls too, but surfacing the mismatch as a field-targeted
+    // validation error gives the frontend a cleaner modal.
+    if (input.reasonCode === 'claimrejected' && claim.status !== 'CLAIM_REJECTED') {
+      throw new ValidationFailedError({
+        reasonCode: [
+          `reasonCode='claimrejected' requires claim status CLAIM_REJECTED (current: ${claim.status}).`,
+        ],
+      });
+    }
+    if (input.reasonCode === 'partialpayment' && claim.status !== 'SHORT_PAID') {
+      throw new ValidationFailedError({
+        reasonCode: [
+          `reasonCode='partialpayment' requires claim status SHORT_PAID (current: ${claim.status}).`,
+        ],
+      });
+    }
+
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
+    const adapterResult = await this.nhcx.reprocessClaim({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      claimRefNum: claim.claimRefNum,
+      reasonCode: input.reasonCode,
+      ...(input.reason !== undefined ? { reason: input.reason } : {}),
+      ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
+      ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
+    });
+
+    const outboundId = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      async (tx) => {
+        const row = await this.integration.recordOutboundWithTx(tx, {
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          integration: 'nhcx',
+          operation: 'claim.reprocess',
+          correlationId: adapterResult.correlationId,
+          rawRequest: adapterResult.rawRequest,
+        });
+        return row.id;
+      },
+    );
+
+    await this.integration.markSucceeded({
+      tenantId: input.tenantId,
+      outboundId,
+      correlationId: adapterResult.correlationId,
+      integration: 'nhcx',
+      operation: 'claim.reprocess',
+      claimId: input.claimId,
+      rawResponse: adapterResult.rawResponse,
+    });
+
+    const snap = await this.claims.transition({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      eventType: 'claim.reprocess_requested',
+      actorUserId: input.actorUserId,
+      correlationId: adapterResult.correlationId,
+      payload: { reasonCode: input.reasonCode, ...(input.reason ? { reason: input.reason } : {}) },
+    });
+
+    return { status: snap.status, correlationId: adapterResult.correlationId };
   }
 
   async applyDecision(input: DecisionInput): Promise<{

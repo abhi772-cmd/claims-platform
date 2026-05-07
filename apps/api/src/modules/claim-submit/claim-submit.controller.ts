@@ -2,6 +2,9 @@ import {
   type ClaimDecisionRequest,
   ClaimDecisionRequestSchema,
   type ClaimDecisionResponse,
+  type ClaimReprocessRequest,
+  ClaimReprocessRequestSchema,
+  type ClaimReprocessResponse,
   type ClaimSubmissionResponse,
   type ClaimSubmissionStartRequest,
   ClaimSubmissionStartRequestSchema,
@@ -73,6 +76,29 @@ export class ClaimSubmitController {
       claimId,
       actorUserId: user.userId,
       finalAmount: body.finalAmount,
+    });
+  }
+
+  // Slice BI — PMJAY CRC reprocess via outbound `task/submit`.
+  // PMJAY-only in v1; the service guards on tenant.pmjayMode === 'on'
+  // and on reasonCode/status alignment (claimrejected requires
+  // CLAIM_REJECTED; partialpayment requires SHORT_PAID).
+  @Post('reprocess')
+  @HttpCode(200)
+  @RequirePermission(Permissions.CLAIM_REPROCESS)
+  async reprocess(
+    @Param('caseId', new ParseUUIDPipe()) caseId: string,
+    @Param('claimId', new ParseUUIDPipe()) claimId: string,
+    @Body(new ZodValidationPipe(ClaimReprocessRequestSchema)) body: ClaimReprocessRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<ClaimReprocessResponse> {
+    await this.assertOwns(user.tenantId, caseId, claimId);
+    return this.claimSubmit.reprocessClaim({
+      tenantId: user.tenantId,
+      claimId,
+      actorUserId: user.userId,
+      reasonCode: body.reasonCode,
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
     });
   }
 

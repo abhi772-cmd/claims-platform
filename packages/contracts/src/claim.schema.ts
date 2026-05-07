@@ -40,6 +40,13 @@ export const ClaimStatusSchema = z.enum([
   'CLAIM_APPROVED',
   'CLAIM_REJECTED',
   'CLAIM_PARTIALLY_APPROVED',
+  // Slice BI — operator-driven CRC (Claim Re-Consideration) request
+  // via PMJAY task/submit. Reachable from CLAIM_REJECTED
+  // (reasonCode='claimrejected') and SHORT_PAID
+  // (reasonCode='partialpayment'). Existing decision events
+  // (claim.approved / .rejected / .partially_approved) re-decide
+  // from this state via the inbound dispatcher.
+  'CLAIM_REPROCESS_REQUESTED',
 
   'PAYMENT_PENDING',
   'PAYMENT_RECEIVED',
@@ -107,6 +114,8 @@ export const ClaimEventTypeSchema = z.enum([
   'claim.approved',
   'claim.rejected',
   'claim.partially_approved',
+  // Slice BI — operator-driven CRC reprocess via PMJAY task/submit.
+  'claim.reprocess_requested',
 
   // payment / settlement
   'payment.expected',

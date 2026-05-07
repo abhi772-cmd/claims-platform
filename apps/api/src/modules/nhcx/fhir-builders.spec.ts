@@ -4,6 +4,7 @@ import {
   buildEligibilityRequestBundle,
   buildPreauthSubmitBundle,
   buildTaskCancelBundle,
+  buildTaskReprocessBundle,
 } from './fhir-builders';
 
 const actors = { senderCode: 'SENDER1', receiverCode: 'RECEIVER1' };
@@ -217,6 +218,77 @@ describe('FHIR R4 bundle builders', () => {
       const task = noReason.entry.find((e) => e.resource['resourceType'] === 'Task')
         ?.resource as Record<string, unknown> | undefined;
       expect(task!['note']).toBeUndefined();
+    });
+  });
+
+  describe('buildTaskReprocessBundle (Slice BI — PMJAY CRC reprocess)', () => {
+    const bundle = buildTaskReprocessBundle({
+      actors,
+      claimRefNum: 'CL-77777',
+      reasonCode: 'partialpayment',
+      reason: 'Disputing cap-exceeded deduction; copy of policy attached.',
+    });
+
+    it('returns a Bundle with type=collection and 3 entries', () => {
+      expect(bundle.resourceType).toBe('Bundle');
+      expect(bundle.type).toBe('collection');
+      expect(bundle.entry).toHaveLength(3);
+      const types = bundle.entry.map((e) => e.resource['resourceType']).sort();
+      expect(types).toEqual(['Organization', 'Organization', 'Task']);
+    });
+
+    it('Task.status=requested and Task.code carries the reprocess coding', () => {
+      const task = bundle.entry.find((e) => e.resource['resourceType'] === 'Task')
+        ?.resource as Record<string, unknown> | undefined;
+      // Status differs from cancel — we're asking the payer to act,
+      // not asserting a state on their behalf.
+      expect(task!['status']).toBe('requested');
+      const code = task!['code'] as { coding: Array<{ code: string; system: string }> };
+      expect(code.coding[0]?.code).toBe('reprocess');
+      expect(code.coding[0]?.system).toContain('payer.pmjay.nha.gov.in');
+    });
+
+    it('Task.input has both ClaimNumber + ReasonCode entries', () => {
+      const task = bundle.entry.find((e) => e.resource['resourceType'] === 'Task')
+        ?.resource as Record<string, unknown> | undefined;
+      const input = task!['input'] as Array<Record<string, unknown>>;
+      expect(input).toHaveLength(2);
+
+      const claimEntry = input[0] as {
+        type: { coding: Array<{ code: string }> };
+        valueIdentifier: { system: string; value: string };
+      };
+      expect(claimEntry.type.coding[0]?.code).toBe('ClaimNumber');
+      expect(claimEntry.valueIdentifier.value).toBe('CL-77777');
+
+      const reasonEntry = input[1] as {
+        type: { coding: Array<{ code: string }> };
+        valueCoding: { system: string; code: string; display: string };
+      };
+      expect(reasonEntry.type.coding[0]?.code).toBe('ReasonCode');
+      expect(reasonEntry.valueCoding.code).toBe('partialpayment');
+      expect(reasonEntry.valueCoding.system).toContain('task-reason');
+      expect(reasonEntry.valueCoding.display).toMatch(/short-paid/);
+    });
+
+    it("'claimrejected' reasonCode produces the matching display string", () => {
+      const rejected = buildTaskReprocessBundle({
+        actors,
+        claimRefNum: 'CL-1',
+        reasonCode: 'claimrejected',
+      });
+      const task = rejected.entry.find((e) => e.resource['resourceType'] === 'Task')
+        ?.resource as Record<string, unknown> | undefined;
+      const input = task!['input'] as Array<{ valueCoding?: { display: string; code: string } }>;
+      expect(input[1]?.valueCoding?.code).toBe('claimrejected');
+      expect(input[1]?.valueCoding?.display).toMatch(/rejected/i);
+    });
+
+    it('reason flows into Task.note[0].text', () => {
+      const task = bundle.entry.find((e) => e.resource['resourceType'] === 'Task')
+        ?.resource as Record<string, unknown> | undefined;
+      const note = task!['note'] as Array<{ text: string }>;
+      expect(note[0]?.text).toMatch(/Disputing cap-exceeded/);
     });
   });
 });
