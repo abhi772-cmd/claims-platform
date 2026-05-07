@@ -9,8 +9,10 @@ import {
   parseClaimResponse,
   parseCommunication,
   parseEligibilityResponse,
+  parseInsurancePlan,
   parsePaymentNotice,
   parsePreauthResponse,
+  parseTask,
 } from './fhir-response-parsers';
 import { NhcxSenderAllowlistService } from './nhcx-sender-allowlist.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
@@ -326,6 +328,27 @@ export class NhcxInboundService {
         );
         summary = { ...summary, parsed };
       }
+    } else if (operation === 'insuranceplan/on_request') {
+      // Slice BD — log + record. The integration_message row carries
+      // the full decrypted bundle; the parsed summary is just the
+      // surface fields ops grep for. No state transition: payer-pushed
+      // coverage updates would re-run eligibility, which is a future
+      // operational concern, not a Sprint 6 deliverable.
+      const parsed = parseInsurancePlan(decrypted);
+      this.log.log(
+        `nhcx insuranceplan recorded planId=${parsed.planId ?? '<unknown>'} status=${parsed.status ?? '<unknown>'} correlationId=${input.correlationId}`,
+      );
+      summary = { ...summary, parsed };
+    } else if (operation === 'task/on_submit') {
+      // Slice BD — log + record. Tasks ride alongside the four
+      // canonical phases for ad-hoc payer messages; we capture them
+      // in the ledger so ops can audit-trail what came across without
+      // touching state-machine semantics.
+      const parsed = parseTask(decrypted);
+      this.log.log(
+        `nhcx task recorded status=${parsed.status ?? '<unknown>'} focusRef=${parsed.focusRef ?? '<none>'} correlationId=${input.correlationId}`,
+      );
+      summary = { ...summary, parsed };
     }
 
     await this.markSucceeded(inboundMessageId, summary, decrypted);

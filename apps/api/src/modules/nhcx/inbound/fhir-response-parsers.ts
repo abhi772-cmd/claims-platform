@@ -33,6 +33,35 @@ export interface ParsedCommunication {
   text: string;
 }
 
+// Slice BD — gateway-pushed coverage update. Operators see this in
+// the integration_message ledger; we don't yet auto-trigger an
+// eligibility re-verification (no operational pressure), so the
+// parser surfaces just the identifying fields ops need to
+// triage / cross-reference.
+export interface ParsedInsurancePlan {
+  // The plan's stable identifier, when the gateway provides one.
+  planId?: string;
+  // Human-readable display, e.g. "Star Health Gold 2026".
+  name?: string;
+  // 'active' | 'retired' | 'draft' — pass-through from the resource.
+  status?: string;
+  // Type code (e.g. 'medical' / 'dental') if the gateway tags it.
+  type?: string;
+}
+
+// Slice BD — gateway-pushed task / status note. Tasks ride alongside
+// the four canonical phases for ad-hoc ops messages (e.g. payer asking
+// for a fresh document, system-level notice). We record them; the
+// dispatch branch is log-only.
+export interface ParsedTask {
+  // 'requested' | 'in-progress' | 'completed' | 'cancelled' | etc.
+  status?: string;
+  // Free-form description / narrative.
+  description?: string;
+  // Reference to the upstream Claim or related resource, when present.
+  focusRef?: string;
+}
+
 // Slice BC — gateway-pushed PaymentNotice. Surfaces the load-bearing
 // fields SettlementService.recordReceipt needs. claimRefNum is
 // optional in the parser output: HCX bundles often (but not always)
@@ -397,4 +426,72 @@ function extractClaimRefFromNotice(obj: Record<string, unknown>): string | undef
     return id['value'];
   }
   return undefined;
+}
+
+// Slice BD — pluck the surface fields off an InsurancePlan resource.
+// The gateway's bundle shape varies (different payers nest the plan
+// differently); we accept whichever path is non-empty.
+export function parseInsurancePlan(bundle: unknown): ParsedInsurancePlan {
+  const r = findResource<{ resourceType: 'InsurancePlan' }>(bundle, 'InsurancePlan');
+  if (!r) {
+    throw new FhirParseError('Bundle does not contain an InsurancePlan resource');
+  }
+  const obj = r as unknown as Record<string, unknown>;
+  const out: ParsedInsurancePlan = {};
+  if (typeof obj['name'] === 'string' && (obj['name'] as string).length > 0) {
+    out.name = obj['name'] as string;
+  }
+  if (typeof obj['status'] === 'string') {
+    out.status = obj['status'] as string;
+  }
+  // identifier[].value — first non-empty value is the plan id.
+  const ids = obj['identifier'];
+  if (Array.isArray(ids)) {
+    for (const id of ids) {
+      if (isObject(id) && typeof id['value'] === 'string' && id['value'].length > 0) {
+        out.planId = id['value'];
+        break;
+      }
+    }
+  }
+  // type[0].coding[0].code is the canonical FHIR shape.
+  const types = obj['type'];
+  if (Array.isArray(types) && types.length > 0 && isObject(types[0])) {
+    const coding = (types[0] as Record<string, unknown>)['coding'];
+    if (Array.isArray(coding) && coding.length > 0 && isObject(coding[0])) {
+      const code = (coding[0] as Record<string, unknown>)['code'];
+      if (typeof code === 'string' && code.length > 0) out.type = code;
+    }
+  }
+  return out;
+}
+
+// Slice BD — pluck the surface fields off a Task resource. We surface
+// status, description, and a Reference back to the focus resource
+// (typically a Claim) so ops can correlate the task with the claim
+// they care about.
+export function parseTask(bundle: unknown): ParsedTask {
+  const r = findResource<{ resourceType: 'Task' }>(bundle, 'Task');
+  if (!r) {
+    throw new FhirParseError('Bundle does not contain a Task resource');
+  }
+  const obj = r as unknown as Record<string, unknown>;
+  const out: ParsedTask = {};
+  if (typeof obj['status'] === 'string') out.status = obj['status'] as string;
+  if (typeof obj['description'] === 'string' && (obj['description'] as string).length > 0) {
+    out.description = obj['description'] as string;
+  }
+  const focus = obj['focus'];
+  if (isObject(focus)) {
+    const ref = focus['reference'];
+    if (typeof ref === 'string' && ref.length > 0) {
+      out.focusRef = ref;
+    } else {
+      const id = focus['identifier'];
+      if (isObject(id) && typeof id['value'] === 'string' && id['value'].length > 0) {
+        out.focusRef = id['value'];
+      }
+    }
+  }
+  return out;
 }
