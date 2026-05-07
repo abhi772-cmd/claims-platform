@@ -41,6 +41,11 @@ export function SettlementPanel({
   const [settlement, setSettlement] = useState<Settlement | null>(null);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('cashless_tpa');
   const [receivedAmount, setReceivedAmount] = useState('');
+  // Slice BA — pre-fillable from EOB extraction; passed through on
+  // recordReceipt so finance can reconcile back to the bank line.
+  const [bankTxnId, setBankTxnId] = useState('');
+  // Comma-separated for the input; split on submit.
+  const [shortPaymentReasons, setShortPaymentReasons] = useState('');
   const [writeOffReason, setWriteOffReason] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -88,15 +93,36 @@ export function SettlementPanel({
     try {
       const r = await CaseApi.eobExtract(caseId, claimId, selectedEobDocId, {});
       setExtractResult(r);
-      // Pre-fill receivedAmount when the OCR found one. We don't
-      // pre-fill on `failed` / `skipped` — operator sees the status
-      // banner and can extract again or type by hand.
-      if (
-        (r.status === 'extracted' || r.status === 'low_confidence') &&
-        r.fields?.receivedAmount !== undefined
-      ) {
-        setReceivedAmount(String(r.fields.receivedAmount));
+      // Pre-fill receipt-form fields when the OCR found values. We
+      // don't pre-fill on `failed` / `skipped` — operator sees the
+      // status banner and can extract again or type by hand.
+      if (r.status === 'extracted' || r.status === 'low_confidence') {
+        const f = r.fields;
+        if (f?.receivedAmount !== undefined) {
+          setReceivedAmount(String(f.receivedAmount));
+        }
+        if (f?.bankTxnId !== undefined) {
+          setBankTxnId(f.bankTxnId);
+        }
+        if (f?.shortPaymentReasons !== undefined && f.shortPaymentReasons.length > 0) {
+          setShortPaymentReasons(f.shortPaymentReasons.join(', '));
+        }
       }
+    } catch (err) {
+      showApiError(err);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Slice BA — open the EOB in a new tab via a presigned download URL.
+  // The URL expires after the configured TTL, so we fetch on-click
+  // rather than caching anything in component state.
+  async function viewDoc(documentId: string, filename: string): Promise<void> {
+    setBusy(`view:${documentId}`);
+    try {
+      const r = await CaseApi.getDocumentDownloadUrl(caseId, claimId, documentId, filename);
+      window.open(r.url, '_blank', 'noopener,noreferrer');
     } catch (err) {
       showApiError(err);
     } finally {
@@ -192,6 +218,16 @@ export function SettlementPanel({
                       </select>
                     </label>
                     <button
+                      onClick={() => {
+                        const doc = eobDocs.find((d) => d.id === selectedEobDocId);
+                        if (doc) void viewDoc(doc.id, doc.originalFilename);
+                      }}
+                      disabled={busy?.startsWith('view:') === true || !selectedEobDocId}
+                      className="rounded-sm border border-neutral-300 bg-neutral-0 px-2 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-60"
+                    >
+                      {busy?.startsWith('view:') === true ? '…' : 'View'}
+                    </button>
+                    <button
                       onClick={() => void runExtract()}
                       disabled={busy === 'extract' || !selectedEobDocId}
                       className="rounded-sm border border-neutral-300 bg-neutral-0 px-2 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-60"
@@ -205,21 +241,51 @@ export function SettlementPanel({
                 </div>
               ) : null}
 
-              <div className="flex flex-wrap items-end gap-2">
-                <input
-                  type="number"
-                  placeholder="Received amount (₹)"
-                  value={receivedAmount}
-                  onChange={(e) => setReceivedAmount(e.target.value)}
-                  className="w-44 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
-                />
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-neutral-500">
+                  Received amount (₹)
+                  <input
+                    type="number"
+                    value={receivedAmount}
+                    onChange={(e) => setReceivedAmount(e.target.value)}
+                    className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-neutral-500">
+                  Bank txn id
+                  <input
+                    type="text"
+                    value={bankTxnId}
+                    onChange={(e) => setBankTxnId(e.target.value)}
+                    placeholder="(optional)"
+                    className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 font-mono text-xs"
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-neutral-500 sm:col-span-2">
+                  Short-payment reasons
+                  <input
+                    type="text"
+                    value={shortPaymentReasons}
+                    onChange={(e) => setShortPaymentReasons(e.target.value)}
+                    placeholder="comma-separated, e.g. Cap exceeded, Co-pay"
+                    className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+                  />
+                </label>
+              </div>
+              <div className="flex justify-end">
                 <button
                   onClick={() =>
-                    action('receipt', () =>
-                      CaseApi.recordReceipt(caseId, claimId, {
+                    action('receipt', () => {
+                      const reasons = shortPaymentReasons
+                        .split(',')
+                        .map((r) => r.trim())
+                        .filter((r) => r.length > 0);
+                      return CaseApi.recordReceipt(caseId, claimId, {
                         receivedAmount: Number.parseInt(receivedAmount, 10),
-                      }),
-                    )
+                        ...(bankTxnId.length > 0 ? { bankTxnId } : {}),
+                        ...(reasons.length > 0 ? { shortPaymentReasons: reasons } : {}),
+                      });
+                    })
                   }
                   disabled={busy === 'receipt' || !receivedAmount}
                   className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
