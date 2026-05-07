@@ -6,6 +6,12 @@ import {
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import {
+  deriveCommsTenantKey,
+  isWrapped,
+  unwrapSecret,
+  wrapSecret,
+} from './comms-secret.crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 
@@ -49,11 +55,30 @@ const CACHE_TTL_MS = 60_000;
 export class TenantCommsConfigService {
   private readonly log = new Logger(TenantCommsConfigService.name);
   private readonly cache = new Map<string, CacheEntry>();
+  // Slice AP — KMS root key for wrapping smtp.password / sms.apiKey
+  // before they hit the JSON column. Decoded once at construction so a
+  // bad base64 fails the boot rather than the first send. Null when
+  // PII_KMS_ROOT_KEY_BASE64 is unset (dev / test) — wrapping is a
+  // no-op in that case and writes go in plaintext.
+  private readonly rootKey: Buffer | null;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<AppConfig, true>,
-  ) {}
+  ) {
+    const rootKeyB64 = this.config.get('PII_KMS_ROOT_KEY_BASE64', { infer: true });
+    if (rootKeyB64) {
+      const decoded = Buffer.from(rootKeyB64, 'base64');
+      if (decoded.length !== 32) {
+        throw new Error(
+          `PII_KMS_ROOT_KEY_BASE64 must decode to 32 bytes; got ${decoded.length}`,
+        );
+      }
+      this.rootKey = decoded;
+    } else {
+      this.rootKey = null;
+    }
+  }
 
   async resolveSmtp(tenantId: string): Promise<ResolvedSmtp> {
     const cfg = await this.getConfig(tenantId);
@@ -144,6 +169,14 @@ export class TenantCommsConfigService {
     patch: TenantCommsConfig,
   ): Promise<TenantCommsConfigSummary> {
     const validated = TenantCommsConfigSchema.parse(patch);
+    // Slice AP — secrets get KMS-wrapped before they're persisted.
+    // The current row may contain wrapped values from prior writes;
+    // we never decrypt-then-rewrap (it would generate an unrelated
+    // ciphertext on every update for unchanged fields). Instead, we
+    // only wrap fields that the patch is explicitly setting.
+    const tenantKey = this.rootKey
+      ? deriveCommsTenantKey(this.rootKey, tenantId)
+      : null;
     await this.prisma.runInTenantContext(tenantId, 'tenant', async (tx) => {
       const row = await tx.tenant.findUnique({
         where: { id: tenantId },
@@ -152,9 +185,21 @@ export class TenantCommsConfigService {
       const current = (row?.commsConfig as TenantCommsConfig | null) ?? {};
       const next: TenantCommsConfig = { ...current };
       if (validated.smtp === null) delete next.smtp;
-      else if (validated.smtp !== undefined) next.smtp = validated.smtp;
+      else if (validated.smtp !== undefined) {
+        const smtp = { ...validated.smtp };
+        if (tenantKey && typeof smtp.password === 'string' && smtp.password.length > 0) {
+          smtp.password = wrapSecret(smtp.password, tenantKey);
+        }
+        next.smtp = smtp;
+      }
       if (validated.sms === null) delete next.sms;
-      else if (validated.sms !== undefined) next.sms = validated.sms;
+      else if (validated.sms !== undefined) {
+        const sms = { ...validated.sms };
+        if (tenantKey && typeof sms.apiKey === 'string' && sms.apiKey.length > 0) {
+          sms.apiKey = wrapSecret(sms.apiKey, tenantKey);
+        }
+        next.sms = sms;
+      }
       await tx.tenant.update({
         where: { id: tenantId },
         data: { commsConfig: next as never },
@@ -198,6 +243,32 @@ export class TenantCommsConfigService {
         `tenant ${tenantId} has invalid commsConfig, falling back to env (${message})`,
       );
       config = {};
+    }
+    // Slice AP — unwrap KMS-wrapped secrets so adapters see plaintext.
+    // Legacy plaintext values (no `kms:v1:` prefix) pass through as-is
+    // to keep tenants seeded before AP working without a backfill.
+    if (this.rootKey) {
+      const tenantKey = deriveCommsTenantKey(this.rootKey, tenantId);
+      try {
+        if (config.smtp?.password && isWrapped(config.smtp.password)) {
+          config = {
+            ...config,
+            smtp: { ...config.smtp, password: unwrapSecret(config.smtp.password, tenantKey) },
+          };
+        }
+        if (config.sms?.apiKey && isWrapped(config.sms.apiKey)) {
+          config = {
+            ...config,
+            sms: { ...config.sms, apiKey: unwrapSecret(config.sms.apiKey, tenantKey) },
+          };
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.log.warn(
+          `tenant ${tenantId} comms secret could not be unwrapped, falling back to env (${message})`,
+        );
+        config = {};
+      }
     }
     this.cache.set(tenantId, { config, expiresAt: now + CACHE_TTL_MS });
     return config;
