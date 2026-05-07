@@ -153,6 +153,19 @@ export const EnvSchema = z.object({
   NHCX_PRIVATE_KEY_BASE64_V2: OptionalString,
   // Default request timeout for real-mode HTTP calls (ms).
   NHCX_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  // Slice AO — verify the gateway's HTTP Signature on the public
+  // `/nhcx/inbound` webhook before we even touch the body. JWE inside
+  // the body already gives cryptographic proof, but the signature is
+  // defense-in-depth at the HTTP edge so we can drop misrouted /
+  // unsigned traffic with a 401 instead of accepting + persisting it.
+  // Default false to keep dev / integration tests boot-friendly; the
+  // production check below requires it to be true in NODE_ENV=production.
+  NHCX_INBOUND_VERIFY_SIGNATURE: BooleanLike.default(false),
+  // Maximum allowed clock skew between the gateway's signing timestamp
+  // and our server (seconds). Signatures with a `(created)` or `Date`
+  // header outside this window are rejected. 5 min matches the JWE
+  // 5-minute TTL we already accept.
+  NHCX_INBOUND_SIGNATURE_MAX_SKEW_SECONDS: z.coerce.number().int().positive().default(300),
 
   // OpenAPI / Swagger UI mount (Slice AB).
   //   true  — exposes /api/docs (Swagger UI) + /api/docs-json (raw spec)

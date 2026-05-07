@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { NhcxInboundSignatureGuard } from './nhcx-inbound-signature.guard';
 import { NhcxInboundController } from './nhcx-inbound.controller';
 import { NhcxInboundService } from './nhcx-inbound.service';
 import { NhcxSenderAllowlistService } from './nhcx-sender-allowlist.service';
@@ -15,7 +16,7 @@ import { PreauthModule } from '../../preauth/preauth.module';
 @Module({
   imports: [EligibilityModule, PreauthModule, ClaimSubmitModule, DischargeModule],
   controllers: [NhcxInboundController],
-  providers: [NhcxInboundService, NhcxSenderAllowlistService],
+  providers: [NhcxInboundService, NhcxSenderAllowlistService, NhcxInboundSignatureGuard],
   exports: [NhcxInboundService, NhcxSenderAllowlistService],
 })
 export class NhcxInboundModule {}

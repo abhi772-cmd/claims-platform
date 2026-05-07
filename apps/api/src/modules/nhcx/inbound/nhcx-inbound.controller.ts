@@ -5,24 +5,29 @@ import {
   type NhcxInboundRequest,
   NhcxInboundRequestSchema,
 } from '@claims/contracts';
-import { Body, Controller, Headers, HttpCode, Logger, Post } from '@nestjs/common';
+import { Body, Controller, Headers, HttpCode, Logger, Post, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { NhcxInboundSignatureGuard } from './nhcx-inbound-signature.guard';
 import { NhcxInboundService } from './nhcx-inbound.service';
 import { ValidationFailedError } from '../../../common/errors/validation-errors';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 
 // Public NHCX gateway webhook. The HCX gateway POSTs here for every
-// callback (eligibility, preauth, claim, communication). No auth guard
-// is appropriate at the HTTP layer — the gateway uses TLS for transport
-// security and the JWE payload itself is the cryptographic guarantee
-// that the message came from a holder of the matching public key.
+// callback (eligibility, preauth, claim, communication). The JWE
+// payload is already cryptographic proof of origin, but Slice AO adds
+// a second layer at the HTTP edge: NhcxInboundSignatureGuard verifies
+// the gateway's HTTP Signature against the raw body before we even
+// look at it. In production the guard is enforced; in dev / integration
+// tests it short-circuits when NHCX_INBOUND_VERIFY_SIGNATURE=false.
 //
 // Contract:
 //   - We MUST return 200 within the gateway's timeout (typically 5s)
 //     even if our processing fails internally. Returning a 4xx/5xx
 //     causes NHA to retry indefinitely with the same correlationId,
-//     which we then have to reconcile manually.
+//     which we then have to reconcile manually. Note that signature
+//     failures intentionally violate this — a 401 is correct because
+//     the request is unauthenticated, not transient.
 //   - We persist the raw payload + return 200 BEFORE attempting any
 //     decrypt / parse. The decrypt + dispatch happens asynchronously
 //     after the response is sent.
@@ -30,6 +35,7 @@ import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 //     known set per HCX 0.7.1). correlationId from `x-hcx-correlation-id`.
 @ApiTags('nhcx-inbound')
 @Controller('nhcx/inbound')
+@UseGuards(NhcxInboundSignatureGuard)
 export class NhcxInboundController {
   private readonly log = new Logger(NhcxInboundController.name);
 

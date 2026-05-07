@@ -14,6 +14,12 @@ import { mountOpenApi } from './openapi';
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
+    // Slice AO — the NHCX inbound signature guard verifies the gateway's
+    // HTTP Signature against the SHA-256 digest of the *raw* body, so we
+    // need access to the original byte-for-byte bytes, not the parsed
+    // JSON. NestExpressApplication exposes them as `req.rawBody` when
+    // this option is set.
+    rawBody: true,
   });
 
   app.useLogger(app.get(Logger));
