@@ -162,17 +162,18 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
   });
 
   it('accepts a request with a valid HTTP signature', async () => {
-    // Body needs to look like a JWE-shaped envelope so the Zod schema
-    // on the controller is happy. The async dispatcher will error on
-    // decrypt, but that doesn't affect the synchronous 200 we're
-    // asserting against — the guard runs before validation.
+    // The signed body must be the EXACT bytes that reach Express. When
+    // we hand supertest a JS object via `.send(obj)` with JSON content-
+    // type, supertest does `JSON.stringify(obj)` on the wire — so we
+    // pre-stringify with the same call and compute the digest on those
+    // bytes. (Sending a Buffer with .send() forces supertest to
+    // re-serialize it as `{"type":"Buffer","data":[...]}`, which would
+    // break the digest binding — found the hard way in CI.)
     const correlationId = randomUUID();
-    const body = Buffer.from(
-      JSON.stringify({ payload: 'eyJhbGciOiJSU0EtT0FFUC0yNTYifQ..ciphertext' }),
-      'utf8',
-    );
+    const bodyObj = { payload: 'eyJhbGciOiJSU0EtT0FFUC0yNTYifQ..ciphertext' };
+    const bodyBytes = Buffer.from(JSON.stringify(bodyObj), 'utf8');
     const headers = signGatewayRequest({
-      body,
+      body: bodyBytes,
       correlationId,
       operation: 'preauth/on_submit',
       privateKeyPem: gatewayPrivateKeyPem,
@@ -181,13 +182,13 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
 
     const res = await request(app.getHttpServer())
       .post('/nhcx/inbound')
-.set('Date', headers.date)
+      .set('Date', headers.date)
       .set('Digest', headers.digest)
       .set('X-HCX-Correlation-Id', headers['x-hcx-correlation-id'])
       .set('X-HCX-Operation', headers['x-hcx-operation'])
       .set('Signature', headers.signature)
       .set('Content-Type', 'application/json')
-      .send(body);
+      .send(bodyObj);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({ status: 'accepted', correlationId });
@@ -195,22 +196,22 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
 
   it('rejects with 401 when no Signature header is present', async () => {
     const correlationId = randomUUID();
-    const body = Buffer.from(JSON.stringify({ payload: 'whatever' }), 'utf8');
     const res = await request(app.getHttpServer())
       .post('/nhcx/inbound')
-.set('X-HCX-Correlation-Id', correlationId)
+      .set('X-HCX-Correlation-Id', correlationId)
       .set('X-HCX-Operation', 'preauth/on_submit')
       .set('Content-Type', 'application/json')
-      .send(body);
+      .send({ payload: 'whatever' });
     expect(res.status).toBe(401);
   });
 
   it('rejects with 401 when the body is tampered after signing', async () => {
     const correlationId = randomUUID();
-    const signedBody = Buffer.from(JSON.stringify({ payload: 'original' }), 'utf8');
-    const tamperedBody = Buffer.from(JSON.stringify({ payload: 'tampered' }), 'utf8');
+    const signedObj = { payload: 'original' };
+    const tamperedObj = { payload: 'tampered' };
+    const signedBytes = Buffer.from(JSON.stringify(signedObj), 'utf8');
     const headers = signGatewayRequest({
-      body: signedBody,
+      body: signedBytes,
       correlationId,
       operation: 'preauth/on_submit',
       privateKeyPem: gatewayPrivateKeyPem,
@@ -218,25 +219,26 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
     });
     const res = await request(app.getHttpServer())
       .post('/nhcx/inbound')
-.set('Date', headers.date)
-      // Digest is the one bound to signedBody, but we send tamperedBody.
+      .set('Date', headers.date)
+      // Digest is the one bound to signedObj, but we send tamperedObj.
       .set('Digest', headers.digest)
       .set('X-HCX-Correlation-Id', headers['x-hcx-correlation-id'])
       .set('X-HCX-Operation', headers['x-hcx-operation'])
       .set('Signature', headers.signature)
       .set('Content-Type', 'application/json')
-      .send(tamperedBody);
+      .send(tamperedObj);
     expect(res.status).toBe(401);
   });
 
   it('rejects with 401 when the signature is signed by a different key', async () => {
     const correlationId = randomUUID();
-    const body = Buffer.from(JSON.stringify({ payload: 'pretender' }), 'utf8');
+    const bodyObj = { payload: 'pretender' };
+    const bodyBytes = Buffer.from(JSON.stringify(bodyObj), 'utf8');
     // Sign with an unrelated key the server has no knowledge of.
     const impostor = generateKeyPairSync('rsa', { modulusLength: 2048 });
     const impostorPriv = impostor.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
     const headers = signGatewayRequest({
-      body,
+      body: bodyBytes,
       correlationId,
       operation: 'preauth/on_submit',
       privateKeyPem: impostorPriv,
@@ -244,13 +246,13 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
     });
     const res = await request(app.getHttpServer())
       .post('/nhcx/inbound')
-.set('Date', headers.date)
+      .set('Date', headers.date)
       .set('Digest', headers.digest)
       .set('X-HCX-Correlation-Id', headers['x-hcx-correlation-id'])
       .set('X-HCX-Operation', headers['x-hcx-operation'])
       .set('Signature', headers.signature)
       .set('Content-Type', 'application/json')
-      .send(body);
+      .send(bodyObj);
     expect(res.status).toBe(401);
   });
 });

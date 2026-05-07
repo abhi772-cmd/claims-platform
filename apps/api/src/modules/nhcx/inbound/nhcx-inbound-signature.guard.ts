@@ -22,7 +22,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { type Request } from 'express';
 
-import { computeDigest, verifyHttpSignature } from './http-signature';
+import { verifyHttpSignature } from './http-signature';
 import { type AppConfig } from '../../../config/configuration';
 
 interface RawBodyRequest extends Request {
@@ -84,14 +84,6 @@ export class NhcxInboundSignatureGuard implements CanActivate {
       const correlationId = headers['x-hcx-correlation-id'] ?? '<missing>';
       this.log.warn(
         `nhcx inbound signature rejected correlationId=${correlationId} reason="${result.reason}"`,
-      );
-      // TEMP DIAG (slice AO): print to stderr so CI captures it even
-      // when nestjs-pino buffers the Logger output. Remove once the
-      // happy-path host mismatch is debugged.
-      const actualDigest = computeDigest(rawBody);
-      // eslint-disable-next-line no-console
-      console.error(
-        `[DIAG] nhcx inbound signature rejected correlationId=${correlationId} reason="${result.reason}" host=${headers['host'] ?? '<no-host>'} path=${req.originalUrl} method=${req.method} bodyLen=${rawBody.length} bodyHex=${rawBody.toString('hex').slice(0, 60)} digestHeader=${headers['digest'] ?? '<missing>'} actualDigest=${actualDigest}`,
       );
       throw new UnauthorizedException('Invalid HTTP signature');
     }
