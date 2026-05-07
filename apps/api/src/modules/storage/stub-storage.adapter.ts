@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   type FinalizeInput,
   type FinalizeResult,
+  type GetObjectInput,
   type PresignUploadInput,
   type PresignedUpload,
   type StorageAdapter,
@@ -45,5 +46,16 @@ export class StubStorageAdapter implements StorageAdapter {
       // happen. Real mode HEADs S3 and uses the observed size.
       actualSizeBytes: 0,
     };
+  }
+
+  // Slice AS — stub has no real bytes to fetch (the upload was a
+  // synthetic stub://-URL that the client never actually PUT to). This
+  // path only fires in production with STORAGE_MODE=real, so throwing
+  // here flags a misconfig: someone has VIRUS_SCAN_MODE=real wired
+  // alongside STORAGE_MODE=stub, which can't possibly scan anything.
+  async getObject(input: GetObjectInput): Promise<Buffer> {
+    throw new Error(
+      `StubStorageAdapter.getObject is not implemented (key=${input.storageKey}). Set STORAGE_MODE=real to read object bytes.`,
+    );
   }
 }

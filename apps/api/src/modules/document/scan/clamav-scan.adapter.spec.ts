@@ -14,6 +14,10 @@ import { type ConfigService } from '@nestjs/config';
 
 import { ClamAvScanAdapter, parseInstreamReply } from './clamav-scan.adapter';
 import { type AppConfig } from '../../../config/configuration';
+import {
+  type GetObjectInput,
+  type StorageAdapter,
+} from '../../storage/storage-adapter.interface';
 
 interface CapturedRequest {
   // Everything the client sent before EOS, normalised: the leading
@@ -85,14 +89,34 @@ function startMockClamd(handler: (req: CapturedRequest) => Buffer | 'close'): Pr
   });
 }
 
-function makeAdapter(endpoint: string | null): ClamAvScanAdapter {
+// Minimal storage stub for the buffer-path tests — getObject throws if
+// called, signalling that any test which reaches it is using the wrong
+// fixture shape.
+function neverGetObjectStorage(): StorageAdapter {
+  return {
+    presignUpload: async () => {
+      throw new Error('not used in these tests');
+    },
+    finalize: async () => {
+      throw new Error('not used in these tests');
+    },
+    getObject: async () => {
+      throw new Error('storage.getObject should not be called when buffer is provided');
+    },
+  };
+}
+
+function makeAdapter(
+  endpoint: string | null,
+  storage: StorageAdapter = neverGetObjectStorage(),
+): ClamAvScanAdapter {
   const config = {
     get(key: string): string | null | undefined {
       if (key === 'VIRUS_SCAN_ENDPOINT') return endpoint;
       return undefined;
     },
   } as unknown as ConfigService<AppConfig, true>;
-  return new ClamAvScanAdapter(config);
+  return new ClamAvScanAdapter(config, storage);
 }
 
 describe('parseInstreamReply', () => {
@@ -199,11 +223,87 @@ describe('ClamAvScanAdapter (TCP)', () => {
     expect(result.status).toBe('failed');
   });
 
-  it('no buffer → status=failed (S3 streaming not yet supported)', async () => {
-    const adapter = makeAdapter('127.0.0.1:1');
+  it('Slice AS — bucket/key only (no buffer): fetches from storage and scans', async () => {
+    let capturedReq: CapturedRequest | null = null;
+    mock = await startMockClamd((req) => {
+      capturedReq = req;
+      return Buffer.from('stream: OK\0');
+    });
+    let getObjectCall: GetObjectInput | null = null;
+    const stored = Buffer.from('S3 object body bytes');
+    const storage: StorageAdapter = {
+      presignUpload: async () => {
+        throw new Error('not used');
+      },
+      finalize: async () => {
+        throw new Error('not used');
+      },
+      getObject: async (input) => {
+        getObjectCall = input;
+        return stored;
+      },
+    };
+    const adapter = makeAdapter(`127.0.0.1:${mock.port}`, storage);
+    const result = await adapter.scan({
+      storageBucket: 'claims-prod',
+      storageKey: 'tenant-1/claim-9/doc.pdf',
+      contentType: 'application/pdf',
+    });
+    expect(result).toEqual({ status: 'clean', engine: 'clamav' });
+    expect(getObjectCall).toEqual({
+      storageBucket: 'claims-prod',
+      storageKey: 'tenant-1/claim-9/doc.pdf',
+    });
+    // The exact bytes returned by storage are what reached clamd —
+    // no transcoding, no JSON wrapping.
+    expect(capturedReq!.payload.equals(stored)).toBe(true);
+  });
+
+  it('Slice AS — bucket/key only with EICAR-shaped object → status=infected', async () => {
+    mock = await startMockClamd(() =>
+      Buffer.from('stream: Eicar-Test-Signature FOUND\0'),
+    );
+    const storage: StorageAdapter = {
+      presignUpload: async () => {
+        throw new Error('not used');
+      },
+      finalize: async () => {
+        throw new Error('not used');
+      },
+      getObject: async () => Buffer.from('EICAR-style payload'),
+    };
+    const adapter = makeAdapter(`127.0.0.1:${mock.port}`, storage);
+    const result = await adapter.scan({
+      storageBucket: 'b',
+      storageKey: 'k',
+    });
+    expect(result.status).toBe('infected');
+    expect(result.signature).toBe('Eicar-Test-Signature');
+  });
+
+  it('Slice AS — storage.getObject throws → status=failed with reason', async () => {
+    const storage: StorageAdapter = {
+      presignUpload: async () => {
+        throw new Error('not used');
+      },
+      finalize: async () => {
+        throw new Error('not used');
+      },
+      getObject: async () => {
+        throw new Error('AccessDenied: bucket policy rejected');
+      },
+    };
+    const adapter = makeAdapter('127.0.0.1:1', storage);
     const result = await adapter.scan({ storageBucket: 'b', storageKey: 'k' });
     expect(result.status).toBe('failed');
-    expect(result.error).toMatch(/no buffer/);
+    expect(result.error).toMatch(/Failed to fetch object.*AccessDenied/);
+  });
+
+  it('neither buffer nor (bucket, key) → status=failed (caller bug)', async () => {
+    const adapter = makeAdapter('127.0.0.1:1');
+    const result = await adapter.scan({});
+    expect(result.status).toBe('failed');
+    expect(result.error).toMatch(/either buffer or \(storageBucket, storageKey\)/);
   });
 
   it('endpoint not configured → status=failed', async () => {

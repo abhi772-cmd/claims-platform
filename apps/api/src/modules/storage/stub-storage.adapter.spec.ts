@@ -37,4 +37,13 @@ describe('StubStorageAdapter', () => {
     // service falls back to the size recorded at init.
     expect(out.actualSizeBytes).toBe(0);
   });
+
+  it('Slice AS — getObject throws (stub mode has no real bytes to fetch)', async () => {
+    await expect(
+      adapter.getObject({
+        storageBucket: 'claims-stub',
+        storageKey: 'tenant-1/claim-9/doc-42-discharge.pdf',
+      }),
+    ).rejects.toThrow(/STORAGE_MODE=real/);
+  });
 });

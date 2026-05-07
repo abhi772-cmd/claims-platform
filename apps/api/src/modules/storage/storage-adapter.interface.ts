@@ -50,6 +50,11 @@ export interface FinalizeResult {
   actualSizeBytes: number;
 }
 
+export interface GetObjectInput {
+  storageBucket: string;
+  storageKey: string;
+}
+
 export interface StorageAdapter {
   // Returns the upload URL + the storage references the Document row
   // should record. Pure — no DB writes.
@@ -58,4 +63,12 @@ export interface StorageAdapter {
   // HEAD the uploaded object. Throws if the object doesn't exist (the
   // client never uploaded) or if some other error blocked the read.
   finalize(input: FinalizeInput): Promise<FinalizeResult>;
+
+  // Slice AS — pull the object's bytes back into memory. The
+  // ClamAV scanner uses this to scan presigned-PUT uploads where
+  // bytes never flowed through the API server. The buffer is fully
+  // materialised (we cap upload size at S3_MAX_UPLOAD_BYTES, default
+  // 50 MiB, so this fits comfortably in a worker's heap).
+  // Stub mode throws — there are no real bytes to fetch in stub.
+  getObject(input: GetObjectInput): Promise<Buffer>;
 }

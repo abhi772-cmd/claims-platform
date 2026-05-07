@@ -1,4 +1,9 @@
-import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -6,6 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import {
   type FinalizeInput,
   type FinalizeResult,
+  type GetObjectInput,
   type PresignUploadInput,
   type PresignedUpload,
   type StorageAdapter,
@@ -109,5 +115,25 @@ export class S3StorageAdapter implements StorageAdapter, OnModuleDestroy {
       this.log.warn(`S3 finalize failed key=${input.storageKey}: ${message}`);
       throw err;
     }
+  }
+
+  // Slice AS — pull the object's bytes back. Used by the ClamAV scan
+  // path for presigned-PUT uploads where the bytes never crossed the
+  // API server on the way in. The SDK gives us a Body that is a
+  // Readable stream; we drain it into a single Buffer because clamd's
+  // INSTREAM protocol wants the full payload up front anyway.
+  async getObject(input: GetObjectInput): Promise<Buffer> {
+    const res = await this.client.send(
+      new GetObjectCommand({ Bucket: input.storageBucket, Key: input.storageKey }),
+    );
+    if (!res.Body) {
+      throw new Error(`S3 GetObject returned no Body for key=${input.storageKey}`);
+    }
+    // The SDK's Body type is a union of node Readable / Blob / web
+    // ReadableStream depending on runtime. In Node we always get
+    // Readable — `transformToByteArray` handles the conversion
+    // uniformly so we don't have to branch.
+    const bytes = await res.Body.transformToByteArray();
+    return Buffer.from(bytes);
   }
 }
