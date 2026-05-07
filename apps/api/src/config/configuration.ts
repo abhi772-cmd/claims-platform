@@ -27,6 +27,15 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
   }
   const env = parsed.data;
 
+  // Slice AQ — when VIRUS_SCAN_MODE='real' the clamd endpoint must be
+  // configured. We surface this at boot rather than at first scan so a
+  // production deploy can't silently fall back to dropping uploads.
+  if (env.VIRUS_SCAN_MODE === 'real' && !env.VIRUS_SCAN_ENDPOINT) {
+    throw new ConfigError({
+      VIRUS_SCAN_MODE: ['real mode requires VIRUS_SCAN_ENDPOINT (host:port of clamd)'],
+    });
+  }
+
   // When STORAGE_MODE=real, the S3 connection settings must be present.
   if (env.STORAGE_MODE === 'real') {
     const missing: string[] = [];
