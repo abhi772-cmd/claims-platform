@@ -9,6 +9,7 @@ import {
   parseClaimResponse,
   parseCommunication,
   parseEligibilityResponse,
+  parsePaymentNotice,
   parsePreauthResponse,
 } from './fhir-response-parsers';
 import { NhcxSenderAllowlistService } from './nhcx-sender-allowlist.service';
@@ -18,6 +19,7 @@ import { ClaimSubmitService } from '../../claim-submit/claim-submit.service';
 import { DischargeService } from '../../discharge/discharge.service';
 import { EligibilityService } from '../../eligibility/eligibility.service';
 import { PreauthService } from '../../preauth/preauth.service';
+import { SettlementService } from '../../settlement/settlement.service';
 import {
   NHCX_KEY_RESOLVER,
   type NhcxKeyResolver,
@@ -73,6 +75,7 @@ export class NhcxInboundService {
     private readonly preauth: PreauthService,
     private readonly claimSubmit: ClaimSubmitService,
     private readonly discharge: DischargeService,
+    private readonly settlement: SettlementService,
     private readonly senderAllowlist: NhcxSenderAllowlistService,
     private readonly config: ConfigService<AppConfig, true>,
     @Optional() @Inject(NHCX_KEY_RESOLVER) private readonly keyResolver: NhcxKeyResolver | null,
@@ -290,6 +293,38 @@ export class NhcxInboundService {
           );
           summary = { ...summary, parsed };
         }
+      }
+    } else if (operation === 'paymentnotice/request') {
+      // Slice BC — gateway-pushed payment confirmation. We trust the
+      // matching outbound row (claim/on_submit) for tenant + claim
+      // resolution and call SettlementService.recordReceipt with
+      // actorUserId=null. The state-machine accepts payment.received
+      // from PAYMENT_PENDING (the post-Sprint-2 settlement flow); if
+      // the claim isn't there we surface the transition error and
+      // mark the inbound row failed for ops to triage. cancelled /
+      // unknown notice kinds log + skip without driving a transition.
+      const parsed = parsePaymentNotice(decrypted);
+      if (parsed.kind === 'paid') {
+        const updated = await this.settlement.recordReceipt({
+          tenantId: row.tenantId,
+          claimId: row.claimId,
+          actorUserId: null,
+          receivedAmount: parsed.receivedAmount,
+          ...(parsed.receivedAt !== undefined
+            ? { receivedAt: new Date(parsed.receivedAt) }
+            : {}),
+          ...(parsed.bankTxnId !== undefined ? { bankTxnId: parsed.bankTxnId } : {}),
+        });
+        summary = {
+          ...summary,
+          parsed,
+          reconciliationStatus: updated.reconciliationStatus,
+        };
+      } else {
+        this.log.log(
+          `nhcx payment notice kind=${parsed.kind} skipped (no transition) correlationId=${input.correlationId}`,
+        );
+        summary = { ...summary, parsed };
       }
     }
 

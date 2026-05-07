@@ -8,6 +8,7 @@ import {
   parseClaimResponse,
   parseCommunication,
   parseEligibilityResponse,
+  parsePaymentNotice,
   parsePreauthResponse,
 } from './fhir-response-parsers';
 
@@ -217,5 +218,108 @@ describe('parseCommunication', () => {
         }),
       ),
     ).toThrow(FhirParseError);
+  });
+});
+
+describe('parsePaymentNotice', () => {
+  it('maps status=active + amount + paymentDate to a paid notice', () => {
+    const out = parsePaymentNotice(
+      bundle({
+        resourceType: 'PaymentNotice',
+        status: 'active',
+        amount: { value: 75000, currency: 'INR' },
+        paymentDate: '2026-05-07T10:30:00Z',
+        identifier: [{ system: 'bank', value: 'BANK-9001' }],
+        request: {
+          reference: 'Claim/STUB-CL-12345',
+        },
+      }),
+    );
+    expect(out.kind).toBe('paid');
+    expect(out.receivedAmount).toBe(75000);
+    expect(out.receivedAt).toBe('2026-05-07T10:30:00Z');
+    expect(out.bankTxnId).toBe('BANK-9001');
+    expect(out.claimRefNum).toBe('STUB-CL-12345');
+  });
+
+  it('falls back to created when paymentDate missing', () => {
+    const out = parsePaymentNotice(
+      bundle({
+        resourceType: 'PaymentNotice',
+        status: 'completed',
+        amount: { value: 100, currency: 'INR' },
+        created: '2026-05-07T10:30:00Z',
+      }),
+    );
+    expect(out.kind).toBe('paid');
+    expect(out.receivedAt).toBe('2026-05-07T10:30:00Z');
+  });
+
+  it('extracts bankTxnId from request.identifier when top-level identifier is absent', () => {
+    // Paramount-style nesting per the parser's docstring.
+    const out = parsePaymentNotice(
+      bundle({
+        resourceType: 'PaymentNotice',
+        status: 'active',
+        amount: { value: 50, currency: 'INR' },
+        request: {
+          identifier: { system: 'bank', value: 'PARAM-TXN-77' },
+          reference: 'Claim/REF-A1',
+        },
+      }),
+    );
+    expect(out.bankTxnId).toBe('PARAM-TXN-77');
+    expect(out.claimRefNum).toBe('REF-A1');
+  });
+
+  it('status=cancelled → kind=cancelled (no transition driven)', () => {
+    const out = parsePaymentNotice(
+      bundle({
+        resourceType: 'PaymentNotice',
+        status: 'cancelled',
+        amount: { value: 0 },
+      }),
+    );
+    expect(out.kind).toBe('cancelled');
+  });
+
+  it('truncates fractional rupee amounts (defensive against payer floats)', () => {
+    const out = parsePaymentNotice(
+      bundle({
+        resourceType: 'PaymentNotice',
+        status: 'active',
+        amount: { value: 1234.99 },
+      }),
+    );
+    expect(out.receivedAmount).toBe(1234);
+  });
+
+  it('throws when amount.value is missing or non-numeric', () => {
+    expect(() =>
+      parsePaymentNotice(
+        bundle({
+          resourceType: 'PaymentNotice',
+          status: 'active',
+          amount: { currency: 'INR' },
+        }),
+      ),
+    ).toThrow(FhirParseError);
+  });
+
+  it('throws when no PaymentNotice resource is in the bundle', () => {
+    expect(() => parsePaymentNotice(bundle({ resourceType: 'Patient' }))).toThrow(
+      FhirParseError,
+    );
+  });
+
+  it('claimRefNum may be omitted from output if neither reference nor identifier is present', () => {
+    const out = parsePaymentNotice(
+      bundle({
+        resourceType: 'PaymentNotice',
+        status: 'active',
+        amount: { value: 100 },
+      }),
+    );
+    expect(out.claimRefNum).toBeUndefined();
   });
 });

@@ -9,13 +9,21 @@ import { ClaimSubmitModule } from '../../claim-submit/claim-submit.module';
 import { DischargeModule } from '../../discharge/discharge.module';
 import { EligibilityModule } from '../../eligibility/eligibility.module';
 import { PreauthModule } from '../../preauth/preauth.module';
+import { SettlementModule } from '../../settlement/settlement.module';
 
 // NhcxModule (the global one) supplies NHCX_KEY_RESOLVER + crypto +
 // adapter. IntegrationModule is global so IntegrationMessageService is
-// available without an explicit import. We pull in the four phase
-// modules whose services receive parsed callbacks.
+// available without an explicit import. We pull in the phase modules
+// whose services receive parsed callbacks — Slice BC adds
+// SettlementModule for the paymentnotice/request handler.
 @Module({
-  imports: [EligibilityModule, PreauthModule, ClaimSubmitModule, DischargeModule],
+  imports: [
+    EligibilityModule,
+    PreauthModule,
+    ClaimSubmitModule,
+    DischargeModule,
+    SettlementModule,
+  ],
   controllers: [NhcxInboundController],
   providers: [
     NhcxInboundService,

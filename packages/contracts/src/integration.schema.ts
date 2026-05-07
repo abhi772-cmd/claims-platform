@@ -105,6 +105,12 @@ export const NhcxInboundOperationSchema = z.enum([
   'preauth/on_submit',
   'claim/on_submit',
   'communication/request',
+  // Slice BC — gateway pushes a PaymentNotice when the payer
+  // settles a previously-submitted claim. The payload references
+  // the original claim by claimRefNum + correlation, and we
+  // dispatch to SettlementService.recordReceipt so the claim
+  // auto-flips to PAYMENT_RECEIVED without operator action.
+  'paymentnotice/request',
 ]);
 export type NhcxInboundOperation = z.infer<typeof NhcxInboundOperationSchema>;
 

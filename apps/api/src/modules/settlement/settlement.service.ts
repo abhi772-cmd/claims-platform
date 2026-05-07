@@ -21,7 +21,12 @@ export interface ExpectPaymentInput {
 export interface RecordReceiptInput {
   tenantId: string;
   claimId: string;
-  actorUserId: string;
+  // Slice BC — null when the call is gateway-driven (an inbound
+  // PaymentNotice rather than an operator-clicked Record receipt).
+  // claim_event.actorUserId is nullable on the DB side, so this
+  // propagates through the transition writes without further
+  // accommodation.
+  actorUserId: string | null;
   receivedAmount: number;
   receivedAt?: Date;
   eobDocumentId?: string;
