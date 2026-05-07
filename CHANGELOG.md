@@ -4,6 +4,35 @@ Notable changes to the DigiSparsh Claims Platform. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) but oriented around
 sprint slices rather than calendar releases.
 
+## Sprint 6 — TBD (May 2026)
+
+Theme not yet committed; sprint axis pending the user's call (see
+`docs/sprint-5-exit.md` open questions). First slice is a follow-on
+to the AO signature guard from Sprint 5.
+
+### AT — Inbound rate limit on `/nhcx/inbound` (PR #53)
+
+- Adds `NhcxInboundRateLimitGuard` after the AO signature guard:
+  unauthenticated floods are 401'd before they touch the rate counter;
+  authenticated floods get throttled to 429.
+- Fixed-window counter in-memory, scoped to the controller (the
+  whole gateway shows up as a single egress IP from our side, so
+  per-IP would have the same shape). Single-replica only — a
+  distributed limit needs Redis and lands with the deferred BullMQ
+  slice that already touches Redis surface.
+- Env: `NHCX_INBOUND_RATE_LIMIT_PER_MINUTE` (default 60 — covers
+  expected v1 callback volume by ~10x; misconfigured-gateway floods
+  get throttled before they degrade the rest of the API). Set to 0
+  to disable; existing integration tests get this for free since
+  none of them sets the env explicitly and 60/min comfortably covers
+  the per-file callback volume.
+- Boundary log fires once per window so ops sees throttle entry
+  without pino flooding on every reject.
+- 7 unit tests using jest fake timers: limit=0 disables, allows up
+  to limit, throws 429 on (limit+1)th, keeps rejecting in same
+  window, rolls window after 60s, doesn't roll early at 59s, logs
+  exactly once at the boundary.
+
 ## Sprint 5 — Real-mode adapters + production-hardening (May 2026)
 
 Ten slices so far (AJ–AS), backfill chore landing alongside. Theme:

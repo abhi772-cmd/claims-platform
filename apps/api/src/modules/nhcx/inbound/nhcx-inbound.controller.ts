@@ -8,6 +8,7 @@ import {
 import { Body, Controller, Headers, HttpCode, Logger, Post, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
+import { NhcxInboundRateLimitGuard } from './nhcx-inbound-rate-limit.guard';
 import { NhcxInboundSignatureGuard } from './nhcx-inbound-signature.guard';
 import { NhcxInboundService } from './nhcx-inbound.service';
 import { ValidationFailedError } from '../../../common/errors/validation-errors';
@@ -35,7 +36,10 @@ import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 //     known set per HCX 0.7.1). correlationId from `x-hcx-correlation-id`.
 @ApiTags('nhcx-inbound')
 @Controller('nhcx/inbound')
-@UseGuards(NhcxInboundSignatureGuard)
+// Guard order is significant: signature first (un-authenticated
+// floods are 401'd before they touch the rate counter), rate-limit
+// second (authenticated floods get throttled to 429).
+@UseGuards(NhcxInboundSignatureGuard, NhcxInboundRateLimitGuard)
 export class NhcxInboundController {
   private readonly log = new Logger(NhcxInboundController.name);
 

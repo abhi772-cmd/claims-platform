@@ -166,6 +166,15 @@ export const EnvSchema = z.object({
   // header outside this window are rejected. 5 min matches the JWE
   // 5-minute TTL we already accept.
   NHCX_INBOUND_SIGNATURE_MAX_SKEW_SECONDS: z.coerce.number().int().positive().default(300),
+  // Slice AT — global rate limit on the public `/nhcx/inbound` webhook.
+  // The whole gateway shows up as a single egress IP from our side, so
+  // per-IP limiting wouldn't help — we cap the endpoint as a whole.
+  // The guard runs *after* signature verification (AO), so
+  // unauthenticated floods are already 401'd before they consume the
+  // bucket. 60/min covers expected v1 callback volume by ~10x; a
+  // misconfigured gateway flood gets throttled before it can degrade
+  // the rest of the API. Set to 0 to disable (dev / test convenience).
+  NHCX_INBOUND_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().nonnegative().default(60),
 
   // SMS — TextGuru gateway (Slice AR). Optional; only consulted when
   // a tenant's commsConfig selects provider=textguru. Empty default
