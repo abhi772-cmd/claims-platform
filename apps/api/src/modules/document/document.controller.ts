@@ -1,6 +1,9 @@
 import {
   type Document,
   type DocumentListResponse,
+  type EobExtractRequest,
+  EobExtractRequestSchema,
+  type EobExtractResponse,
   Permissions,
   type UploadDocumentStubRequest,
   UploadDocumentStubRequestSchema,
@@ -123,6 +126,36 @@ export class DocumentController {
       ...(scanBuffer !== undefined ? { scanBuffer } : {}),
     });
     return { document };
+  }
+
+  // Slice AW — operator-triggered EOB OCR extraction. Lives on the
+  // existing case/claim/document scope so RBAC reuses the document
+  // create permission (the same role that uploaded the EOB extracts
+  // its fields). bufferBase64 is optional: when supplied, the adapter
+  // scans those bytes; when omitted, the adapter is expected to
+  // fetch from (bucket, key) — works in real storage, surfaces
+  // `failed` under stub storage.
+  @Post(':documentId/eob-extract')
+  @HttpCode(200)
+  @RequirePermission(Permissions.CASE_CREATE)
+  async eobExtract(
+    @Param('caseId', new ParseUUIDPipe()) caseId: string,
+    @Param('claimId', new ParseUUIDPipe()) claimId: string,
+    @Param('documentId', new ParseUUIDPipe()) documentId: string,
+    @Body(new ZodValidationPipe(EobExtractRequestSchema)) body: EobExtractRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<EobExtractResponse> {
+    await this.assertOwns(user.tenantId, caseId, claimId);
+    const buffer =
+      body.bufferBase64 !== undefined
+        ? Buffer.from(body.bufferBase64, 'base64')
+        : undefined;
+    return this.documents.extractEob({
+      tenantId: user.tenantId,
+      claimId,
+      documentId,
+      ...(buffer !== undefined ? { buffer } : {}),
+    });
   }
 
   private async assertOwns(tenantId: string, caseId: string, claimId: string): Promise<void> {
