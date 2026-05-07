@@ -10,6 +10,37 @@ Theme not yet committed; sprint axis pending the user's call (see
 `docs/sprint-5-exit.md` open questions). First slice is a follow-on
 to the AO signature guard from Sprint 5.
 
+### AV — EOB OCR adapter skeleton (PR #55)
+
+- New `EobOcrModule` global module with the same shape as
+  `VirusScanModule`: a sealed `EobOcrAdapter` interface +
+  `EOB_OCR_MODE` env switch (`off` | `stub` | `real`) + a factory
+  provider that picks the right implementation. `real` is reserved
+  for the OSS pipeline (PaddleOCR / Surya for OCR + Qwen2-VL /
+  GOT-OCR2.0 for structured field extraction); the factory falls
+  back to disabled with a warning if anyone flips the env early so
+  a deploy tier doesn't crash on boot.
+- `ExtractedEob` shape lines up with the existing Settlement
+  contract: `claimRefNum`, `receivedAmount`, `deductionAmount`,
+  `deductions[]`, `shortPaymentReasons[]`, optional `bankTxnId` /
+  `receivedAt`. Per-field `confidence` (0–1) accompanies the values
+  so the eventual settlement screen can badge auto-extracted fields
+  for operator review. Result statuses: `extracted` | `low_confidence`
+  | `skipped` | `failed`.
+- Stub adapter recognises three sentinel patterns —
+  `STUB-EOB-CLEAN-<refnum>-<amount>`, `STUB-EOB-SHORT-<refnum>-
+  <received>-<expected>`, `STUB-EOB-FAIL` — so integration tests
+  can exercise extracted/failed/low-confidence paths without an
+  OCR engine running. `STUB_EOB_SENTINELS` is the public format
+  helper for fixture authors.
+- 8 unit tests on the adapters cover the sentinel patterns + the
+  bucket/key bypass + the noise-tolerance regex anchor + the
+  STUB_EOB_SENTINELS round-trip contract.
+- No service or controller wiring yet — the next slice will hook the
+  adapter into the document scan/finalize pipeline so EOB-typed
+  documents get auto-extracted into a draft Settlement form on the
+  operator screen.
+
 ### AU — Real-clamd integration test (PR #54)
 
 - Closes the validation gap from AQ + AS. The unit suite

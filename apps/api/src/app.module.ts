@@ -17,6 +17,7 @@ import { DoctorModule } from './modules/doctor';
 import { DocumentModule } from './modules/document';
 import { VirusScanModule } from './modules/document/scan';
 import { EligibilityModule } from './modules/eligibility';
+import { EobOcrModule } from './modules/eob-ocr';
 import { HealthModule } from './modules/health/health.module';
 import { HprModule } from './modules/hpr';
 import { IntegrationModule } from './modules/integration';
@@ -90,6 +91,7 @@ import { UserModule } from './modules/user/user.module';
     NhcxInboundModule,
     StorageModule,
     VirusScanModule,
+    EobOcrModule,
     PatientModule,
     ClaimModule,
     CaseModule,
