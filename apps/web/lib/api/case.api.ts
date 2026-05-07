@@ -10,6 +10,8 @@ import {
   type CreateCaseRequest,
   type DocumentListResponse,
   type EligibilityRequest,
+  type EobExtractRequest,
+  type EobExtractResponse,
   type EligibilityResponse,
   type ExpectPaymentRequest,
   type IntegrationMessageListResponse,
@@ -172,6 +174,22 @@ export const CaseApi = {
   ): Promise<{ document: DocumentListResponse['documents'][number] }> =>
     apiRequest<{ document: DocumentListResponse['documents'][number] }>(
       `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/documents/${encodeURIComponent(documentId)}/finalize`,
+      { method: 'POST', body },
+    ),
+
+  // Slice AY — EOB OCR extraction. The settlement screen calls this
+  // to pre-fill the receipt form from an uploaded EOB document.
+  // bufferBase64 is optional: when omitted the API fetches bytes
+  // from object storage; under STORAGE_MODE=stub that returns
+  // status='skipped' or 'failed', which the UI surfaces.
+  eobExtract: (
+    caseId: string,
+    claimId: string,
+    documentId: string,
+    body: EobExtractRequest = {},
+  ): Promise<EobExtractResponse> =>
+    apiRequest<EobExtractResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/documents/${encodeURIComponent(documentId)}/eob-extract`,
       { method: 'POST', body },
     ),
 

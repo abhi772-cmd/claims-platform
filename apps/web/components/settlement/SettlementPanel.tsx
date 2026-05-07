@@ -1,6 +1,12 @@
 'use client';
 
-import { type ClaimStatus, type PaymentMode, type Settlement } from '@claims/contracts';
+import {
+  type ClaimStatus,
+  type Document,
+  type EobExtractResponse,
+  type PaymentMode,
+  type Settlement,
+} from '@claims/contracts';
 import { useEffect, useState } from 'react';
 
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
@@ -38,6 +44,15 @@ export function SettlementPanel({
   const [writeOffReason, setWriteOffReason] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Slice AY — EOB OCR extraction. We list the claim's EOB-typed
+  // documents and let the operator pick one to extract from. The
+  // API returns receivedAmount + deduction info that pre-fills the
+  // receipt form below, so the operator can verify + submit instead
+  // of typing fields off the EOB by hand.
+  const [eobDocs, setEobDocs] = useState<Document[]>([]);
+  const [selectedEobDocId, setSelectedEobDocId] = useState<string>('');
+  const [extractResult, setExtractResult] = useState<EobExtractResponse | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     CaseApi.getSettlement(caseId, claimId)
@@ -47,11 +62,47 @@ export function SettlementPanel({
       .catch((err: unknown) => {
         if (!cancelled) showApiError(err);
       });
+    CaseApi.listDocuments(caseId, claimId)
+      .then((r) => {
+        if (cancelled) return;
+        const eobs = r.documents.filter(
+          (d) => d.documentType === 'EOB' && d.uploadStatus === 'completed',
+        );
+        setEobDocs(eobs);
+        if (eobs.length > 0 && !selectedEobDocId) {
+          setSelectedEobDocId(eobs[0]!.id);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) showApiError(err);
+      });
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId, claimId, status]);
+
+  async function runExtract(): Promise<void> {
+    if (!selectedEobDocId) return;
+    setBusy('extract');
+    try {
+      const r = await CaseApi.eobExtract(caseId, claimId, selectedEobDocId, {});
+      setExtractResult(r);
+      // Pre-fill receivedAmount when the OCR found one. We don't
+      // pre-fill on `failed` / `skipped` — operator sees the status
+      // banner and can extract again or type by hand.
+      if (
+        (r.status === 'extracted' || r.status === 'low_confidence') &&
+        r.fields?.receivedAmount !== undefined
+      ) {
+        setReceivedAmount(String(r.fields.receivedAmount));
+      }
+    } catch (err) {
+      showApiError(err);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   if (!SETTLEMENT_VISIBLE_FROM.has(status)) return null;
 
@@ -122,27 +173,60 @@ export function SettlementPanel({
           </dl>
 
           {status === 'PAYMENT_PENDING' ? (
-            <div className="flex flex-wrap items-end gap-2 border-t border-neutral-100 pt-3">
-              <input
-                type="number"
-                placeholder="Received amount (₹)"
-                value={receivedAmount}
-                onChange={(e) => setReceivedAmount(e.target.value)}
-                className="w-44 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
-              />
-              <button
-                onClick={() =>
-                  action('receipt', () =>
-                    CaseApi.recordReceipt(caseId, claimId, {
-                      receivedAmount: Number.parseInt(receivedAmount, 10),
-                    }),
-                  )
-                }
-                disabled={busy === 'receipt' || !receivedAmount}
-                className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
-              >
-                {busy === 'receipt' ? '…' : 'Record receipt'}
-              </button>
+            <div className="space-y-3 border-t border-neutral-100 pt-3">
+              {eobDocs.length > 0 ? (
+                <div className="space-y-2 rounded-sm bg-neutral-50 p-2">
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-neutral-500">
+                      Extract from EOB
+                      <select
+                        value={selectedEobDocId}
+                        onChange={(e) => setSelectedEobDocId(e.target.value)}
+                        className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+                      >
+                        {eobDocs.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.originalFilename}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      onClick={() => void runExtract()}
+                      disabled={busy === 'extract' || !selectedEobDocId}
+                      className="rounded-sm border border-neutral-300 bg-neutral-0 px-2 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-60"
+                    >
+                      {busy === 'extract' ? '…' : 'Extract'}
+                    </button>
+                  </div>
+                  {extractResult ? (
+                    <ExtractSummary result={extractResult} />
+                  ) : null}
+                </div>
+              ) : null}
+
+              <div className="flex flex-wrap items-end gap-2">
+                <input
+                  type="number"
+                  placeholder="Received amount (₹)"
+                  value={receivedAmount}
+                  onChange={(e) => setReceivedAmount(e.target.value)}
+                  className="w-44 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+                />
+                <button
+                  onClick={() =>
+                    action('receipt', () =>
+                      CaseApi.recordReceipt(caseId, claimId, {
+                        receivedAmount: Number.parseInt(receivedAmount, 10),
+                      }),
+                    )
+                  }
+                  disabled={busy === 'receipt' || !receivedAmount}
+                  className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+                >
+                  {busy === 'receipt' ? '…' : 'Record receipt'}
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -195,5 +279,69 @@ export function SettlementPanel({
         </>
       )}
     </section>
+  );
+}
+
+// Renders the extract response inline so the operator can verify the
+// auto-fill before clicking Record receipt. Each non-trivial field
+// gets a row; deduction lines stack below.
+function ExtractSummary({ result }: { result: EobExtractResponse }): JSX.Element {
+  const tone =
+    result.status === 'extracted'
+      ? 'border-success-200 bg-success-50 text-success-700'
+      : result.status === 'low_confidence'
+        ? 'border-warning-200 bg-warning-50 text-warning-700'
+        : 'border-neutral-200 bg-neutral-0 text-neutral-700';
+  const f = result.fields;
+  return (
+    <div className={`space-y-1 rounded-sm border px-2 py-1 text-[11px] ${tone}`}>
+      <div className="flex items-center justify-between">
+        <span className="font-medium">
+          {result.status.replace(/_/g, ' ')} ({result.engine})
+        </span>
+        {result.error ? <span className="text-error-700">{result.error}</span> : null}
+      </div>
+      {f ? (
+        <dl className="grid grid-cols-2 gap-x-4 text-[11px]">
+          {f.claimRefNum ? (
+            <>
+              <dt className="text-neutral-500">claimRefNum</dt>
+              <dd className="font-mono">{f.claimRefNum}</dd>
+            </>
+          ) : null}
+          {f.receivedAmount !== undefined ? (
+            <>
+              <dt className="text-neutral-500">receivedAmount</dt>
+              <dd>{f.receivedAmount}</dd>
+            </>
+          ) : null}
+          {f.deductionAmount !== undefined ? (
+            <>
+              <dt className="text-neutral-500">deductionAmount</dt>
+              <dd>{f.deductionAmount}</dd>
+            </>
+          ) : null}
+          {f.bankTxnId ? (
+            <>
+              <dt className="text-neutral-500">bankTxnId</dt>
+              <dd className="font-mono">{f.bankTxnId}</dd>
+            </>
+          ) : null}
+          {f.deductions.length > 0 ? (
+            <>
+              <dt className="text-neutral-500">deductions</dt>
+              <dd>
+                {f.deductions.map((d, i) => (
+                  <div key={i}>
+                    {d.category}: {d.amount}
+                    {d.reason ? ` — ${d.reason}` : ''}
+                  </div>
+                ))}
+              </dd>
+            </>
+          ) : null}
+        </dl>
+      ) : null}
+    </div>
   );
 }
