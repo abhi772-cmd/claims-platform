@@ -2,6 +2,7 @@
 
 import {
   type ClaimStatus,
+  type DeductionLine,
   type Document,
   type EobExtractResponse,
   type PaymentMode,
@@ -46,6 +47,12 @@ export function SettlementPanel({
   const [bankTxnId, setBankTxnId] = useState('');
   // Comma-separated for the input; split on submit.
   const [shortPaymentReasons, setShortPaymentReasons] = useState('');
+  // Slice BB — structured deductions captured at reconcile time.
+  // Pre-filled from the AY extraction when the operator runs Extract
+  // on a SHORT_PAID claim's EOB; otherwise the operator adds rows by
+  // hand. Empty rows are dropped at submit so the API call stays
+  // tidy.
+  const [deductions, setDeductions] = useState<DeductionLine[]>([]);
   const [writeOffReason, setWriteOffReason] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -106,6 +113,9 @@ export function SettlementPanel({
         }
         if (f?.shortPaymentReasons !== undefined && f.shortPaymentReasons.length > 0) {
           setShortPaymentReasons(f.shortPaymentReasons.join(', '));
+        }
+        if (f?.deductions !== undefined && f.deductions.length > 0) {
+          setDeductions(f.deductions);
         }
       }
     } catch (err) {
@@ -297,14 +307,65 @@ export function SettlementPanel({
           ) : null}
 
           {status === 'PAYMENT_RECEIVED' ? (
-            <div className="border-t border-neutral-100 pt-3">
-              <button
-                onClick={() => action('reconcile', () => CaseApi.reconcile(caseId, claimId, {}))}
-                disabled={busy === 'reconcile'}
-                className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
-              >
-                {busy === 'reconcile' ? '…' : 'Reconcile (auto-match)'}
-              </button>
+            <div className="space-y-2 border-t border-neutral-100 pt-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-semibold text-neutral-700">Deductions</h3>
+                <button
+                  onClick={() =>
+                    setDeductions((d) => [
+                      ...d,
+                      { category: '', amount: 0 },
+                    ])
+                  }
+                  className="text-[10px] uppercase tracking-wide text-primary-600 hover:underline"
+                >
+                  + Add line
+                </button>
+              </div>
+              {deductions.length === 0 ? (
+                <p className="text-[11px] text-neutral-500">
+                  No deductions — reconcile records the payment as fully received.
+                  Add lines if the EOB shows category-level reductions.
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {deductions.map((d, i) => (
+                    <DeductionRow
+                      key={i}
+                      value={d}
+                      onChange={(next) =>
+                        setDeductions((arr) =>
+                          arr.map((x, idx) => (idx === i ? next : x)),
+                        )
+                      }
+                      onRemove={() =>
+                        setDeductions((arr) => arr.filter((_, idx) => idx !== i))
+                      }
+                    />
+                  ))}
+                </div>
+              )}
+              <div className="flex justify-end">
+                <button
+                  onClick={() =>
+                    action('reconcile', () => {
+                      // Drop empty rows so an over-eager Add doesn't
+                      // tag a meaningless `{ category: '', amount: 0 }`
+                      // onto the request.
+                      const cleaned = deductions.filter(
+                        (d) => d.category.trim().length > 0 || d.amount > 0,
+                      );
+                      return CaseApi.reconcile(caseId, claimId, {
+                        ...(cleaned.length > 0 ? { deductions: cleaned } : {}),
+                      });
+                    })
+                  }
+                  disabled={busy === 'reconcile'}
+                  className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+                >
+                  {busy === 'reconcile' ? '…' : 'Reconcile'}
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -345,6 +406,53 @@ export function SettlementPanel({
         </>
       )}
     </section>
+  );
+}
+
+// Slice BB — single deduction line in the reconcile form. We split
+// this out so Add line can stamp empty rows the operator fills in,
+// and pre-filled rows from EOB extraction render the same way.
+function DeductionRow({
+  value,
+  onChange,
+  onRemove,
+}: {
+  value: DeductionLine;
+  onChange: (next: DeductionLine) => void;
+  onRemove: () => void;
+}): JSX.Element {
+  return (
+    <div className="grid grid-cols-12 items-center gap-1">
+      <input
+        type="text"
+        value={value.category}
+        onChange={(e) => onChange({ ...value, category: e.target.value })}
+        placeholder="category"
+        className="col-span-3 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+      />
+      <input
+        type="number"
+        value={value.amount}
+        onChange={(e) =>
+          onChange({ ...value, amount: Number.parseInt(e.target.value, 10) || 0 })
+        }
+        placeholder="₹"
+        className="col-span-2 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-right text-xs"
+      />
+      <input
+        type="text"
+        value={value.reason ?? ''}
+        onChange={(e) => onChange({ ...value, reason: e.target.value })}
+        placeholder="reason (optional)"
+        className="col-span-6 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+      />
+      <button
+        onClick={onRemove}
+        className="col-span-1 rounded-sm text-[10px] uppercase tracking-wide text-error-700 hover:underline"
+      >
+        Remove
+      </button>
+    </div>
   );
 }
 

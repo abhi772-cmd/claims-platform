@@ -10,6 +10,28 @@ Theme not yet committed; sprint axis pending the user's call (see
 `docs/sprint-5-exit.md` open questions). First slice is a follow-on
 to the AO signature guard from Sprint 5.
 
+### BB — Reconcile UI with deduction lines (PR #61)
+
+- Reconcile branch on `PAYMENT_RECEIVED` was a single "Reconcile
+  (auto-match)" button with no way to capture the structured
+  deduction lines the API has accepted since Slice N. BB exposes
+  an Add line button that stamps a `{ category, amount, reason }`
+  row, with Remove next to each line.
+- Auto-fill from the AY EOB extraction. When the operator runs
+  Extract earlier (typically at `PAYMENT_PENDING`), any
+  deductions in the result land in component state and pre-fill
+  the rows once the claim transitions to `PAYMENT_RECEIVED`.
+  The component stays mounted across the status change, so the
+  state carries through without a fetch round-trip.
+- Empty rows are dropped at submit (the operator can leave a
+  half-edited row without sending an empty `{ category: '',
+  amount: 0 }` to the API).
+- Operator copy for the no-deductions case clarifies the auto-
+  match semantics: reconciling with an empty deductions array
+  records the payment as fully received.
+- New `DeductionRow` helper component split out of the panel for
+  the editable line; `ExtractSummary` is unchanged.
+
 ### BA — Settlement screen: extract-and-apply polish (PR #60)
 
 - AY pre-filled `receivedAmount`. BA extends to `bankTxnId` and
