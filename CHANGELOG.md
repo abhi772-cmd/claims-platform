@@ -10,6 +10,32 @@ Theme not yet committed; sprint axis pending the user's call (see
 `docs/sprint-5-exit.md` open questions). First slice is a follow-on
 to the AO signature guard from Sprint 5.
 
+### AU — Real-clamd integration test (PR #54)
+
+- Closes the validation gap from AQ + AS. The unit suite
+  (`clamav-scan.adapter.spec`) proves the adapter speaks INSTREAM
+  correctly against a wire-format-faithful `node:net` mock; this
+  slice proves the same code talks to a real clamd, picking up any
+  drift between our reading of the protocol and clamd's behaviour
+  (signature names, edge-case framing, version skew).
+- New `apps/api/test/setup/clamav-container.ts` — testcontainers
+  helper for `clamav/clamav:1.4` (full image so signatures are
+  preloaded and EICAR is detected from the first request).
+  Wait-strategy matches any of clamd's "started" / "Listening
+  daemon" log lines; 180s startup deadline absorbs cold-cache image
+  pulls + signature-DB load on a fresh CI runner.
+- New `clamav-real.e2e-spec.ts` runs the `ClamAvScanAdapter`
+  directly (no AppModule, no Postgres, no MinIO — only the clamd
+  container) against three cases: clean buffer is clean; EICAR
+  buffer surfaces `infected` with a non-empty signature (signature
+  text varies between `Eicar-Signature` / `Win.Test.EICAR_HDB-1`
+  depending on the bundled DB, so we assert non-empty rather than
+  exact match); S3-streaming path (Slice AS) routes through a mock
+  storage adapter's `getObject` and EICAR is detected on the
+  fetched bytes.
+- Test timeout is 240s — covers the worst-case cold-runner image
+  pull + the three scans inside.
+
 ### AT — Inbound rate limit on `/nhcx/inbound` (PR #53)
 
 - Adds `NhcxInboundRateLimitGuard` after the AO signature guard:
