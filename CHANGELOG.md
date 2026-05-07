@@ -4,6 +4,38 @@ Notable changes to the DigiSparsh Claims Platform. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) but oriented around
 sprint slices rather than calendar releases.
 
+## Sprint 7 — TBD (May 2026)
+
+Sprint axis still settling — Sprint 6 exit doc lists eight candidates
+(BullMQ, OVH KMS, PMJAY portal automation, EOB-OCR auto-persist,
+audit retention, document checksum verification, deep-readiness
+probes, notification outbox viewer). BE opens with deep-readiness
+probes — small, self-contained, useful immediately for ops dashboards.
+
+### BE — `/health/ready/deep` deep-readiness probe
+
+- New endpoint `GET /health/ready/deep` extends the cheap `/ready`
+  shape with a `deep` block that runs adapter-level probes against
+  ClamAV (clamd zPING/PONG over TCP) and the EOB-OCR inference
+  service (HEAD over HTTP). Each probe returns
+  `{ status: 'ok' | 'skipped' | 'failed', reason?, latencyMs? }`.
+- Probes run in parallel under a 2s ceiling each so the response
+  stays bounded even when one dependency is wedged. `skipped` is
+  the right answer for dev/test deployments where the adapter is
+  in `off` or `stub` mode — we don't want a degraded LB drain
+  because clamd isn't deployed locally.
+- Overall `status` collapses to `degraded` if either the cheap
+  `/ready` was already degraded *or* a deep probe failed, so
+  ops dashboards get one signal to watch.
+- Don't wire this onto the load balancer's probe path —
+  `/ready` stays the cheap one. `/ready/deep` is for ops
+  dashboards + manual-triggered diagnostics.
+- 10 unit tests against `node:net` mock clamd + `node:http`
+  mock OCR servers cover off/skip, real+healthy, abrupt close,
+  missing endpoint, connection refused, alive 4xx (405 from
+  inference services on HEAD `/` is treated as alive), 503
+  failure, missing URL, both-parallel-ok.
+
 ## Sprint 6 — TBD (May 2026)
 
 Theme not yet committed; sprint axis pending the user's call (see
