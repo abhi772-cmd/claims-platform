@@ -47,6 +47,9 @@ const failingStorage: StorageAdapter = {
   getObject: async () => {
     throw new Error('storage.getObject should not be called when buffer is provided');
   },
+  presignDownload: async () => {
+    throw new Error('not used in this suite');
+  },
 };
 
 describe('Slice AU — ClamAvScanAdapter against a real clamd', () => {

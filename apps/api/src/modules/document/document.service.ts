@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import {
   type Document,
+  type DocumentDownloadResponse,
   type DocumentType,
   type DocumentUploadStatus,
   type EobExtractResponse,
@@ -294,6 +295,47 @@ export class DocumentService {
       }),
     );
     return count > 0;
+  }
+
+  // Slice AZ — issue a short-lived presigned GET URL the browser can
+  // hit directly so document bytes flow from S3 to the user without
+  // crossing the API server. Same scope guard as extractEob — must
+  // belong to (tenant, claim) and be in upload=completed + scan=
+  // clean/skipped (we don't hand out URLs to infected or pending
+  // uploads). Honours an optional ?filename= override so the
+  // download attaches as the operator-facing name rather than the
+  // synthetic storage key. (Real-storage S3 only — stub mode hands
+  // back a `stub://` URL that nothing serves; tests use it to
+  // confirm wire-up without standing up MinIO.)
+  async getDownloadUrl(input: {
+    tenantId: string;
+    claimId: string;
+    documentId: string;
+    downloadFilename?: string;
+  }): Promise<DocumentDownloadResponse> {
+    const row = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
+      tx.document.findUnique({ where: { id: input.documentId } }),
+    );
+    if (!row || row.tenantId !== input.tenantId || row.claimId !== input.claimId) {
+      throw new ValidationFailedError({ documentId: ['Document not on this claim.'] });
+    }
+    if (row.uploadStatus !== 'completed') {
+      throw new ValidationFailedError({
+        document: [`Cannot download a document in uploadStatus=${row.uploadStatus}.`],
+      });
+    }
+    if (row.scanStatus !== 'clean' && row.scanStatus !== 'skipped') {
+      throw new ValidationFailedError({
+        document: [`Cannot download a document in scanStatus=${row.scanStatus}.`],
+      });
+    }
+    return this.storage.presignDownload({
+      storageBucket: row.storageBucket,
+      storageKey: row.storageKey,
+      ...(input.downloadFilename !== undefined
+        ? { downloadFilename: input.downloadFilename }
+        : { downloadFilename: row.originalFilename }),
+    });
   }
 
   // Slice AW — pulls EOB-shaped fields out of the document via the

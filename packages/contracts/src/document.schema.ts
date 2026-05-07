@@ -92,6 +92,17 @@ export const UploadInitResponseSchema = z.object({
 });
 export type UploadInitResponse = z.infer<typeof UploadInitResponseSchema>;
 
+// GET /cases/:c/claims/:cl/documents/:docId/download-url — operator-
+// facing presigned download URL. The web layer hands this URL to
+// the browser so document bytes flow direct from S3 to the user
+// rather than through the API server. Short-lived; same TTL as
+// the upload presign.
+export const DocumentDownloadResponseSchema = z.object({
+  url: z.string().url().or(z.string().startsWith('stub://')),
+  expiresAt: z.string().datetime(),
+});
+export type DocumentDownloadResponse = z.infer<typeof DocumentDownloadResponseSchema>;
+
 // POST /cases/:c/claims/:cl/documents/:docId/eob-extract — operator-
 // triggered EOB-OCR run. Wires the EobOcrAdapter (Slice AV) to the
 // document so the settlement screen can pre-fill from extracted

@@ -46,4 +46,13 @@ describe('StubStorageAdapter', () => {
       }),
     ).rejects.toThrow(/STORAGE_MODE=real/);
   });
+
+  it('Slice AZ — presignDownload returns a stub:// URL with future expiry', async () => {
+    const out = await adapter.presignDownload({
+      storageBucket: 'claims-stub',
+      storageKey: 'tenant-1/claim-9/doc-42-discharge.pdf',
+    });
+    expect(out.url).toBe('stub://claims-stub/tenant-1/claim-9/doc-42-discharge.pdf');
+    expect(new Date(out.expiresAt).getTime()).toBeGreaterThan(Date.now());
+  });
 });

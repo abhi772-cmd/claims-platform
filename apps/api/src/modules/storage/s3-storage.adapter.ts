@@ -12,7 +12,9 @@ import {
   type FinalizeInput,
   type FinalizeResult,
   type GetObjectInput,
+  type PresignDownloadInput,
   type PresignUploadInput,
+  type PresignedDownload,
   type PresignedUpload,
   type StorageAdapter,
 } from './storage-adapter.interface';
@@ -122,6 +124,28 @@ export class S3StorageAdapter implements StorageAdapter, OnModuleDestroy {
   // API server on the way in. The SDK gives us a Body that is a
   // Readable stream; we drain it into a single Buffer because clamd's
   // INSTREAM protocol wants the full payload up front anyway.
+  async presignDownload(input: PresignDownloadInput): Promise<PresignedDownload> {
+    const ttl = this.config.get('S3_PRESIGN_TTL_SECONDS', { infer: true });
+    const cmd = new GetObjectCommand({
+      Bucket: input.storageBucket,
+      Key: input.storageKey,
+      // When the operator picks "download as foo.pdf" we ask S3 to
+      // override the bucket-level content-disposition for this signed
+      // request only. SDK supports it via ResponseContentDisposition;
+      // SigV4 binds it to the signature so a tampered URL won't work.
+      ...(input.downloadFilename !== undefined
+        ? {
+            ResponseContentDisposition: `attachment; filename="${sanitiseFilename(input.downloadFilename)}"`,
+          }
+        : {}),
+    });
+    const url = await getSignedUrl(this.client, cmd, { expiresIn: ttl });
+    return {
+      url,
+      expiresAt: new Date(Date.now() + ttl * 1000).toISOString(),
+    };
+  }
+
   async getObject(input: GetObjectInput): Promise<Buffer> {
     const res = await this.client.send(
       new GetObjectCommand({ Bucket: input.storageBucket, Key: input.storageKey }),
@@ -136,4 +160,11 @@ export class S3StorageAdapter implements StorageAdapter, OnModuleDestroy {
     const bytes = await res.Body.transformToByteArray();
     return Buffer.from(bytes);
   }
+}
+
+// Strips CR, LF, and the closing double-quote — anything else would
+// break the quoted-string slot of the Content-Disposition header.
+// Unicode passes through; S3 handles UTF-8 in the signed header.
+function sanitiseFilename(name: string): string {
+  return name.replace(/[\r\n"]/g, '_').slice(0, 200);
 }
