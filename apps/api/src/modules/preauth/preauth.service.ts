@@ -31,6 +31,17 @@ export interface SubmitInput {
   userAgent: string | null;
 }
 
+// Slice BH — preauth cancel via outbound `task/submit`. PMJAY-only
+// in v1; the controller asserts tenant.pmjayMode === 'on' before
+// calling. Reason is operator-supplied free text logged to the
+// FHIR Task.note for the payer's audit trail.
+export interface CancelPreauthInput {
+  tenantId: string;
+  claimId: string;
+  actorUserId: string;
+  reason?: string;
+}
+
 export interface DecisionInput {
   tenantId: string;
   claimId: string;
@@ -252,6 +263,93 @@ export class PreauthService {
       payerRefNum: adapterResult.payerRefNum,
       correlationId: adapterResult.correlationId,
     };
+  }
+
+  // Slice BH — operator-driven preauth cancel via outbound
+  // `task/submit`. PMJAY-only in v1; the controller asserts
+  // tenant.pmjayMode === 'on' before reaching here. Mirrors the
+  // submit() shape: validate state → adapter call → ledger rows →
+  // state transition.
+  async cancelPreauth(input: CancelPreauthInput): Promise<{
+    status: string;
+    correlationId: string;
+  }> {
+    // PMJAY-only operation in v1 — `task/submit` with `code: 'cancel'`
+    // is part of the PMJAY API surface; non-PMJAY tenants don't have
+    // a defined cancel semantics yet. Reject with a clear validation
+    // error rather than the state-machine guard, so the client sees
+    // "your tenant doesn't support this" rather than a confusing
+    // status-mismatch.
+    const tenant = await this.tenants.findById(input.tenantId);
+    if (tenant?.pmjayMode !== 'on') {
+      throw new ValidationFailedError({
+        tenant: ['Preauth cancel is currently a PMJAY-only operation.'],
+      });
+    }
+
+    // Pre-check — pull the claim to validate it has a preauthRefNum
+    // (without the payer-issued reference, the gateway has nothing
+    // to correlate the cancel to). The state-machine guard catches
+    // wrong-status calls; this is the orthogonal "did we ever
+    // submit?" check.
+    const claim = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
+      tx.claim.findUniqueOrThrow({
+        where: { id: input.claimId },
+        select: { preauthRefNum: true, payerCode: true },
+      }),
+    );
+    if (!claim.preauthRefNum) {
+      throw new ValidationFailedError({
+        preauthRefNum: ['Cancel requires a preauth reference issued by the payer.'],
+      });
+    }
+
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
+    const adapterResult = await this.nhcx.cancelPreauth({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      preauthRefNum: claim.preauthRefNum,
+      ...(input.reason !== undefined ? { reason: input.reason } : {}),
+      ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
+      ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
+    });
+
+    const outboundId = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      async (tx) => {
+        const row = await this.integration.recordOutboundWithTx(tx, {
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          integration: 'nhcx',
+          operation: 'preauth.cancel',
+          correlationId: adapterResult.correlationId,
+          rawRequest: adapterResult.rawRequest,
+        });
+        return row.id;
+      },
+    );
+
+    await this.integration.markSucceeded({
+      tenantId: input.tenantId,
+      outboundId,
+      correlationId: adapterResult.correlationId,
+      integration: 'nhcx',
+      operation: 'preauth.cancel',
+      claimId: input.claimId,
+      rawResponse: adapterResult.rawResponse,
+    });
+
+    const snap = await this.claims.transition({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      eventType: 'preauth.cancelled',
+      actorUserId: input.actorUserId,
+      correlationId: adapterResult.correlationId,
+      ...(input.reason !== undefined ? { payload: { reason: input.reason } } : {}),
+    });
+
+    return { status: snap.status, correlationId: adapterResult.correlationId };
   }
 
   // Admin escape hatch + the path Slice P's adapter callback eventually

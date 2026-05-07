@@ -44,6 +44,15 @@ const TRANSITIONS: readonly Transition[] = [
   { from: 'PREAUTH_QUERY_RESPONDED',           event: 'preauth.query_received',        to: 'PREAUTH_QUERY_RAISED' },
   { from: 'PREAUTH_QUERY_RESPONDED',           event: 'preauth.rejected',              to: 'PREAUTH_REJECTED' },
   { from: 'PREAUTH_QUERY_RESPONDED',           event: 'preauth.partially_approved',    to: 'PREAUTH_PARTIALLY_APPROVED' },
+  // Slice BH — PMJAY preauth cancel via outbound task/submit. The
+  // operator can cancel any preauth that's been submitted (queued or
+  // acknowledged) but not yet decisioned. PMJAY-only in v1; the
+  // controller gates on tenant.pmjayMode.
+  { from: 'PREAUTH_QUEUED',                    event: 'preauth.cancelled',             to: 'PREAUTH_CANCELLED' },
+  { from: 'PREAUTH_SUBMITTED',                 event: 'preauth.cancelled',             to: 'PREAUTH_CANCELLED' },
+  { from: 'PREAUTH_QUERY_RAISED',              event: 'preauth.cancelled',             to: 'PREAUTH_CANCELLED' },
+  { from: 'PREAUTH_QUERY_RESPONDED',           event: 'preauth.cancelled',             to: 'PREAUTH_CANCELLED' },
+  { from: 'PREAUTH_CANCELLED',                 event: 'case.abandoned',                to: 'ABANDONED' },
   { from: 'PREAUTH_REJECTED',                  event: 'appeal.started',                to: 'APPEAL_INITIATED' },
   { from: 'PREAUTH_REJECTED',                  event: 'case.abandoned',                to: 'ABANDONED' },
   { from: 'PREAUTH_PARTIALLY_APPROVED',        event: 'enhancement.drafting_started',  to: 'ENHANCEMENT_DRAFTING' },

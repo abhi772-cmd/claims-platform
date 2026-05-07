@@ -33,6 +33,8 @@ export const Permissions = {
   // Preauth
   PREAUTH_DRAFT: 'preauth.draft',
   PREAUTH_SUBMIT: 'preauth.submit',
+  // Slice BH — PMJAY preauth cancel via outbound task/submit.
+  PREAUTH_CANCEL: 'preauth.cancel',
   PREAUTH_RESPOND_QUERY: 'preauth.respond_query',
   PREAUTH_APPROVE_INTERNAL: 'preauth.approve_internal',
   PREAUTH_SIGN_CLINICAL: 'preauth.sign_clinical',

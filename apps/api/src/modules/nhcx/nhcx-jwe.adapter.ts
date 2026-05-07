@@ -8,6 +8,7 @@ import {
   buildCommunicationBundle,
   buildEligibilityRequestBundle,
   buildPreauthSubmitBundle,
+  buildTaskCancelBundle,
   type FhirActorIds,
   type FhirCoverageFields,
   type FhirPatientFields,
@@ -21,6 +22,8 @@ import {
   type AdapterEligibilityResponse,
   type AdapterEnvelopedResult,
   type AdapterPatientFields,
+  type AdapterPreauthCancelInput,
+  type AdapterPreauthCancelResult,
   type AdapterPreauthQueryRespondInput,
   type AdapterPreauthSubmitInput,
   type AdapterPreauthSubmitResult,
@@ -243,6 +246,36 @@ export class NhcxJweAdapter implements NhcxAdapter {
     return {
       acknowledged: op.response.acknowledged,
       claimRefNum: op.response.claimRefNum,
+      correlationId: op.correlationId,
+      rawRequest: op.request as unknown as Record<string, unknown>,
+      rawResponse: op.response as unknown as Record<string, unknown>,
+    };
+  }
+
+  // Slice BH — outbound `task/submit` for PMJAY preauth cancel.
+  // The hospital asserts cancellation; the payer ack arrives later
+  // via task/on_submit (Slice BD already records that branch in the
+  // ledger).
+  async cancelPreauth(input: AdapterPreauthCancelInput): Promise<AdapterPreauthCancelResult> {
+    const fhirPayload =
+      input.coverage && input.preauthRefNum
+        ? buildTaskCancelBundle({
+            actors: this.actors(input.coverage.payerCode),
+            preauthRefNum: input.preauthRefNum,
+            ...(input.reason !== undefined ? { reason: input.reason } : {}),
+          })
+        : {
+            tenantId: input.tenantId,
+            claimId: input.claimId,
+            preauthRefNum: input.preauthRefNum,
+            ...(input.reason !== undefined ? { reason: input.reason } : {}),
+          };
+    const op = await this.callOperation<{ acknowledged: boolean }>(
+      'task/submit',
+      fhirPayload,
+    );
+    return {
+      acknowledged: op.response.acknowledged,
       correlationId: op.correlationId,
       rawRequest: op.request as unknown as Record<string, unknown>,
       rawResponse: op.response as unknown as Record<string, unknown>,

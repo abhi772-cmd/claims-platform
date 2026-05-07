@@ -120,6 +120,40 @@ export interface AdapterClaimSubmitResult {
   rawResponse: Record<string, unknown>;
 }
 
+// Slice BH — outbound `task/submit` with PMJAY's `code: 'cancel',
+// inputType: 'ClaimNumber'` shape. Cancels a previously-submitted
+// preauth on the gateway. The payer either acks (gateway pushes
+// task/on_submit asynchronously) or the operator can drive the
+// transition manually if the payer is offline.
+//
+// We type a single `cancelPreauth` method rather than a generic
+// `submitTask` so callers stay honest about the operation —
+// reprocess (Slice BI) will get its own typed input/output.
+export interface AdapterPreauthCancelInput {
+  tenantId: string;
+  claimId: string;
+  // Echoed onto the gateway under PMJAY's `inputType: 'ClaimNumber'`
+  // payload so the payer can correlate to their own claim record.
+  // Sourced from claim.preauthRefNum (or claim.payerRefNum) on the
+  // service side; nullable here to keep the adapter dumb when neither
+  // is set (the service guards against this — adapter just bubbles
+  // up an empty value if it happens).
+  preauthRefNum: string | null;
+  // Free-form operator note — surfaced on the FHIR Task bundle as a
+  // `note[].text` so the payer's audit trail captures *why* the
+  // hospital cancelled.
+  reason?: string;
+  patient?: AdapterPatientFields;
+  coverage?: AdapterCoverageFields;
+}
+
+export interface AdapterPreauthCancelResult {
+  acknowledged: boolean;
+  correlationId: string;
+  rawRequest: Record<string, unknown>;
+  rawResponse: Record<string, unknown>;
+}
+
 export interface NhcxAdapter {
   verifyEligibility(input: AdapterEligibilityRequest): Promise<AdapterEligibilityResponse>;
   submitPreauth(input: AdapterPreauthSubmitInput): Promise<AdapterPreauthSubmitResult>;
@@ -128,4 +162,5 @@ export interface NhcxAdapter {
   ): Promise<AdapterEnvelopedResult>;
   submitDischarge(input: AdapterDischargeSubmitInput): Promise<AdapterEnvelopedResult>;
   submitClaim(input: AdapterClaimSubmitInput): Promise<AdapterClaimSubmitResult>;
+  cancelPreauth(input: AdapterPreauthCancelInput): Promise<AdapterPreauthCancelResult>;
 }

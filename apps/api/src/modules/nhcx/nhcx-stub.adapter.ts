@@ -10,6 +10,8 @@ import {
   type AdapterEligibilityRequest,
   type AdapterEligibilityResponse,
   type AdapterEnvelopedResult,
+  type AdapterPreauthCancelInput,
+  type AdapterPreauthCancelResult,
   type AdapterPreauthQueryRespondInput,
   type AdapterPreauthSubmitInput,
   type AdapterPreauthSubmitResult,
@@ -145,6 +147,30 @@ export class NhcxStubAdapter implements NhcxAdapter {
         bundleType: 'ClaimResponse',
         outcome: 'queued',
         claimRefNum,
+        correlationId,
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  // Slice BH — PMJAY preauth cancel. Stub echoes the input back so
+  // tests can verify the orchestrator → adapter wiring without
+  // standing up a real FHIR pipeline.
+  async cancelPreauth(input: AdapterPreauthCancelInput): Promise<AdapterPreauthCancelResult> {
+    const correlationId = randomUUID();
+    return {
+      acknowledged: true,
+      correlationId,
+      rawRequest: {
+        bundleType: 'Task',
+        operation: 'task/submit',
+        code: 'cancel',
+        inputType: 'ClaimNumber',
+        ...input,
+      },
+      rawResponse: {
+        bundleType: 'TaskResponse',
+        outcome: 'queued',
         correlationId,
         timestamp: new Date().toISOString(),
       },
