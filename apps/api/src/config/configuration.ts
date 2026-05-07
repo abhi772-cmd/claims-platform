@@ -36,6 +36,16 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     });
   }
 
+  // Slice AX — same shape: real EOB OCR needs an inference endpoint
+  // or every extract returns failed. Catch the misconfig at boot.
+  if (env.EOB_OCR_MODE === 'real' && !env.EOB_OCR_INFERENCE_URL) {
+    throw new ConfigError({
+      EOB_OCR_MODE: [
+        'real mode requires EOB_OCR_INFERENCE_URL (URL of a PaddleOCR/Surya + Qwen2-VL inference service that accepts POST multipart /extract)',
+      ],
+    });
+  }
+
   // When STORAGE_MODE=real, the S3 connection settings must be present.
   if (env.STORAGE_MODE === 'real') {
     const missing: string[] = [];

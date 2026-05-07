@@ -178,6 +178,18 @@ export const EnvSchema = z.object({
   //          plan sketched in chat). For now the factory falls
   //          through to disabled if you set this.
   EOB_OCR_MODE: z.enum(['off', 'stub', 'real']).default('off'),
+  // Slice AX — endpoint of the HTTP inference service that the
+  // 'real' adapter POSTs to. Any service that accepts multipart
+  // /extract and returns the documented ExtractedEob JSON shape
+  // works (PaddleOCR + Qwen2-VL is the reference impl; users can
+  // run their own). Required when EOB_OCR_MODE=real. Optional API
+  // key for bearer auth — many self-hosted setups don't need one.
+  EOB_OCR_INFERENCE_URL: OptionalString,
+  EOB_OCR_API_KEY: OptionalString,
+  // Hard cap on a single OCR call. Local Qwen2-VL on CPU can be
+  // slow (~10-30s per page); 60s is the default ceiling. Adjust
+  // upward if you're scanning very large multi-page EOBs.
+  EOB_OCR_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
 
   // Slice AT — global rate limit on the public `/nhcx/inbound` webhook.
   // The whole gateway shows up as a single egress IP from our side, so
