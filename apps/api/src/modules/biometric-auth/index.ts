@@ -1,5 +1,13 @@
 export { BiometricAuthModule } from './biometric-auth.module';
 export {
+  BiometricAuthService,
+  type InitiateBiometricInput,
+  type InitiateBiometricResult,
+  type VerifyBiometricInput,
+  type VerifyBiometricResult,
+} from './biometric-auth.service';
+export { BiometricAuthController } from './biometric-auth.controller';
+export {
   BIOMETRIC_AUTH_ADAPTER,
   type BiometricAuthAdapter,
   type BiometricAuthMode,

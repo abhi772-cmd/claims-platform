@@ -10,9 +10,11 @@ import { InvalidClaimTransitionError } from '../../common/errors/claim-errors';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
+import { BiometricAuthService } from '../biometric-auth';
 import { ClaimService } from '../claim';
 import { IntegrationMessageService } from '../integration';
 import { FhirContextService, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
+import { TenantService } from '../tenant/tenant.service';
 
 export interface SaveDraftInput {
   tenantId: string;
@@ -58,6 +60,8 @@ export class PreauthService {
     private readonly integration: IntegrationMessageService,
     private readonly fhirContext: FhirContextService,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly tenants: TenantService,
+    private readonly biometric: BiometricAuthService,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
   ) {}
 
@@ -122,6 +126,22 @@ export class PreauthService {
       errors['requestedAmount'] = ['Must be a positive amount.'];
     }
     if (Object.keys(errors).length > 0) throw new ValidationFailedError(errors);
+
+    // Slice BG — PMJAY tenants must have a recent ABDM biometric
+    // verification (process='Preauth') on the case before submit.
+    // Non-PMJAY tenants skip the check entirely. The gate throws
+    // BiometricVerificationRequiredError (HTTP 412) so the frontend
+    // bounces the operator to capture biometric and retry.
+    const tenant = await this.tenants.findById(input.tenantId);
+    if (tenant?.pmjayMode === 'on') {
+      const claim = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
+        tx.claim.findUniqueOrThrow({
+          where: { id: input.claimId },
+          select: { caseId: true },
+        }),
+      );
+      await this.biometric.assertVerifiedFor(input.tenantId, claim.caseId, 'Preauth');
+    }
 
     // 2. Transition draft → queued.
     await this.claims.transition({

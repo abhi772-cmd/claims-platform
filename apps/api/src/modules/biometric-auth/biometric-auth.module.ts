@@ -5,6 +5,8 @@ import {
   BIOMETRIC_AUTH_ADAPTER,
   type BiometricAuthAdapter,
 } from './biometric-auth-adapter.interface';
+import { BiometricAuthController } from './biometric-auth.controller';
+import { BiometricAuthService } from './biometric-auth.service';
 import { DisabledBiometricAuthAdapter } from './disabled-biometric-auth.adapter';
 import { HttpBiometricAuthAdapter } from './http-biometric-auth.adapter';
 import { StubBiometricAuthAdapter } from './stub-biometric-auth.adapter';
@@ -33,14 +35,17 @@ const adapterProvider: Provider = {
 
 @Global()
 @Module({
+  controllers: [BiometricAuthController],
   providers: [
     DisabledBiometricAuthAdapter,
     StubBiometricAuthAdapter,
     HttpBiometricAuthAdapter,
     adapterProvider,
+    BiometricAuthService,
   ],
   exports: [
     BIOMETRIC_AUTH_ADAPTER,
+    BiometricAuthService,
     DisabledBiometricAuthAdapter,
     StubBiometricAuthAdapter,
     HttpBiometricAuthAdapter,

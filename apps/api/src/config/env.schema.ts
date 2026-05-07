@@ -214,6 +214,14 @@ export const EnvSchema = z.object({
   // tests can drive negative paths through the gate logic without
   // mucking with the adapter directly.
   BIOMETRIC_AUTH_STUB_FAIL_LIST: z.preprocess(trim, z.string().default('')),
+  // Slice BG — how long a successful biometric verification stays
+  // valid for the gate. PMJAY's expectation is a fresh verification
+  // per admission phase (preauth and discharge each get a separate
+  // capture), and an admission-window is rarely longer than an
+  // hour at the operator desk; 60 minutes balances "operator can
+  // re-edit the preauth draft" against "stale verification can be
+  // reused for a different admission".
+  BIOMETRIC_VERIFICATION_TTL_MINUTES: z.coerce.number().int().positive().default(60),
 
   // Slice AT — global rate limit on the public `/nhcx/inbound` webhook.
   // The whole gateway shows up as a single egress IP from our side, so

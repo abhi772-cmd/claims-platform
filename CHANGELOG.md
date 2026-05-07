@@ -52,7 +52,47 @@ deferred to production-rollout config swaps.
   missing-`token` paths, HTTP 401 / 500 errors, and connection
   refused.
 
-### BE — `/health/ready/deep` deep-readiness probe
+### BG — PMJAY biometric gate on preauth + claim submit
+
+- New `tenant.pmjayMode` column (`'on' | 'off'`, default `'off'`).
+  Tenants in PMJAY-mode are gated on a recent ABDM biometric
+  verification before preauth submit (process `Preauth`) and before
+  claim submit (process `Discharge`). Non-PMJAY tenants are
+  unaffected — no gate, no extra latency.
+- New `biometric_verification` table records each successful ABDM
+  verification with the originating ABDM `txnId`, hashed `loginId`
+  (sha256 — raw ABHA / Aadhaar / mobile is never persisted),
+  `process`, `authMode`, and a verifiedAt + expiresAt window
+  (`BIOMETRIC_VERIFICATION_TTL_MINUTES`, default 60). Same
+  RLS pattern as `appeal` and other tenant-scoped tables.
+- New endpoints under `cases/:caseId/biometric-auth/`:
+  - `POST /init` — proxies the ABDM `init` call, returns the
+    `txnId` for the verify step. Doesn't write a row.
+  - `POST /verify` — proxies `verify`, persists a row on
+    success, enforces "exactly one PID block per authMode" before
+    calling the adapter (saves a network round-trip on operator
+    miswiring).
+- New `BiometricAuthService.assertVerifiedFor(caseId, process)`
+  helper invoked from `PreauthService.submit` and
+  `ClaimSubmitService.submit` only when `tenant.pmjayMode === 'on'`.
+  Throws `BiometricVerificationRequiredError` (HTTP 412 →
+  `BIOMETRIC_VERIFICATION_REQUIRED`) when no non-expired row
+  matches the `(caseId, process)` pair. Frontend bounces the
+  operator to capture biometric and retry.
+- Two new error codes: `BIOMETRIC_VERIFICATION_REQUIRED` (412 — gate
+  miss) and `BIOMETRIC_VERIFICATION_FAILED` (422 — adapter
+  rejected the device PID, network error, etc.). Both wired into
+  `ErrorPresentations` with operator-friendly modal copy.
+- 5-case end-to-end integration test:
+  1. Non-PMJAY tenant submits preauth without biometric → 200
+     (regression — gate must be invisible to non-PMJAY tenants).
+  2. PMJAY tenant submits preauth without biometric → 412.
+  3. PMJAY tenant: init → verify writes row → submit → 200.
+  4. Verify rejects authMode/PID mismatch → 422.
+  5. Init surfaces stub adapter failure → 422.
+- We deliberately do NOT store the ABHA `authToken` /
+  `refreshToken` in this slice — BG only needs the gate. Encrypted
+  token storage + FHIR Bundle binding lands in a follow-up slice.
 
 ### BE — `/health/ready/deep` deep-readiness probe
 

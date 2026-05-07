@@ -325,6 +325,21 @@ export const ErrorPresentations: Record<ErrorCode, ErrorPresentation> = {
     primaryAction: 'OK',
   },
 
+  BIOMETRIC_VERIFICATION_REQUIRED: {
+    title: 'Biometric verification required',
+    body: 'PMJAY claims need an Aadhaar biometric / face / iris verification on the patient before this step. Capture biometric to continue.',
+    severity: 'warning',
+    primaryAction: 'Capture biometric',
+    secondaryAction: 'Cancel',
+  },
+  BIOMETRIC_VERIFICATION_FAILED: {
+    title: "Biometric verification didn't complete",
+    body: "ABDM didn't accept the biometric capture. Try again, or switch to face or iris if your device supports it.",
+    severity: 'error',
+    primaryAction: 'Retry',
+    secondaryAction: 'Cancel',
+  },
+
   VALIDATION_FAILED: {
     title: 'Check the details',
     body: 'Some fields need attention before you can continue.',

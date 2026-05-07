@@ -8,10 +8,12 @@ import { ConfigService } from '@nestjs/config';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
+import { BiometricAuthService } from '../biometric-auth';
 import { ClaimService } from '../claim';
 import { DocumentService } from '../document';
 import { IntegrationMessageService } from '../integration';
 import { FhirContextService, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
+import { TenantService } from '../tenant/tenant.service';
 
 export interface StartInput {
   tenantId: string;
@@ -45,6 +47,8 @@ export class ClaimSubmitService {
     private readonly documents: DocumentService,
     private readonly fhirContext: FhirContextService,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly tenants: TenantService,
+    private readonly biometric: BiometricAuthService,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
   ) {}
 
@@ -61,6 +65,20 @@ export class ClaimSubmitService {
   async submit(input: SubmitInput): Promise<ClaimSubmissionResponse> {
     if (input.finalAmount <= 0) {
       throw new ValidationFailedError({ finalAmount: ['Must be positive.'] });
+    }
+
+    // Slice BG — PMJAY tenants must have a recent ABDM biometric
+    // verification (process='Discharge') on the case before claim
+    // submit. Mirrors the preauth gate pattern.
+    const tenant = await this.tenants.findById(input.tenantId);
+    if (tenant?.pmjayMode === 'on') {
+      const claim = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
+        tx.claim.findUniqueOrThrow({
+          where: { id: input.claimId },
+          select: { caseId: true },
+        }),
+      );
+      await this.biometric.assertVerifiedFor(input.tenantId, claim.caseId, 'Discharge');
     }
 
     // Transition draft → queued.

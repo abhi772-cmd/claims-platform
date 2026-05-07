@@ -107,8 +107,9 @@ model Case {
   updatedAt       DateTime  @updatedAt
   closedAt        DateTime?
 
-  claims  Claim[]
-  patient Patient? @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  claims                 Claim[]
+  patient                Patient?                @relation(fields: [patientId], references: [id], onDelete: SetNull)
+  biometricVerifications BiometricVerification[]
 
   @@index([tenantId, caseStatus])
   @@index([tenantId, hospitalMrn])
@@ -198,14 +199,70 @@ model Tenant {
   // returns a redacted summary, never the raw values. KMS-wrapping
   // those fields lands in Sprint 5.
   commsConfig     Json                 @default("{}")
+  // PMJAY rail toggle. 'on' enables the PMJAY-via-NHCX flow which
+  // mandates ABDM biometric / face / iris verification before
+  // preauth submit and before claim submit (BG gate). 'off' is the
+  // default — non-PMJAY tenants don't pay the integration tax.
+  pmjayMode       String               @default("off")
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 
   users            User[]
   roles            Role[]
   onboardingSteps  OnboardingStep[]
+  biometricVerifications BiometricVerification[]
 
   @@map("tenant")
+}
+
+// Slice BG — PMJAY biometric verification ledger. Written when a
+// successful ABDM biometric / face / iris verification completes for
+// a case. The PreauthService and ClaimSubmitService consult this
+// table to gate submission when the tenant is in pmjayMode='on'.
+//
+// We deliberately do NOT store the ABHA `authToken` or
+// `refreshToken` returned by ABDM in this slice — BG only needs to
+// know "did a verification happen for (case, process) within the
+// TTL window?" The token is needed when the FHIR Bundle is built
+// (a follow-up slice will add encrypted token storage); for now the
+// row's mere existence is the gate.
+//
+// `process` mirrors the ABDM header: 'Preauth' verifications gate
+// preauth/submit, 'Discharge' verifications gate claim/submit.
+// `loginIdHash` is sha256(loginId) so the audit trail can correlate
+// a verification to a beneficiary without storing the raw ABHA /
+// Aadhaar number.
+model BiometricVerification {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @db.Uuid
+  caseId        String   @db.Uuid
+  // Either 'Preauth' or 'Discharge'. The gate checks for a
+  // non-expired row matching the (caseId, process) pair.
+  process       String
+  // 'FINGERPRINT' | 'IRIS' | 'FACE_AUTH' — matches BiometricAuthMode
+  // on the adapter side.
+  authMode      String
+  // 'abha-number' | 'mobile' | 'aadhaar'
+  loginHint     String
+  // sha256(loginId) — stored as hex. The raw loginId is PII (ABHA
+  // number / mobile / Aadhaar) and never persisted.
+  loginIdHash   String
+  // ABDM-issued txnId from the adapter init/verify dance. Useful
+  // for cross-referencing with integration_message logs and ABDM
+  // audit logs during incident review. Not used by the gate.
+  abdmTxnId     String
+  verifiedAt    DateTime @default(now())
+  // verifiedAt + BIOMETRIC_VERIFICATION_TTL_MINUTES (env-driven,
+  // defaults to 60). The gate refuses verifications older than
+  // this — operators get bounced back to re-capture biometric.
+  expiresAt     DateTime
+  createdAt     DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  case   Case   @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, caseId, process, expiresAt])
+  @@map("biometric_verification")
 }
 
 // One row per (tenant, step). Created lazily on first complete; we don't
