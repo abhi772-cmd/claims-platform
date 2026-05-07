@@ -10,6 +10,41 @@ Theme not yet committed; sprint axis pending the user's call (see
 `docs/sprint-5-exit.md` open questions). First slice is a follow-on
 to the AO signature guard from Sprint 5.
 
+### AX — Real EOB OCR adapter via HTTP inference service (PR #57)
+
+- Closes the `EOB_OCR_MODE='real'` placeholder. The new
+  `HttpEobOcrAdapter` POSTs document bytes as `multipart/form-data`
+  to `<EOB_OCR_INFERENCE_URL>/extract` with optional bearer auth
+  and parses the JSON response into the existing `ExtractResult`
+  contract.
+- The inference service is third-party from our perspective —
+  any service that accepts `(file, contentType, filename)` as
+  multipart and returns `{ status, engine, fields?, error? }`
+  works. The reference implementation is a Python service wrapping
+  PaddleOCR / Surya for OCR + Qwen2-VL / GOT-OCR2.0 for the
+  structured-fields pass; the contract is compatible with custom
+  per-tenant or per-payer extractors operators may stand up.
+- Defensive response parsing — sloppy upstream output (wrong
+  status, missing fields, bad numeric coercion) surfaces as
+  `failed` rather than poisoning downstream persistence. Each
+  field is type-checked individually; nothing flows through
+  unvalidated.
+- Storage-streaming path mirrors `ClamAvScanAdapter` (Slice AS):
+  when only `(bucket, key)` is supplied, the adapter pulls bytes
+  via `StorageAdapter.getObject`. Stub storage throws — caller
+  sees `failed` with a clear "Failed to fetch object" reason.
+- Boot-time config gate: `EOB_OCR_MODE=real` requires
+  `EOB_OCR_INFERENCE_URL`. `EOB_OCR_HTTP_TIMEOUT_MS` defaults to
+  60s (local Qwen2-VL on CPU can run ~10–30s per page). Optional
+  `EOB_OCR_API_KEY` for self-hosted setups behind bearer auth.
+- 12 unit tests against a `node:http` mock server cover request
+  shape (POST /extract, multipart body, bearer header, body
+  bytes embedded), happy paths (`extracted` / `low_confidence`),
+  failure modes (non-2xx, malformed JSON, invalid status,
+  missing fields, timeout, missing config, connection refused),
+  trailing-slash stripping, and the AS-style storage-fetch path
+  with both success and getObject-throws cases.
+
 ### AW — `POST /documents/:id/eob-extract` endpoint (PR #56)
 
 - Wires the AV `EobOcrAdapter` to an HTTP surface so the settlement
