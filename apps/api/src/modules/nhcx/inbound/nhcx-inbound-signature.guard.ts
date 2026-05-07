@@ -85,6 +85,13 @@ export class NhcxInboundSignatureGuard implements CanActivate {
       this.log.warn(
         `nhcx inbound signature rejected correlationId=${correlationId} reason="${result.reason}"`,
       );
+      // TEMP DIAG (slice AO): print to stderr so CI captures it even
+      // when nestjs-pino buffers the Logger output. Remove once the
+      // happy-path host mismatch is debugged.
+      // eslint-disable-next-line no-console
+      console.error(
+        `[DIAG] nhcx inbound signature rejected correlationId=${correlationId} reason="${result.reason}" host=${headers['host'] ?? '<no-host>'} path=${req.originalUrl} method=${req.method}`,
+      );
       throw new UnauthorizedException('Invalid HTTP signature');
     }
     return true;
