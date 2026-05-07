@@ -12,6 +12,7 @@
 //      digest because body bytes differ from what was signed) → 401.
 
 import { createSign, generateKeyPairSync, randomUUID } from 'node:crypto';
+import { type Server } from 'node:http';
 
 import { type INestApplication } from '@nestjs/common';
 import { type NestExpressApplication } from '@nestjs/platform-express';
@@ -83,10 +84,13 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
   let app: INestApplication;
   let migrator: PrismaClient;
   let gatewayPrivateKeyPem: string;
-  // The host we tell supertest to address. supertest sends requests
-  // through an in-memory http.Server, so any value works as long as
-  // we put the same one in the signed `host` header.
-  const HOST = 'claims.test.local';
+  // Host string used in both the signed signing-string AND the
+  // actual `Host` header. supertest sends `Host: 127.0.0.1:<port>`
+  // to the bound server regardless of what `.set('Host', ...)` says,
+  // so we capture the real bound port post-listen and sign against
+  // it. Without this match the signing string we reconstruct on the
+  // server side differs by one byte (`host:`) and verification fails.
+  let host: string;
 
   beforeAll(async () => {
     pg = await startPostgres();
@@ -139,6 +143,16 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
     app.use(cookieParser());
     app.useGlobalFilters(new DomainExceptionFilter());
     await app.init();
+
+    // Bind the underlying http.Server so we can read its real port —
+    // supertest will dial that same port and send `Host: 127.0.0.1:<port>`.
+    const server = app.getHttpServer() as Server;
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const addr = server.address();
+    if (addr === null || typeof addr === 'string') {
+      throw new Error('server.address() did not return an AddressInfo');
+    }
+    host = `127.0.0.1:${addr.port}`;
   });
 
   afterAll(async () => {
@@ -162,13 +176,12 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
       correlationId,
       operation: 'preauth/on_submit',
       privateKeyPem: gatewayPrivateKeyPem,
-      host: HOST,
+      host,
     });
 
     const res = await request(app.getHttpServer())
       .post('/nhcx/inbound')
-      .set('Host', HOST)
-      .set('Date', headers.date)
+.set('Date', headers.date)
       .set('Digest', headers.digest)
       .set('X-HCX-Correlation-Id', headers['x-hcx-correlation-id'])
       .set('X-HCX-Operation', headers['x-hcx-operation'])
@@ -185,8 +198,7 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
     const body = Buffer.from(JSON.stringify({ payload: 'whatever' }), 'utf8');
     const res = await request(app.getHttpServer())
       .post('/nhcx/inbound')
-      .set('Host', HOST)
-      .set('X-HCX-Correlation-Id', correlationId)
+.set('X-HCX-Correlation-Id', correlationId)
       .set('X-HCX-Operation', 'preauth/on_submit')
       .set('Content-Type', 'application/json')
       .send(body);
@@ -202,12 +214,11 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
       correlationId,
       operation: 'preauth/on_submit',
       privateKeyPem: gatewayPrivateKeyPem,
-      host: HOST,
+      host,
     });
     const res = await request(app.getHttpServer())
       .post('/nhcx/inbound')
-      .set('Host', HOST)
-      .set('Date', headers.date)
+.set('Date', headers.date)
       // Digest is the one bound to signedBody, but we send tamperedBody.
       .set('Digest', headers.digest)
       .set('X-HCX-Correlation-Id', headers['x-hcx-correlation-id'])
@@ -229,12 +240,11 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
       correlationId,
       operation: 'preauth/on_submit',
       privateKeyPem: impostorPriv,
-      host: HOST,
+      host,
     });
     const res = await request(app.getHttpServer())
       .post('/nhcx/inbound')
-      .set('Host', HOST)
-      .set('Date', headers.date)
+.set('Date', headers.date)
       .set('Digest', headers.digest)
       .set('X-HCX-Correlation-Id', headers['x-hcx-correlation-id'])
       .set('X-HCX-Operation', headers['x-hcx-operation'])
