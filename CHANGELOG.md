@@ -10,6 +10,29 @@ Theme not yet committed; sprint axis pending the user's call (see
 `docs/sprint-5-exit.md` open questions). First slice is a follow-on
 to the AO signature guard from Sprint 5.
 
+### BD — `insuranceplan/on_request` + `task/on_submit` inbound types (PR #63)
+
+- Completes the HCX 0.7.1 inbound protocol surface. The Sprint 4
+  exit doc deferred these on the basis of "no operational
+  pressure"; BD records them in the integration_message ledger so
+  CLAUDE.md hard-rule #7 (every external integration call writes
+  both directions) is fully satisfied. State transitions stay
+  out of scope until the ops use cases are real.
+- New `parseInsurancePlan` extracts `{ planId?, name?, status?,
+  type? }` defensively — pulls the first non-empty
+  `identifier[].value`, the FHIR-canonical `type[0].coding[0].code`,
+  status pass-through.
+- New `parseTask` extracts `{ status?, description?, focusRef? }`.
+  `focusRef` reads `focus.reference` first, falls back to
+  `focus.identifier.value`.
+- Inbound dispatcher branches are log-only: parse, log a one-line
+  ops summary, attach the parsed shape to the integration_message
+  `rawResponse` summary. No claim service touched.
+- 8 unit tests cover happy + missing-field + missing-resource +
+  identifier-list fallback shapes for both parsers.
+- 2 integration tests against an in-process JWE confirm: end-to-
+  end accept + parse + record succeeded, no claim status change.
+
 ### BC — `paymentnotice/request` inbound handler (PR #62)
 
 - New NHCX inbound message type. The gateway pushes a

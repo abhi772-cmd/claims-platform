@@ -111,6 +111,16 @@ export const NhcxInboundOperationSchema = z.enum([
   // dispatch to SettlementService.recordReceipt so the claim
   // auto-flips to PAYMENT_RECEIVED without operator action.
   'paymentnotice/request',
+  // Slice BD — remaining HCX 0.7.1 message types. We record them
+  // on the integration_message ledger (CLAUDE.md hard-rule #7
+  // mandates the audit trail for every external integration) but
+  // don't drive state transitions — the operational use cases that
+  // would justify auto-actioning these aren't pressing yet.
+  //
+  //   insuranceplan/on_request — payer-pushed coverage update
+  //   task/on_submit            — gateway-pushed task / status note
+  'insuranceplan/on_request',
+  'task/on_submit',
 ]);
 export type NhcxInboundOperation = z.infer<typeof NhcxInboundOperationSchema>;
 

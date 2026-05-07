@@ -8,8 +8,10 @@ import {
   parseClaimResponse,
   parseCommunication,
   parseEligibilityResponse,
+  parseInsurancePlan,
   parsePaymentNotice,
   parsePreauthResponse,
+  parseTask,
 } from './fhir-response-parsers';
 
 function bundle(resource: Record<string, unknown>): Record<string, unknown> {
@@ -321,5 +323,86 @@ describe('parsePaymentNotice', () => {
       }),
     );
     expect(out.claimRefNum).toBeUndefined();
+  });
+});
+
+describe('parseInsurancePlan', () => {
+  it('extracts identifier, name, status, and type code', () => {
+    const out = parseInsurancePlan(
+      bundle({
+        resourceType: 'InsurancePlan',
+        identifier: [{ system: 'plan', value: 'STAR-GOLD-2026' }],
+        name: 'Star Health Gold 2026',
+        status: 'active',
+        type: [{ coding: [{ system: 'plan-type', code: 'medical' }] }],
+      }),
+    );
+    expect(out).toEqual({
+      planId: 'STAR-GOLD-2026',
+      name: 'Star Health Gold 2026',
+      status: 'active',
+      type: 'medical',
+    });
+  });
+
+  it('omits fields the gateway did not populate', () => {
+    const out = parseInsurancePlan(
+      bundle({ resourceType: 'InsurancePlan', name: 'Plan X' }),
+    );
+    expect(out).toEqual({ name: 'Plan X' });
+  });
+
+  it('throws when no InsurancePlan resource is in the bundle', () => {
+    expect(() => parseInsurancePlan(bundle({ resourceType: 'Patient' }))).toThrow(
+      FhirParseError,
+    );
+  });
+
+  it('falls back through identifier list to find the first non-empty value', () => {
+    const out = parseInsurancePlan(
+      bundle({
+        resourceType: 'InsurancePlan',
+        identifier: [{ system: 'plan', value: '' }, { system: 'plan', value: 'P-2' }],
+      }),
+    );
+    expect(out.planId).toBe('P-2');
+  });
+});
+
+describe('parseTask', () => {
+  it('extracts status, description, and focus reference', () => {
+    const out = parseTask(
+      bundle({
+        resourceType: 'Task',
+        status: 'requested',
+        description: 'Please re-upload the discharge summary',
+        focus: { reference: 'Claim/STUB-CL-12345' },
+      }),
+    );
+    expect(out).toEqual({
+      status: 'requested',
+      description: 'Please re-upload the discharge summary',
+      focusRef: 'Claim/STUB-CL-12345',
+    });
+  });
+
+  it('falls back to focus.identifier.value when reference is absent', () => {
+    const out = parseTask(
+      bundle({
+        resourceType: 'Task',
+        status: 'in-progress',
+        focus: { identifier: { system: 'claim', value: 'REF-A1' } },
+      }),
+    );
+    expect(out.focusRef).toBe('REF-A1');
+  });
+
+  it('omits fields the gateway did not populate', () => {
+    const out = parseTask(bundle({ resourceType: 'Task', status: 'completed' }));
+    expect(out).toEqual({ status: 'completed' });
+  });
+
+  it('throws when no Task resource is in the bundle', () => {
+    expect(() => parseTask(bundle({ resourceType: 'Patient' }))).toThrow(FhirParseError);
   });
 });
