@@ -11,7 +11,7 @@
 //   6. EmailAdapter resolves the tenant override and routes mail
 //      through it (verified by intercepting the resolver call).
 
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 
 import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -64,6 +64,9 @@ describe('Slice X — per-tenant comms config', () => {
     process.env['SMTP_FROM'] = 'no-reply@platform.test';
     process.env['NOTIFICATION_RETRY_DISABLED'] = 'true';
     process.env['DOC_LIFECYCLE_DISABLED'] = 'true';
+    // Slice AP — boot with a real root key so the service KMS-wraps
+    // smtp.password / sms.apiKey before they hit the JSON column.
+    process.env['PII_KMS_ROOT_KEY_BASE64'] = randomBytes(32).toString('base64');
 
     const passwordHash = await hash(PASSWORD, { type: argon2id });
     await migrator.$transaction(async (tx) => {
@@ -220,6 +223,28 @@ describe('Slice X — per-tenant comms config', () => {
     const resolvedSms = await comms.resolveSms(tenantAId);
     expect(resolvedSms.source).toBe('tenant');
     expect(resolvedSms.apiKey).toBe('tg-secret-key');
+
+    // Slice AP — assert the secrets are KMS-wrapped on disk, not
+    // plaintext. Read the raw row through a platform_admin tx so RLS
+    // doesn't hide it. Both `password` and `apiKey` must carry the
+    // `kms:v1:` envelope prefix and never echo the input plaintext.
+    const raw = await migrator.$transaction(async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
+      );
+      return tx.tenant.findUniqueOrThrow({
+        where: { id: tenantAId },
+        select: { commsConfig: true },
+      });
+    });
+    const stored = raw.commsConfig as {
+      smtp?: { password?: string };
+      sms?: { apiKey?: string };
+    };
+    expect(stored.smtp?.password).toMatch(/^kms:v1:/);
+    expect(stored.sms?.apiKey).toMatch(/^kms:v1:/);
+    expect(stored.smtp?.password).not.toContain('super-secret');
+    expect(stored.sms?.apiKey).not.toContain('tg-secret-key');
   });
 
   it('PATCH with null clears the override and falls back to env', async () => {
