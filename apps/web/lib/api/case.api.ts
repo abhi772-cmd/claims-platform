@@ -8,6 +8,7 @@ import {
   type ClaimSubmissionResponse,
   type ClaimSubmissionSubmitRequest,
   type CreateCaseRequest,
+  type DocumentDownloadResponse,
   type DocumentListResponse,
   type EligibilityRequest,
   type EobExtractRequest,
@@ -176,6 +177,21 @@ export const CaseApi = {
       `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/documents/${encodeURIComponent(documentId)}/finalize`,
       { method: 'POST', body },
     ),
+
+  // Slice AZ — short-lived presigned GET URL the browser uses to view
+  // / download an uploaded document direct from S3. Optional filename
+  // overrides the download-as filename on save.
+  getDocumentDownloadUrl: (
+    caseId: string,
+    claimId: string,
+    documentId: string,
+    filename?: string,
+  ): Promise<DocumentDownloadResponse> => {
+    const qs = filename ? `?filename=${encodeURIComponent(filename)}` : '';
+    return apiRequest<DocumentDownloadResponse>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/documents/${encodeURIComponent(documentId)}/download-url${qs}`,
+    );
+  },
 
   // Slice AY — EOB OCR extraction. The settlement screen calls this
   // to pre-fill the receipt form from an uploaded EOB document.

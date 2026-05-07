@@ -10,6 +10,26 @@ Theme not yet committed; sprint axis pending the user's call (see
 `docs/sprint-5-exit.md` open questions). First slice is a follow-on
 to the AO signature guard from Sprint 5.
 
+### BA — Settlement screen: extract-and-apply polish (PR #60)
+
+- AY pre-filled `receivedAmount`. BA extends to `bankTxnId` and
+  `shortPaymentReasons` so the operator can apply the full set of
+  receipt-relevant fields the OCR found, not just the headline
+  amount. The receipt form on `PAYMENT_PENDING` now exposes those
+  three fields in a labelled grid; comma-split happens at submit
+  so the operator can edit the list inline.
+- AZ's download URL is wired into the EOB dropdown as a **View**
+  button. Clicking it fetches a fresh presigned URL and opens the
+  document in a new tab — operators can verify what the OCR is
+  reading off without leaving the settlement screen.
+- New `CaseApi.getDocumentDownloadUrl(caseId, claimId, documentId,
+  filename?)` web client helper. Each call gets a fresh URL
+  (presign expiry is short by design).
+- `recordReceipt` call now forwards `bankTxnId` and
+  `shortPaymentReasons` whenever they're non-empty; `bankTxnId`
+  lands on the `Settlement` row (Slice AN persistence) so finance
+  can reconcile back to the bank.
+
 ### AZ — Presigned document download URL (PR #59)
 
 - New `GET /cases/:c/claims/:cl/documents/:id/download-url` returns
