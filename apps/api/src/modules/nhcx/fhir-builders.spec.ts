@@ -3,6 +3,7 @@ import {
   buildCommunicationBundle,
   buildEligibilityRequestBundle,
   buildPreauthSubmitBundle,
+  buildTaskCancelBundle,
 } from './fhir-builders';
 
 const actors = { senderCode: 'SENDER1', receiverCode: 'RECEIVER1' };
@@ -164,6 +165,58 @@ describe('FHIR R4 bundle builders', () => {
       );
       const inResponseTo = comm!['inResponseTo'] as Array<{ identifier: { value: string } }>;
       expect(inResponseTo[0]?.identifier.value).toBe('PA-12345');
+    });
+  });
+
+  describe('buildTaskCancelBundle (Slice BH — PMJAY preauth cancel)', () => {
+    const bundle = buildTaskCancelBundle({
+      actors,
+      preauthRefNum: 'PA-99999',
+      reason: 'Patient discharged against medical advice.',
+    });
+
+    it('returns a Bundle with type=collection and 3 entries (task + sender + recipient)', () => {
+      expect(bundle.resourceType).toBe('Bundle');
+      expect(bundle.type).toBe('collection');
+      expect(bundle.entry).toHaveLength(3);
+      const types = bundle.entry.map((e) => e.resource['resourceType']).sort();
+      expect(types).toEqual(['Organization', 'Organization', 'Task']);
+    });
+
+    it('Task.status=cancelled and Task.code carries cancel coding', () => {
+      const task = bundle.entry.find((e) => e.resource['resourceType'] === 'Task')
+        ?.resource as Record<string, unknown> | undefined;
+      expect(task!['status']).toBe('cancelled');
+      const code = task!['code'] as { coding: Array<{ code: string; system: string }> };
+      expect(code.coding[0]?.code).toBe('cancel');
+      expect(code.coding[0]?.system).toContain('payer.pmjay.nha.gov.in');
+    });
+
+    it('Task.input carries ClaimNumber + the preauthRefNum value', () => {
+      const task = bundle.entry.find((e) => e.resource['resourceType'] === 'Task')
+        ?.resource as Record<string, unknown> | undefined;
+      const input = task!['input'] as Array<{
+        type: { coding: Array<{ code: string }> };
+        valueIdentifier: { system: string; value: string };
+      }>;
+      expect(input).toHaveLength(1);
+      expect(input[0]?.type.coding[0]?.code).toBe('ClaimNumber');
+      expect(input[0]?.valueIdentifier.value).toBe('PA-99999');
+      expect(input[0]?.valueIdentifier.system).toContain('hcx.pmjay.gov.in');
+    });
+
+    it('reason flows into Task.note[0].text', () => {
+      const task = bundle.entry.find((e) => e.resource['resourceType'] === 'Task')
+        ?.resource as Record<string, unknown> | undefined;
+      const note = task!['note'] as Array<{ text: string }>;
+      expect(note[0]?.text).toBe('Patient discharged against medical advice.');
+    });
+
+    it('omits Task.note when reason is undefined', () => {
+      const noReason = buildTaskCancelBundle({ actors, preauthRefNum: 'PA-1' });
+      const task = noReason.entry.find((e) => e.resource['resourceType'] === 'Task')
+        ?.resource as Record<string, unknown> | undefined;
+      expect(task!['note']).toBeUndefined();
     });
   });
 });

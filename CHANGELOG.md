@@ -52,6 +52,47 @@ deferred to production-rollout config swaps.
   missing-`token` paths, HTTP 401 / 500 errors, and connection
   refused.
 
+### BH — PMJAY preauth cancel via outbound `task/submit`
+
+- New `cancelPreauth` method on `NhcxAdapter` (stub + JWE) for the
+  PMJAY-specific `task/submit` outbound with `code: 'cancel'` and
+  `inputType: 'ClaimNumber'`. Hospital-asserted cancellation; the
+  payer's ack arrives later via the existing `task/on_submit`
+  inbound handler (Slice BD already records that branch).
+- New FHIR `Task` bundle builder (`buildTaskCancelBundle`)
+  materialises the wire shape per the PMJAY supporting docs:
+  `Task.status='cancelled'`, `Task.code` carries the cancel coding
+  on the PMJAY task-operation code system,
+  `Task.input[]` carries `(ClaimNumber, preauthRefNum)`, optional
+  operator reason flows into `Task.note[].text` for the payer's
+  audit trail.
+- New `PREAUTH_CANCELLED` status + `preauth.cancelled` event +
+  transitions from `PREAUTH_QUEUED`, `PREAUTH_SUBMITTED`,
+  `PREAUTH_QUERY_RAISED`, `PREAUTH_QUERY_RESPONDED`. Terminal-ish:
+  only further transition is `case.abandoned → ABANDONED`.
+- New `PREAUTH_CANCEL` permission + seed update — granted to
+  `tenant_admin`, `billing_manager`, `insurance_desk_executive`,
+  and `pmam` roles (every role with `preauth.submit`).
+- New endpoint `POST /cases/:caseId/claims/:claimId/preauth/cancel`
+  with Zod-validated `{ reason?: string }` body. Returns
+  `{ status, correlationId }`. Service-level guards:
+  - Tenant must be `pmjayMode='on'` — otherwise 422 with
+    `tenant: ['Preauth cancel is currently a PMJAY-only operation.']`.
+    PMJAY-only because the operation is part of the PMJAY API
+    surface; non-PMJAY tenants don't have defined cancel semantics
+    in HCX 0.7.1 yet.
+  - Claim must have a `preauthRefNum` (the gateway-issued reference
+    used as `Task.input[].valueIdentifier.value`) — otherwise 422
+    with `preauthRefNum: ['Cancel requires a preauth reference
+    issued by the payer.']`.
+- Tests:
+  - 5 new unit cases on `buildTaskCancelBundle`: bundle shape, Task
+    status + code, input ClaimNumber wiring, reason → note,
+    note omission when reason undefined.
+  - 3 e2e cases: PMJAY happy-path cancel from PREAUTH_SUBMITTED
+    (uses BG biometric flow + BF stub), non-PMJAY rejection at the
+    tenant gate, no-preauthRefNum rejection.
+
 ### BG — PMJAY biometric gate on preauth + claim submit
 
 - New `tenant.pmjayMode` column (`'on' | 'off'`, default `'off'`).

@@ -1,5 +1,8 @@
 import {
   Permissions,
+  type PreauthCancelRequest,
+  PreauthCancelRequestSchema,
+  type PreauthCancelResponse,
   type PreauthDecisionRequest,
   PreauthDecisionRequestSchema,
   type PreauthDecisionResponse,
@@ -105,6 +108,29 @@ export class PreauthController {
   // a claim to APPROVED / REJECTED / PARTIALLY_APPROVED / QUERY_RAISED
   // out-of-band. Real production decisions arrive via the rail-adapter
   // callback path (Slice P).
+  // Slice BH — operator-driven preauth cancel via outbound NHCX
+  // `task/submit`. PMJAY-only in v1; the service guards on
+  // tenant.pmjayMode === 'on'. The state machine permits cancel
+  // from any submitted-but-not-decisioned status (PREAUTH_QUEUED,
+  // PREAUTH_SUBMITTED, PREAUTH_QUERY_RAISED, PREAUTH_QUERY_RESPONDED).
+  @Post('cancel')
+  @HttpCode(200)
+  @RequirePermission(Permissions.PREAUTH_CANCEL)
+  async cancel(
+    @Param('caseId', new ParseUUIDPipe()) caseId: string,
+    @Param('claimId', new ParseUUIDPipe()) claimId: string,
+    @Body(new ZodValidationPipe(PreauthCancelRequestSchema)) body: PreauthCancelRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<PreauthCancelResponse> {
+    await this.assertOwns(user.tenantId, caseId, claimId);
+    return this.preauth.cancelPreauth({
+      tenantId: user.tenantId,
+      claimId,
+      actorUserId: user.userId,
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    });
+  }
+
   @Post('decision')
   @HttpCode(200)
   @RequirePermission(Permissions.CASE_ASSIGN)

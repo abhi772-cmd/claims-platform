@@ -93,6 +93,20 @@ export interface FhirCommunicationInput extends FhirDeterminismDeps {
   payload: string;
 }
 
+// Slice BH — outbound `task/submit` bundle for PMJAY preauth cancel.
+// Task.status = 'cancelled', Task.code carries the operation
+// ('cancel'), Task.input[] carries the inputType + value pair
+// (`ClaimNumber` + the previously-submitted preauthRefNum). Optional
+// `note` records the operator's cancel reason on the audit trail.
+export interface FhirTaskCancelInput extends FhirDeterminismDeps {
+  actors: FhirActorIds;
+  // The preauth reference issued by the gateway on the original
+  // submit. PMJAY uses this as the `value` under the ClaimNumber
+  // input.
+  preauthRefNum: string;
+  reason?: string;
+}
+
 // ---- Bundle helpers ------------------------------------------
 
 interface BundleEntry {
@@ -117,6 +131,13 @@ const HCX_PROFILE_ELIGIBILITY = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefin
 const HCX_PROFILE_PREAUTH = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-ClaimRequestBundle.html';
 const HCX_PROFILE_CLAIM = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-ClaimRequestBundle.html';
 const HCX_PROFILE_COMMUNICATION = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-CommunicationBundle.html';
+const HCX_PROFILE_TASK = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-TaskBundle.html';
+// PMJAY-specific code system for the Task.code coding. Mirrors the
+// `code` enum in the PMJAY supporting docs (cancel, reprocess).
+const PMJAY_TASK_CODE_SYSTEM = 'https://payer.pmjay.nha.gov.in/CodeSystem/task-operation';
+// Identifier system that PMJAY uses to reference the original
+// claim/preauth on the Task.input[].value lookup.
+const PMJAY_CLAIM_NUMBER_SYSTEM = 'https://hcx.pmjay.gov.in/v1/preauthorization';
 
 const DEFAULT_BUNDLE_SYSTEM = 'https://ig.hcxprotocol.io';
 
@@ -468,6 +489,83 @@ export function buildCommunicationBundle(input: FhirCommunicationInput): FhirBun
     timestamp: ts,
     entry: [
       { fullUrl: communicationUrn, resource: communication },
+      { fullUrl: senderUrn, resource: organizationResource(input.actors.senderCode, undefined) },
+      { fullUrl: recipientUrn, resource: organizationResource(input.actors.receiverCode, undefined) },
+    ],
+  };
+}
+
+// Slice BH — Task FHIR bundle for PMJAY preauth cancel. The shape
+// mirrors the `task/submit` payload documented in
+// `NHCX HMIS\HIMS-PMJAY suppporting docs\NHCX_APIs to be called
+// based on scenario.xlsx` row "Preauth cancel": `code: 'cancel'`,
+// `inputType: 'ClaimNumber'` carried as a Task resource with the
+// payer-side claim reference under `Task.input[].value.identifier`.
+//
+// Task.status = 'cancelled' rather than 'requested' because in
+// PMJAY's semantics the hospital is asserting the cancellation,
+// not requesting one — payers ack-or-reject, they don't cancel
+// on our behalf.
+export function buildTaskCancelBundle(input: FhirTaskCancelInput): FhirBundle {
+  const uuid = input.uuid ?? randomUUID;
+  const ts = (input.now ?? (() => new Date()))().toISOString();
+  const URN = makeUrn(uuid);
+  const bundleId = uuid();
+  const senderUrn = URN('sender');
+  const recipientUrn = URN('recipient');
+  const taskUrn = URN('task');
+
+  const task: Record<string, unknown> = {
+    resourceType: 'Task',
+    id: taskUrn,
+    status: 'cancelled',
+    intent: 'order',
+    authoredOn: ts,
+    requester: { reference: senderUrn },
+    owner: { reference: recipientUrn },
+    code: {
+      coding: [
+        {
+          system: PMJAY_TASK_CODE_SYSTEM,
+          code: 'cancel',
+          display: 'Cancel preauthorization',
+        },
+      ],
+    },
+    input: [
+      {
+        type: {
+          coding: [
+            {
+              system: PMJAY_TASK_CODE_SYSTEM,
+              code: 'ClaimNumber',
+              display: 'Payer-issued claim number',
+            },
+          ],
+        },
+        valueIdentifier: {
+          system: PMJAY_CLAIM_NUMBER_SYSTEM,
+          value: input.preauthRefNum,
+        },
+      },
+    ],
+  };
+  if (input.reason) {
+    task['note'] = [{ text: input.reason, time: ts }];
+  }
+
+  return {
+    resourceType: 'Bundle',
+    id: bundleId,
+    meta: {
+      lastUpdated: ts,
+      profile: [HCX_PROFILE_TASK],
+    },
+    identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
+    type: 'collection',
+    timestamp: ts,
+    entry: [
+      { fullUrl: taskUrn, resource: task },
       { fullUrl: senderUrn, resource: organizationResource(input.actors.senderCode, undefined) },
       { fullUrl: recipientUrn, resource: organizationResource(input.actors.receiverCode, undefined) },
     ],

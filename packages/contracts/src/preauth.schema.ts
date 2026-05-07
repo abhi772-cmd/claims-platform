@@ -69,3 +69,21 @@ export const PreauthDecisionResponseSchema = z.object({
   approvedAmount: z.number().int().nullable(),
 });
 export type PreauthDecisionResponse = z.infer<typeof PreauthDecisionResponseSchema>;
+
+// Slice BH — POST /cases/:c/claims/:cl/preauth/cancel — operator-driven
+// cancel via outbound NHCX `task/submit` with PMJAY's `code: 'cancel'`
+// shape. PMJAY-only in v1; the controller asserts the calling
+// tenant's pmjayMode === 'on' before reaching the service.
+export const PreauthCancelRequestSchema = z.object({
+  // Optional free-text reason logged on the FHIR Task.note for the
+  // payer's audit trail. 2000 char ceiling matches PreauthDecision's
+  // reason field for consistency.
+  reason: z.string().max(2000).optional(),
+});
+export type PreauthCancelRequest = z.infer<typeof PreauthCancelRequestSchema>;
+
+export const PreauthCancelResponseSchema = z.object({
+  status: z.string(),
+  correlationId: z.string(),
+});
+export type PreauthCancelResponse = z.infer<typeof PreauthCancelResponseSchema>;

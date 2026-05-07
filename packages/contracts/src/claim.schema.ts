@@ -17,6 +17,11 @@ export const ClaimStatusSchema = z.enum([
   'PREAUTH_APPROVED',
   'PREAUTH_REJECTED',
   'PREAUTH_PARTIALLY_APPROVED',
+  // Slice BH — operator-driven cancellation of an already-submitted
+  // preauth. PMJAY tenants drive this via the `task/submit` outbound
+  // with `code: 'cancel'`; non-PMJAY tenants currently can't reach
+  // this status (the cancel endpoint is gated on tenant.pmjayMode).
+  'PREAUTH_CANCELLED',
 
   'ENHANCEMENT_DRAFTING',
   'ENHANCEMENT_QUEUED',
@@ -80,6 +85,9 @@ export const ClaimEventTypeSchema = z.enum([
   'preauth.approved',
   'preauth.rejected',
   'preauth.partially_approved',
+  // Slice BH — operator-driven cancellation post-submit (PMJAY
+  // task/submit outbound).
+  'preauth.cancelled',
 
   // enhancement
   'enhancement.drafting_started',
