@@ -191,6 +191,30 @@ export const EnvSchema = z.object({
   // upward if you're scanning very large multi-page EOBs.
   EOB_OCR_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
 
+  // Slice BF — ABDM biometric authentication adapter. Required for
+  // PMJAY-via-NHCX flows: PMJAY mandates Aadhaar biometric / face /
+  // iris verification before preauth and before claim submit.
+  //   off  — DisabledBiometricAuthAdapter; every call returns
+  //          'disabled'. Default — non-PMJAY tenants and dev / test
+  //          deployments take this path.
+  //   stub — StubBiometricAuthAdapter; deterministic in-process pass
+  //          with an env-driven failure list for negative-path tests.
+  //   real — HttpBiometricAuthAdapter; HTTPS calls to ABDM at
+  //          BIOMETRIC_AUTH_BASE_URL (e.g.
+  //          https://apisbx.abdm.gov.in for sandbox).
+  BIOMETRIC_AUTH_MODE: z.enum(['off', 'stub', 'real']).default('off'),
+  // Required when BIOMETRIC_AUTH_MODE=real. The HttpBiometricAuthAdapter
+  // posts to <BASE>/hcx/abha/biometric/auth/{init,verify,refresh/token}.
+  BIOMETRIC_AUTH_BASE_URL: OptionalString,
+  // Hard cap on a single ABDM call. Aadhaar biometric verifies are
+  // typically sub-second but cross-government-cloud latency makes 15s
+  // a safer ceiling than a typical 5s API timeout.
+  BIOMETRIC_AUTH_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  // Comma-separated list of loginIds the stub adapter rejects, so
+  // tests can drive negative paths through the gate logic without
+  // mucking with the adapter directly.
+  BIOMETRIC_AUTH_STUB_FAIL_LIST: z.preprocess(trim, z.string().default('')),
+
   // Slice AT — global rate limit on the public `/nhcx/inbound` webhook.
   // The whole gateway shows up as a single egress IP from our side, so
   // per-IP limiting wouldn't help — we cap the endpoint as a whole.

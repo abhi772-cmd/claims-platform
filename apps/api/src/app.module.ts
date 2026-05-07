@@ -9,6 +9,7 @@ import { loadConfig } from './config/configuration';
 import { AppealModule } from './modules/appeal';
 import { AuditModule } from './modules/audit';
 import { AuthModule } from './modules/auth/auth.module';
+import { BiometricAuthModule } from './modules/biometric-auth';
 import { CaseModule } from './modules/case';
 import { ClaimModule } from './modules/claim';
 import { ClaimSubmitModule } from './modules/claim-submit';
@@ -92,6 +93,7 @@ import { UserModule } from './modules/user/user.module';
     StorageModule,
     VirusScanModule,
     EobOcrModule,
+    BiometricAuthModule,
     PatientModule,
     ClaimModule,
     CaseModule,

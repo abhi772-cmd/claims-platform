@@ -6,11 +6,53 @@ sprint slices rather than calendar releases.
 
 ## Sprint 7 — TBD (May 2026)
 
-Sprint axis still settling — Sprint 6 exit doc lists eight candidates
-(BullMQ, OVH KMS, PMJAY portal automation, EOB-OCR auto-persist,
-audit retention, document checksum verification, deep-readiness
-probes, notification outbox viewer). BE opens with deep-readiness
-probes — small, self-contained, useful immediately for ops dashboards.
+Theme settled mid-sprint: **PMJAY-via-NHCX is in v1**. Discovery
+that PMJAY is migrating onto the same HCX 0.7.1 protocol surface we
+already implemented (vs. the older "portal automation" framing in
+`docs/07`) collapses the PMJAY sub-project from 4–8 weeks to ~8
+slices. The v1 Sprint 7 axis runs PMJAY (BF–BM) + the EOB-OCR
+inference service (separate Python repo) + earlier hardening
+(BE deep-readiness already shipped). OVH KMS + Redis remain
+deferred to production-rollout config swaps.
+
+### BF — ABDM biometric authentication adapter
+
+- New module `biometric-auth/` mirroring the EOB-OCR adapter pattern
+  (off / stub / real factory). PMJAY mandates Aadhaar biometric
+  / face / iris verification before preauth and before discharge or
+  claim submission; this slice ships the adapter only — Slice BG
+  will gate preauth + claim submit on it for PMJAY-mode tenants.
+- Three adapters bound by `BIOMETRIC_AUTH_MODE`:
+  - `off` (default) — `DisabledBiometricAuthAdapter`. Every call
+    returns `{ status: 'disabled' }`. Non-PMJAY tenants and dev /
+    test deployments take this path.
+  - `stub` — `StubBiometricAuthAdapter`. Deterministic in-process
+    pass with an env-driven failure list
+    (`BIOMETRIC_AUTH_STUB_FAIL_LIST`) for negative-path tests.
+    txnId / authToken / refreshToken issuance mimics the
+    observable ABDM behaviour without an ABDM sandbox account.
+  - `real` — `HttpBiometricAuthAdapter`. POSTs to
+    `<BIOMETRIC_AUTH_BASE_URL>/hcx/abha/biometric/auth/{init,
+    verify}`, GETs `/refresh/token`. Required headers
+    (`authorization`, `process: Preauth | Discharge`,
+    `payerid`) per the documented contract. Defensive parsing on
+    every response so a sloppy upstream can't poison the gate.
+- New env vars: `BIOMETRIC_AUTH_MODE` (off | stub | real, default
+  off), `BIOMETRIC_AUTH_BASE_URL` (required when real),
+  `BIOMETRIC_AUTH_HTTP_TIMEOUT_MS` (default 15s),
+  `BIOMETRIC_AUTH_STUB_FAIL_LIST`. Boot-time config check rejects
+  `real` mode without `BIOMETRIC_AUTH_BASE_URL` so a production
+  deploy can't silently fall back to "every verify fails".
+- 8 unit tests on the disabled + stub adapters cover happy path,
+  fail-list rejection, replay protection, all three auth modes
+  (FINGERPRINT / FACE_AUTH / IRIS), and refresh-token issuance.
+  12 unit tests on the HTTP adapter against a `node:http` mock
+  ABDM cover request shape (URLs, headers, JSON body), the
+  one-PID-block-per-mode invariant, missing-`txnId` and
+  missing-`token` paths, HTTP 401 / 500 errors, and connection
+  refused.
+
+### BE — `/health/ready/deep` deep-readiness probe
 
 ### BE — `/health/ready/deep` deep-readiness probe
 

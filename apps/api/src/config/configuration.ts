@@ -46,6 +46,17 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     });
   }
 
+  // Slice BF — real-mode biometric auth needs the ABDM endpoint or
+  // every init / verify returns failed. Catch the misconfig at boot
+  // rather than at first PMJAY case.
+  if (env.BIOMETRIC_AUTH_MODE === 'real' && !env.BIOMETRIC_AUTH_BASE_URL) {
+    throw new ConfigError({
+      BIOMETRIC_AUTH_MODE: [
+        'real mode requires BIOMETRIC_AUTH_BASE_URL (e.g. https://apisbx.abdm.gov.in for the ABDM sandbox)',
+      ],
+    });
+  }
+
   // When STORAGE_MODE=real, the S3 connection settings must be present.
   if (env.STORAGE_MODE === 'real') {
     const missing: string[] = [];
