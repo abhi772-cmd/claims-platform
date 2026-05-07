@@ -10,6 +10,37 @@ Theme not yet committed; sprint axis pending the user's call (see
 `docs/sprint-5-exit.md` open questions). First slice is a follow-on
 to the AO signature guard from Sprint 5.
 
+### AW — `POST /documents/:id/eob-extract` endpoint (PR #56)
+
+- Wires the AV `EobOcrAdapter` to an HTTP surface so the settlement
+  screen can pull extracted fields on demand. Lives at
+  `POST /cases/:caseId/claims/:claimId/documents/:documentId/eob-extract`,
+  scoped under the existing case/claim path so RBAC reuses
+  `case.create` (the role that uploaded the EOB extracts its
+  fields).
+- `bufferBase64` request field is optional. Provided: the adapter
+  scans those bytes directly (matches the existing
+  `UploadFinalizeRequest.scanBufferBase64` pattern, useful in
+  stub-storage tests + cases where the client still has the buffer
+  cached). Omitted: the adapter is expected to fetch the bytes
+  from storage by `(bucket, key)` — works in real storage,
+  surfaces `skipped` (stub adapter) or `failed` (real adapter
+  against stub storage) per the AS pattern.
+- Pre-conditions: document belongs to (tenant, claim), upload is
+  completed, scan is `clean` or `skipped`. Anything else is a 422 —
+  running OCR against a pending / infected upload would either hit
+  empty bytes or scan-quarantined bytes.
+- Response shape `EobExtractResponse` mirrors `ExtractResult`:
+  status (`extracted | low_confidence | skipped | failed`), engine,
+  optional fields, optional error.
+- Operators trigger the call explicitly rather than auto-running at
+  finalize so a heavy real-OCR call doesn't slow the upload-finalize
+  path.
+- 4 integration tests: short-paid sentinel → extracted with
+  deduction line, clean sentinel → no deductions, no buffer + stub
+  storage → skipped (forgot-to-attach UX), cross-claim documentId
+  → 422.
+
 ### AV — EOB OCR adapter skeleton (PR #55)
 
 - New `EobOcrModule` global module with the same shape as

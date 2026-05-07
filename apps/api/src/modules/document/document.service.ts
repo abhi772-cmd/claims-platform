@@ -4,6 +4,7 @@ import {
   type Document,
   type DocumentType,
   type DocumentUploadStatus,
+  type EobExtractResponse,
 } from '@claims/contracts';
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -12,6 +13,11 @@ import { VIRUS_SCAN_ADAPTER, type VirusScanAdapter } from './scan';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
+import {
+  EOB_OCR_ADAPTER,
+  type EobOcrAdapter,
+  type ExtractInput,
+} from '../eob-ocr';
 import { STORAGE_ADAPTER, type StorageAdapter } from '../storage';
 
 export interface UploadStubInput {
@@ -51,6 +57,17 @@ export interface FinalizeUploadInput {
   scanBuffer?: Buffer;
 }
 
+export interface ExtractEobInput {
+  tenantId: string;
+  claimId: string;
+  documentId: string;
+  // Optional inline bytes. When set, the OCR adapter scans them
+  // directly. When omitted, the adapter is expected to fetch from
+  // (bucket, key) — works in real-mode storage; stub-storage throws
+  // and surfaces as `failed` per the AS pattern.
+  buffer?: Buffer;
+}
+
 @Injectable()
 export class DocumentService {
   constructor(
@@ -58,6 +75,7 @@ export class DocumentService {
     private readonly config: ConfigService<AppConfig, true>,
     @Inject(STORAGE_ADAPTER) private readonly storage: StorageAdapter,
     @Inject(VIRUS_SCAN_ADAPTER) private readonly scanner: VirusScanAdapter,
+    @Inject(EOB_OCR_ADAPTER) private readonly eobOcr: EobOcrAdapter,
   ) {}
 
   // V1 stub flow: synthesise + create the row in 'completed' state in
@@ -276,6 +294,50 @@ export class DocumentService {
       }),
     );
     return count > 0;
+  }
+
+  // Slice AW — pulls EOB-shaped fields out of the document via the
+  // EobOcrAdapter. Operators trigger this from the settlement screen
+  // so a heavy real-OCR call doesn't slow the upload-finalize path.
+  // Pre-conditions: document belongs to (tenant, claim), upload is
+  // completed, scan is clean (or skipped). Anything else is a 422 —
+  // running OCR against a pending / infected upload would either
+  // hit empty bytes or scan-quarantined bytes.
+  async extractEob(input: ExtractEobInput): Promise<EobExtractResponse> {
+    const row = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
+      tx.document.findUnique({ where: { id: input.documentId } }),
+    );
+    if (!row || row.tenantId !== input.tenantId || row.claimId !== input.claimId) {
+      throw new ValidationFailedError({ documentId: ['Document not on this claim.'] });
+    }
+    if (row.uploadStatus !== 'completed') {
+      throw new ValidationFailedError({
+        document: [`Cannot OCR a document in uploadStatus=${row.uploadStatus}.`],
+      });
+    }
+    if (row.scanStatus !== 'clean' && row.scanStatus !== 'skipped') {
+      throw new ValidationFailedError({
+        document: [`Cannot OCR a document in scanStatus=${row.scanStatus}.`],
+      });
+    }
+
+    const adapterInput: ExtractInput = {
+      storageBucket: row.storageBucket,
+      storageKey: row.storageKey,
+      contentType: row.contentType,
+      originalFilename: row.originalFilename,
+      ...(input.buffer !== undefined ? { buffer: input.buffer } : {}),
+    };
+    const result = await this.eobOcr.extract(adapterInput);
+    // Return the adapter's result verbatim. Persistence + auto-fill of
+    // a Settlement draft is the next slice — keep this one focused on
+    // the extraction surface.
+    return {
+      status: result.status,
+      engine: result.engine,
+      ...(result.fields !== undefined ? { fields: result.fields } : {}),
+      ...(result.error !== undefined ? { error: result.error } : {}),
+    };
   }
 }
 

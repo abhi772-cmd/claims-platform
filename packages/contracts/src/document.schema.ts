@@ -92,6 +92,67 @@ export const UploadInitResponseSchema = z.object({
 });
 export type UploadInitResponse = z.infer<typeof UploadInitResponseSchema>;
 
+// POST /cases/:c/claims/:cl/documents/:docId/eob-extract — operator-
+// triggered EOB-OCR run. Wires the EobOcrAdapter (Slice AV) to the
+// document so the settlement screen can pre-fill from extracted
+// fields. Operators trigger this explicitly rather than auto-running
+// at finalize so a heavy real-OCR call doesn't slow the upload path.
+//
+// `bufferBase64` is optional. Provided: the adapter scans those
+// bytes directly (useful in stub-storage tests + cases where the
+// client still has the buffer cached). Omitted: the adapter is
+// expected to fetch the bytes from storage by (bucket, key); the
+// stub-storage path will return `failed` since stub doesn't keep
+// real bytes.
+export const EobExtractRequestSchema = z.object({
+  bufferBase64: z.string().max((5 * 1024 * 1024 * 4) / 3).optional(),
+});
+export type EobExtractRequest = z.infer<typeof EobExtractRequestSchema>;
+
+export const EobExtractedDeductionSchema = z.object({
+  category: z.string().min(1).max(64),
+  amount: z.number().int().nonnegative(),
+  reason: z.string().max(500).optional(),
+});
+export type EobExtractedDeduction = z.infer<typeof EobExtractedDeductionSchema>;
+
+export const EobExtractedConfidenceSchema = z.object({
+  claimRefNum: z.number().min(0).max(1).optional(),
+  receivedAmount: z.number().min(0).max(1).optional(),
+  deductionAmount: z.number().min(0).max(1).optional(),
+  bankTxnId: z.number().min(0).max(1).optional(),
+  receivedAt: z.number().min(0).max(1).optional(),
+});
+export type EobExtractedConfidence = z.infer<typeof EobExtractedConfidenceSchema>;
+
+export const EobExtractedFieldsSchema = z.object({
+  claimRefNum: z.string().optional(),
+  receivedAmount: z.number().int().nonnegative().optional(),
+  deductionAmount: z.number().int().nonnegative().optional(),
+  deductions: z.array(EobExtractedDeductionSchema),
+  shortPaymentReasons: z.array(z.string()),
+  bankTxnId: z.string().optional(),
+  receivedAt: z.string().datetime().optional(),
+  confidence: EobExtractedConfidenceSchema.optional(),
+});
+export type EobExtractedFields = z.infer<typeof EobExtractedFieldsSchema>;
+
+export const EobExtractStatusSchema = z.enum([
+  'extracted',
+  'low_confidence',
+  'skipped',
+  'failed',
+]);
+export type EobExtractStatus = z.infer<typeof EobExtractStatusSchema>;
+
+export const EobExtractResponseSchema = z.object({
+  status: EobExtractStatusSchema,
+  engine: z.string(),
+  fields: EobExtractedFieldsSchema.optional(),
+  error: z.string().optional(),
+});
+export type EobExtractResponse = z.infer<typeof EobExtractResponseSchema>;
+
 // POST /cases/:c/claims/:cl/documents/:docId/finalize — client completed
 // the PUT, server HEADs the object to confirm + capture etag/size.
 export const UploadFinalizeRequestSchema = z.object({
