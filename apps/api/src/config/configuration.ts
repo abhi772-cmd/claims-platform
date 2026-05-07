@@ -79,6 +79,28 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     }
   }
 
+  // Slice AO — production must verify HTTP Signature on inbound. The
+  // env-gate is permissive in dev / test (so integration tests can
+  // POST without minting signatures); production cannot silently fall
+  // back to the permissive default. Also requires the gateway public
+  // key, which we already use for outbound JWE encryption.
+  if (env.NODE_ENV === 'production') {
+    if (!env.NHCX_INBOUND_VERIFY_SIGNATURE) {
+      throw new ConfigError({
+        NHCX_INBOUND_VERIFY_SIGNATURE: [
+          'must be true in production — leaving it false would accept unsigned callbacks on the public `/nhcx/inbound` webhook',
+        ],
+      });
+    }
+    if (!env.NHCX_GATEWAY_PUBLIC_KEY_BASE64) {
+      throw new ConfigError({
+        NHCX_GATEWAY_PUBLIC_KEY_BASE64: [
+          'required in production — needed to verify HTTP Signature on inbound callbacks',
+        ],
+      });
+    }
+  }
+
   return {
     ...env,
     jwtPrivateKeyPem: decodeBase64Pem(env.JWT_PRIVATE_KEY_BASE64, 'JWT_PRIVATE_KEY_BASE64'),
