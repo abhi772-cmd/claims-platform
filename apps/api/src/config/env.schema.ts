@@ -166,6 +166,19 @@ export const EnvSchema = z.object({
   // header outside this window are rejected. 5 min matches the JWE
   // 5-minute TTL we already accept.
   NHCX_INBOUND_SIGNATURE_MAX_SKEW_SECONDS: z.coerce.number().int().positive().default(300),
+  // EOB OCR adapter (Slice AV — skeleton; OSS implementation to follow).
+  //   off  — DisabledEobOcrAdapter; every request returns 'skipped'.
+  //          The default — operators key in EOB fields by hand until
+  //          the OSS path lands.
+  //   stub — StubEobOcrAdapter; deterministic fixtures, useful for
+  //          integration tests that want to exercise the
+  //          extracted-fields handling path without an OCR engine.
+  //   real — DEFERRED; will route to a PaddleOCR / Surya pipeline
+  //          plus a Qwen2-VL / GOT-OCR2.0 multimodal extractor (the
+  //          plan sketched in chat). For now the factory falls
+  //          through to disabled if you set this.
+  EOB_OCR_MODE: z.enum(['off', 'stub', 'real']).default('off'),
+
   // Slice AT — global rate limit on the public `/nhcx/inbound` webhook.
   // The whole gateway shows up as a single egress IP from our side, so
   // per-IP limiting wouldn't help — we cap the endpoint as a whole.
