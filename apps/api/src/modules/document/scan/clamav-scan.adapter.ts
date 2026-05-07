@@ -13,16 +13,19 @@
 //        `INSTREAM size limit exceeded. ERROR\0`       — failed
 //        `... ERROR\0`                                 — generic failure
 //
-// We intentionally support only the in-memory `buffer` path here. The
-// presigned-PUT-to-S3 flow (STORAGE_MODE=real) needs us to GET the
-// object back out of S3 and pipe its body into clamd; that's a Sprint 5
-// follow-up. Calls without a buffer return `failed` with a clear reason
-// so the worker treats it as a transient error and surfaces it to ops
-// rather than silently passing the document as clean.
+// Two input paths:
+//   1. `buffer` — the original API-server upload route handed us the
+//      bytes in memory. Scan straight from RAM.
+//   2. `storageBucket` + `storageKey` (Slice AS) — the presigned-PUT
+//      flow (STORAGE_MODE=real) means the bytes never crossed the API
+//      server. Pull them back via the StorageAdapter and scan. We
+//      drain into a Buffer (capped by S3_MAX_UPLOAD_BYTES, default
+//      50 MiB, so it fits in a worker's heap) before streaming to
+//      clamd because the INSTREAM protocol expects framed chunks.
 
 import { Socket } from 'node:net';
 
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import {
@@ -31,6 +34,10 @@ import {
   type VirusScanAdapter,
 } from './virus-scan-adapter.interface';
 import { type AppConfig } from '../../../config/configuration';
+import {
+  STORAGE_ADAPTER,
+  type StorageAdapter,
+} from '../../storage/storage-adapter.interface';
 
 // clamd's default chunk size cap is 25 MiB but it accepts smaller; 64 KiB
 // is the sweet spot — enough to amortise the per-chunk header, small
@@ -45,16 +52,42 @@ const ENGINE = 'clamav';
 export class ClamAvScanAdapter implements VirusScanAdapter {
   private readonly log = new Logger(ClamAvScanAdapter.name);
 
-  constructor(private readonly config: ConfigService<AppConfig, true>) {}
+  constructor(
+    private readonly config: ConfigService<AppConfig, true>,
+    @Inject(STORAGE_ADAPTER) private readonly storage: StorageAdapter,
+  ) {}
 
   async scan(input: ScanInput): Promise<ScanResult> {
-    if (!input.buffer) {
-      // S3-streaming branch: deferred. Be loud rather than silent —
-      // returning 'clean' here would let unscanned uploads pass.
+    let body: Buffer;
+    if (input.buffer) {
+      body = input.buffer;
+    } else if (input.storageBucket && input.storageKey) {
+      // Slice AS — pull the bytes from S3 (or whichever real adapter
+      // is wired). StubStorageAdapter throws here on purpose; the
+      // resulting failure surfaces a misconfiguration where someone
+      // has VIRUS_SCAN_MODE=real with STORAGE_MODE=stub.
+      try {
+        body = await this.storage.getObject({
+          storageBucket: input.storageBucket,
+          storageKey: input.storageKey,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.log.warn(
+          `clamav scan could not fetch object key=${input.storageKey} err=${message}`,
+        );
+        return {
+          status: 'failed',
+          engine: ENGINE,
+          error: `Failed to fetch object for scanning: ${message}`,
+        };
+      }
+    } else {
+      // No buffer AND no (bucket, key) — caller bug. Don't pass as clean.
       return {
         status: 'failed',
         engine: ENGINE,
-        error: 'ClamAV adapter received no buffer; S3-streaming not yet implemented',
+        error: 'ClamAV adapter requires either buffer or (storageBucket, storageKey)',
       };
     }
     const endpoint = this.config.get('VIRUS_SCAN_ENDPOINT', { infer: true });
@@ -75,7 +108,7 @@ export class ClamAvScanAdapter implements VirusScanAdapter {
       };
     }
     try {
-      const reply = await this.sendInstream(host, port, input.buffer);
+      const reply = await this.sendInstream(host, port, body);
       return parseInstreamReply(reply);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
