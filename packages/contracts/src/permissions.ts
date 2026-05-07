@@ -42,6 +42,8 @@ export const Permissions = {
   // Claim
   CLAIM_DRAFT: 'claim.draft',
   CLAIM_SUBMIT: 'claim.submit',
+  // Slice BI — PMJAY CRC (Claim Re-Consideration) request.
+  CLAIM_REPROCESS: 'claim.reprocess',
 
   // Settlement
   SETTLEMENT_UPLOAD_EOB: 'settlement.upload_eob',

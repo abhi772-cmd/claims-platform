@@ -4,6 +4,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import {
+  type AdapterClaimReprocessInput,
+  type AdapterClaimReprocessResult,
   type AdapterClaimSubmitInput,
   type AdapterClaimSubmitResult,
   type AdapterDischargeSubmitInput,
@@ -147,6 +149,30 @@ export class NhcxStubAdapter implements NhcxAdapter {
         bundleType: 'ClaimResponse',
         outcome: 'queued',
         claimRefNum,
+        correlationId,
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  // Slice BI — PMJAY claim reprocess (CRC). Stub echoes the
+  // reasonCode + claimRefNum back so tests can verify the
+  // orchestrator → adapter wiring without a real FHIR pipeline.
+  async reprocessClaim(input: AdapterClaimReprocessInput): Promise<AdapterClaimReprocessResult> {
+    const correlationId = randomUUID();
+    return {
+      acknowledged: true,
+      correlationId,
+      rawRequest: {
+        bundleType: 'Task',
+        operation: 'task/submit',
+        code: 'reprocess',
+        inputType: 'ClaimNumber',
+        ...input,
+      },
+      rawResponse: {
+        bundleType: 'TaskResponse',
+        outcome: 'queued',
         correlationId,
         timestamp: new Date().toISOString(),
       },

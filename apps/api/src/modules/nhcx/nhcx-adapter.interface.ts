@@ -154,6 +154,44 @@ export interface AdapterPreauthCancelResult {
   rawResponse: Record<string, unknown>;
 }
 
+// Slice BI — outbound `task/submit` with PMJAY's `code: 'reprocess'`
+// shape. Used to request re-evaluation of a previously-decisioned
+// claim. Two reason codes per the PMJAY supporting docs:
+//   - 'claimrejected'  — claim was rejected; hospital wants the
+//                        payer to look again (often after providing
+//                        clarifying documentation out-of-band).
+//   - 'partialpayment' — claim was settled short of expected; the
+//                        hospital is contesting the deductions.
+//
+// The reprocess request is a hospital-asserted re-open of the case
+// on the payer side. The payer eventually responds with a fresh
+// claim/on_submit decision (handled by the existing inbound
+// dispatcher).
+export type AdapterClaimReprocessReason = 'claimrejected' | 'partialpayment';
+
+export interface AdapterClaimReprocessInput {
+  tenantId: string;
+  claimId: string;
+  // Echoed onto the gateway under PMJAY's ClaimNumber input — the
+  // gateway-issued claim reference from the original claim/submit.
+  // Sourced from claim.claimRefNum on the service side.
+  claimRefNum: string | null;
+  reasonCode: AdapterClaimReprocessReason;
+  // Free-form operator note explaining what changed since the
+  // original decision (e.g. "additional discharge summary attached
+  // out-of-band, please reconsider").
+  reason?: string;
+  patient?: AdapterPatientFields;
+  coverage?: AdapterCoverageFields;
+}
+
+export interface AdapterClaimReprocessResult {
+  acknowledged: boolean;
+  correlationId: string;
+  rawRequest: Record<string, unknown>;
+  rawResponse: Record<string, unknown>;
+}
+
 export interface NhcxAdapter {
   verifyEligibility(input: AdapterEligibilityRequest): Promise<AdapterEligibilityResponse>;
   submitPreauth(input: AdapterPreauthSubmitInput): Promise<AdapterPreauthSubmitResult>;
@@ -163,4 +201,5 @@ export interface NhcxAdapter {
   submitDischarge(input: AdapterDischargeSubmitInput): Promise<AdapterEnvelopedResult>;
   submitClaim(input: AdapterClaimSubmitInput): Promise<AdapterClaimSubmitResult>;
   cancelPreauth(input: AdapterPreauthCancelInput): Promise<AdapterPreauthCancelResult>;
+  reprocessClaim(input: AdapterClaimReprocessInput): Promise<AdapterClaimReprocessResult>;
 }

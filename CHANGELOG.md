@@ -52,6 +52,53 @@ deferred to production-rollout config swaps.
   missing-`token` paths, HTTP 401 / 500 errors, and connection
   refused.
 
+### BI — PMJAY claim reprocess (CRC) via outbound `task/submit`
+
+- Mirror of Slice BH on the claim side: outbound `task/submit` with
+  PMJAY's `code: 'reprocess'` shape, used for the Claim Re-Consideration
+  flow. Two reason codes per the PMJAY supporting docs:
+  `claimrejected` (re-evaluate a CLAIM_REJECTED claim) and
+  `partialpayment` (re-evaluate a SHORT_PAID settlement).
+- New `NhcxAdapter.reprocessClaim` on the interface + stub + JWE.
+- New `buildTaskReprocessBundle` FHIR builder with two
+  `Task.input[]` entries: ClaimNumber → claimRefNum, plus a
+  ReasonCode coding on the PMJAY task-reason code system.
+  `Task.status='requested'` (vs cancel's 'cancelled') because the
+  hospital is asking the payer to act, not asserting a state on
+  their behalf.
+- New `CLAIM_REPROCESS_REQUESTED` status + `claim.reprocess_requested`
+  event. Transitions:
+  - `CLAIM_REJECTED → claim.reprocess_requested → CLAIM_REPROCESS_REQUESTED`
+  - `SHORT_PAID → claim.reprocess_requested → CLAIM_REPROCESS_REQUESTED`
+  - From CLAIM_REPROCESS_REQUESTED, the existing decision events
+    (claim.approved / .rejected / .partially_approved /
+    .query_received) re-decide via the inbound `claim/on_submit`
+    dispatcher.
+- New `CLAIM_REPROCESS` permission + seed update — granted to
+  every role that already has `claim.submit` (tenant_admin,
+  billing_manager, insurance_desk_executive, pmam).
+- New endpoint
+  `POST /cases/:caseId/claims/:claimId/claim-submission/reprocess`
+  with body `{ reasonCode: 'claimrejected' | 'partialpayment',
+  reason?: string }`. Returns `{ status, correlationId }`. Service
+  guards:
+  - Tenant must be `pmjayMode='on'` → 422
+    `tenant: ['Claim reprocess is currently a PMJAY-only operation.']`
+  - Claim must have a `claimRefNum` → 422
+    `claimRefNum: ['Reprocess requires a claim reference issued
+    by the payer.']`
+  - reasonCode/status must align: `claimrejected` requires
+    CLAIM_REJECTED; `partialpayment` requires SHORT_PAID. → 422
+    with field-targeted message naming the current status.
+- Tests:
+  - 5 new unit cases on `buildTaskReprocessBundle` (bundle shape,
+    Task.status='requested' + code, two-input invariant
+    [ClaimNumber + ReasonCode], reason display strings, note flow).
+  - 3 e2e cases: PMJAY happy-path reprocess from CLAIM_REJECTED
+    (walks the full preauth → discharge → claim flow with BG
+    biometric), non-PMJAY rejection at tenant gate,
+    reasonCode/status mismatch rejection.
+
 ### BH — PMJAY preauth cancel via outbound `task/submit`
 
 - New `cancelPreauth` method on `NhcxAdapter` (stub + JWE) for the

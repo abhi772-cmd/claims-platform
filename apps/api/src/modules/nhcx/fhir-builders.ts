@@ -107,6 +107,21 @@ export interface FhirTaskCancelInput extends FhirDeterminismDeps {
   reason?: string;
 }
 
+// Slice BI — outbound `task/submit` bundle for PMJAY claim
+// reprocess (CRC). Task.status = 'requested' (we're asking the
+// payer to act), Task.code carries 'reprocess', Task.input[] has
+// two entries: the ClaimNumber referencing the original claim, and
+// a ReasonCode entry carrying 'claimrejected' or 'partialpayment'.
+export type FhirTaskReprocessReason = 'claimrejected' | 'partialpayment';
+
+export interface FhirTaskReprocessInput extends FhirDeterminismDeps {
+  actors: FhirActorIds;
+  // Gateway-issued claim reference from the original claim/submit.
+  claimRefNum: string;
+  reasonCode: FhirTaskReprocessReason;
+  reason?: string;
+}
+
 // ---- Bundle helpers ------------------------------------------
 
 interface BundleEntry {
@@ -138,6 +153,10 @@ const PMJAY_TASK_CODE_SYSTEM = 'https://payer.pmjay.nha.gov.in/CodeSystem/task-o
 // Identifier system that PMJAY uses to reference the original
 // claim/preauth on the Task.input[].value lookup.
 const PMJAY_CLAIM_NUMBER_SYSTEM = 'https://hcx.pmjay.gov.in/v1/preauthorization';
+// PMJAY-specific code system for reprocess reason codes
+// ('claimrejected' / 'partialpayment') — appears as the
+// Task.input[].type coding when the input carries a reason.
+const PMJAY_TASK_REASON_SYSTEM = 'https://payer.pmjay.nha.gov.in/CodeSystem/task-reason';
 
 const DEFAULT_BUNDLE_SYSTEM = 'https://ig.hcxprotocol.io';
 
@@ -546,6 +565,104 @@ export function buildTaskCancelBundle(input: FhirTaskCancelInput): FhirBundle {
         valueIdentifier: {
           system: PMJAY_CLAIM_NUMBER_SYSTEM,
           value: input.preauthRefNum,
+        },
+      },
+    ],
+  };
+  if (input.reason) {
+    task['note'] = [{ text: input.reason, time: ts }];
+  }
+
+  return {
+    resourceType: 'Bundle',
+    id: bundleId,
+    meta: {
+      lastUpdated: ts,
+      profile: [HCX_PROFILE_TASK],
+    },
+    identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
+    type: 'collection',
+    timestamp: ts,
+    entry: [
+      { fullUrl: taskUrn, resource: task },
+      { fullUrl: senderUrn, resource: organizationResource(input.actors.senderCode, undefined) },
+      { fullUrl: recipientUrn, resource: organizationResource(input.actors.receiverCode, undefined) },
+    ],
+  };
+}
+
+// Slice BI — Task FHIR bundle for PMJAY claim reprocess (CRC).
+// Mirrors the cancel bundle shape but with two Task.input entries:
+//   1. ClaimNumber → the gateway-issued claimRefNum from the
+//      original claim/submit, so the payer can look up the case.
+//   2. ReasonCode → 'claimrejected' or 'partialpayment', so the
+//      payer's CRC workflow knows which queue to put the
+//      re-evaluation in.
+//
+// Task.status = 'requested' (vs cancel's 'cancelled') because the
+// hospital is asking the payer to act, not asserting a state on
+// their behalf.
+export function buildTaskReprocessBundle(input: FhirTaskReprocessInput): FhirBundle {
+  const uuid = input.uuid ?? randomUUID;
+  const ts = (input.now ?? (() => new Date()))().toISOString();
+  const URN = makeUrn(uuid);
+  const bundleId = uuid();
+  const senderUrn = URN('sender');
+  const recipientUrn = URN('recipient');
+  const taskUrn = URN('task');
+
+  const reasonDisplay =
+    input.reasonCode === 'claimrejected'
+      ? 'Re-evaluate rejected claim'
+      : 'Re-evaluate short-paid claim';
+
+  const task: Record<string, unknown> = {
+    resourceType: 'Task',
+    id: taskUrn,
+    status: 'requested',
+    intent: 'order',
+    authoredOn: ts,
+    requester: { reference: senderUrn },
+    owner: { reference: recipientUrn },
+    code: {
+      coding: [
+        {
+          system: PMJAY_TASK_CODE_SYSTEM,
+          code: 'reprocess',
+          display: 'Reprocess claim',
+        },
+      ],
+    },
+    input: [
+      {
+        type: {
+          coding: [
+            {
+              system: PMJAY_TASK_CODE_SYSTEM,
+              code: 'ClaimNumber',
+              display: 'Payer-issued claim number',
+            },
+          ],
+        },
+        valueIdentifier: {
+          system: PMJAY_CLAIM_NUMBER_SYSTEM,
+          value: input.claimRefNum,
+        },
+      },
+      {
+        type: {
+          coding: [
+            {
+              system: PMJAY_TASK_REASON_SYSTEM,
+              code: 'ReasonCode',
+              display: 'Reprocess reason',
+            },
+          ],
+        },
+        valueCoding: {
+          system: PMJAY_TASK_REASON_SYSTEM,
+          code: input.reasonCode,
+          display: reasonDisplay,
         },
       },
     ],

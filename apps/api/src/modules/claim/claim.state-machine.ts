@@ -96,6 +96,18 @@ const TRANSITIONS: readonly Transition[] = [
   { from: 'WRITTEN_OFF',                       event: 'claim.closed',                  to: 'CLOSED' },
   { from: 'CLAIM_REJECTED',                    event: 'appeal.started',                to: 'APPEAL_INITIATED' },
   { from: 'CLAIM_REJECTED',                    event: 'claim.written_off',             to: 'WRITTEN_OFF' },
+  // Slice BI — PMJAY CRC reprocess via outbound task/submit.
+  // Reachable from CLAIM_REJECTED (reasonCode='claimrejected') and
+  // SHORT_PAID (reasonCode='partialpayment'). The payer's
+  // re-decision flows back through the existing claim/on_submit
+  // inbound handler, which re-runs the standard
+  // approved/rejected/partially_approved transitions.
+  { from: 'CLAIM_REJECTED',                    event: 'claim.reprocess_requested',     to: 'CLAIM_REPROCESS_REQUESTED' },
+  { from: 'SHORT_PAID',                        event: 'claim.reprocess_requested',     to: 'CLAIM_REPROCESS_REQUESTED' },
+  { from: 'CLAIM_REPROCESS_REQUESTED',         event: 'claim.approved',                to: 'CLAIM_APPROVED' },
+  { from: 'CLAIM_REPROCESS_REQUESTED',         event: 'claim.rejected',                to: 'CLAIM_REJECTED' },
+  { from: 'CLAIM_REPROCESS_REQUESTED',         event: 'claim.partially_approved',      to: 'CLAIM_PARTIALLY_APPROVED' },
+  { from: 'CLAIM_REPROCESS_REQUESTED',         event: 'claim.query_received',          to: 'CLAIM_QUERY_RAISED' },
 
   // -- appeal --
   { from: 'APPEAL_INITIATED',                  event: 'appeal.submitted',              to: 'APPEAL_SUBMITTED' },

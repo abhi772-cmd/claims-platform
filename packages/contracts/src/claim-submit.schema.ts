@@ -55,3 +55,26 @@ export const ClaimDecisionResponseSchema = z.object({
   approvedAmount: z.number().int().nullable(),
 });
 export type ClaimDecisionResponse = z.infer<typeof ClaimDecisionResponseSchema>;
+
+// Slice BI — POST /cases/:c/claims/:cl/claim-submission/reprocess —
+// PMJAY CRC (Claim Re-Consideration) request. Two reason codes
+// per the PMJAY supporting docs:
+//   - 'claimrejected'  — re-evaluate a CLAIM_REJECTED case
+//   - 'partialpayment' — re-evaluate a SHORT_PAID case
+// Both flow through the same outbound `task/submit` operation;
+// the payer routes by reasonCode. PMJAY-only — service guards on
+// tenant.pmjayMode === 'on'.
+export const ReprocessReasonCodeSchema = z.enum(['claimrejected', 'partialpayment']);
+export type ReprocessReasonCode = z.infer<typeof ReprocessReasonCodeSchema>;
+
+export const ClaimReprocessRequestSchema = z.object({
+  reasonCode: ReprocessReasonCodeSchema,
+  reason: z.string().max(2000).optional(),
+});
+export type ClaimReprocessRequest = z.infer<typeof ClaimReprocessRequestSchema>;
+
+export const ClaimReprocessResponseSchema = z.object({
+  status: z.string(),
+  correlationId: z.string(),
+});
+export type ClaimReprocessResponse = z.infer<typeof ClaimReprocessResponseSchema>;

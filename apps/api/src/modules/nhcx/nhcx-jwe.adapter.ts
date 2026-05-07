@@ -9,11 +9,14 @@ import {
   buildEligibilityRequestBundle,
   buildPreauthSubmitBundle,
   buildTaskCancelBundle,
+  buildTaskReprocessBundle,
   type FhirActorIds,
   type FhirCoverageFields,
   type FhirPatientFields,
 } from './fhir-builders';
 import {
+  type AdapterClaimReprocessInput,
+  type AdapterClaimReprocessResult,
   type AdapterClaimSubmitInput,
   type AdapterClaimSubmitResult,
   type AdapterCoverageFields,
@@ -246,6 +249,37 @@ export class NhcxJweAdapter implements NhcxAdapter {
     return {
       acknowledged: op.response.acknowledged,
       claimRefNum: op.response.claimRefNum,
+      correlationId: op.correlationId,
+      rawRequest: op.request as unknown as Record<string, unknown>,
+      rawResponse: op.response as unknown as Record<string, unknown>,
+    };
+  }
+
+  // Slice BI — outbound `task/submit` with `code: 'reprocess'`
+  // for PMJAY claim re-consideration (CRC). The hospital asks the
+  // payer to re-evaluate; payer responds later via claim/on_submit.
+  async reprocessClaim(input: AdapterClaimReprocessInput): Promise<AdapterClaimReprocessResult> {
+    const fhirPayload =
+      input.coverage && input.claimRefNum
+        ? buildTaskReprocessBundle({
+            actors: this.actors(input.coverage.payerCode),
+            claimRefNum: input.claimRefNum,
+            reasonCode: input.reasonCode,
+            ...(input.reason !== undefined ? { reason: input.reason } : {}),
+          })
+        : {
+            tenantId: input.tenantId,
+            claimId: input.claimId,
+            claimRefNum: input.claimRefNum,
+            reasonCode: input.reasonCode,
+            ...(input.reason !== undefined ? { reason: input.reason } : {}),
+          };
+    const op = await this.callOperation<{ acknowledged: boolean }>(
+      'task/submit',
+      fhirPayload,
+    );
+    return {
+      acknowledged: op.response.acknowledged,
       correlationId: op.correlationId,
       rawRequest: op.request as unknown as Record<string, unknown>,
       rawResponse: op.response as unknown as Record<string, unknown>,
