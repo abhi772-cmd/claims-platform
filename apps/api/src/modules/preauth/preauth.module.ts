@@ -4,10 +4,12 @@ import { PreauthController } from './preauth.controller';
 import { PreauthService } from './preauth.service';
 import { CaseModule } from '../case';
 import { ClaimModule } from '../claim';
+import { TenantModule } from '../tenant/tenant.module';
 
-// NhcxModule is @Global — no explicit import needed for the adapter.
+// BiometricAuthModule + NhcxModule are @Global — no explicit import
+// needed for their adapters / services.
 @Module({
-  imports: [ClaimModule, CaseModule],
+  imports: [ClaimModule, CaseModule, TenantModule],
   controllers: [PreauthController],
   providers: [PreauthService],
   exports: [PreauthService],

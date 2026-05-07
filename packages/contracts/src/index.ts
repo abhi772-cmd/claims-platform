@@ -17,5 +17,6 @@ export * from './settlement.schema';
 export * from './appeal.schema';
 export * from './master-data.schema';
 export * from './audit.schema';
+export * from './biometric-auth.schema';
 export * from './problem-details.schema';
 export { Permissions, ALL_PERMISSIONS, type Permission as AppPermission } from './permissions';

@@ -61,6 +61,8 @@ CODE | HTTP | Severity | Title | Body | Primary Action | Secondary Action
 | PMJAY_PACKAGE_DEPRECATED                   | 412  | warning  | Package has been deprecated             | This package was retired in HBP {version}. Use {replacement_code} instead.                                          | Use suggested       | Browse all |
 | PMJAY_OPERATION_REQUIRES_PORTAL            | 200  | info     | This step happens on the PMJAY portal   | Open the PMJAY portal to complete this step. We've prepared the values for you.                                     | Open portal         | Cancel     |
 | PMJAY_PORTAL_REFERENCE_INVALID             | 422  | warning  | Reference number doesn't look right     | Make sure you've copied the full reference from the PMJAY portal.                                                    | Try again           | Cancel     |
+| BIOMETRIC_VERIFICATION_REQUIRED            | 412  | warning  | Biometric verification required          | PMJAY claims need an Aadhaar biometric / face / iris verification on the patient before this step. Capture biometric to continue. | Capture biometric  | Cancel     |
+| BIOMETRIC_VERIFICATION_FAILED              | 422  | error    | Biometric verification didn't complete   | ABDM didn't accept the biometric capture. Try again, or switch to face or iris if your device supports it.            | Retry               | Cancel     |
 
 ## PREAUTH
 

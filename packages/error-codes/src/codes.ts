@@ -65,6 +65,18 @@ export const ErrorCodes = {
   AUTH_MFA_CHALLENGE_EXPIRED: 'AUTH_MFA_CHALLENGE_EXPIRED',
   AUTH_MFA_SETUP_NOT_PENDING: 'AUTH_MFA_SETUP_NOT_PENDING',
 
+  // PMJAY (Slice BG)
+  // Server-side gate: a PMJAY tenant tried to submit preauth or
+  // claim without a recent ABDM biometric verification on the case.
+  // The frontend should bounce the operator to the biometric capture
+  // flow, then retry the submit.
+  BIOMETRIC_VERIFICATION_REQUIRED: 'BIOMETRIC_VERIFICATION_REQUIRED',
+  // Adapter call (init or verify) returned a failed status — the
+  // ABDM device handshake didn't complete cleanly. Surface the
+  // adapter's error message to the operator so they can pick a
+  // different mode (face / iris) or retry.
+  BIOMETRIC_VERIFICATION_FAILED: 'BIOMETRIC_VERIFICATION_FAILED',
+
   // VALIDATION & GENERIC
   VALIDATION_FAILED: 'VALIDATION_FAILED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
@@ -111,6 +123,9 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   TENANT_NHCX_CERT_NOT_UPLOADED: 412,
   TENANT_PMJAY_STATE_NOT_SUPPORTED: 412,
   TENANT_READINESS_CHECK_FAILED: 412,
+
+  BIOMETRIC_VERIFICATION_REQUIRED: 412,
+  BIOMETRIC_VERIFICATION_FAILED: 422,
 
   ONBOARDING_STEP_INCOMPLETE: 412,
   ONBOARDING_OUT_OF_ORDER: 412,
