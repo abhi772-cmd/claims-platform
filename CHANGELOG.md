@@ -10,6 +10,29 @@ Theme not yet committed; sprint axis pending the user's call (see
 `docs/sprint-5-exit.md` open questions). First slice is a follow-on
 to the AO signature guard from Sprint 5.
 
+### AY — EOB extract on the settlement screen (PR #58)
+
+- Wires the AW endpoint into `SettlementPanel.tsx`. When the claim
+  is at `PAYMENT_PENDING`, the panel now lists the claim's
+  EOB-typed completed documents in a dropdown, exposes an
+  "Extract" button, and pre-fills `receivedAmount` from the
+  result.
+- A coloured `ExtractSummary` block under the dropdown surfaces
+  the extraction status (`extracted` / `low_confidence` / `failed`
+  / `skipped`), the engine, and a deconstructed view of the
+  fields (claimRefNum, receivedAmount, deductionAmount, bankTxnId,
+  deductions) so the operator can sanity-check before clicking
+  Record receipt.
+- New `CaseApi.eobExtract(caseId, claimId, documentId, body)`
+  client helper. Body is optional; the inline-buffer path is for
+  the eventual operator UX where they re-attach the EOB on the
+  fly. Default flow expects the API to fetch from S3 (real
+  storage) — under stub storage the response surfaces as
+  `skipped` and the operator types the values manually, exactly
+  as before.
+- No new tests at the web layer; the contract path is already
+  covered by AW's API integration tests + AV's adapter unit tests.
+
 ### AX — Real EOB OCR adapter via HTTP inference service (PR #57)
 
 - Closes the `EOB_OCR_MODE='real'` placeholder. The new
