@@ -4,6 +4,208 @@ Notable changes to the DigiSparsh Claims Platform. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) but oriented around
 sprint slices rather than calendar releases.
 
+## Sprint 5 — Real-mode adapters + production-hardening (May 2026)
+
+Ten slices so far (AJ–AS), backfill chore landing alongside. Theme:
+every stub adapter the platform stood up over Sprints 2–4 grows a
+production sibling, and the security surface gets the missing
+authentication, encryption, and signature checks that the Sprint 4
+exit doc flagged. End-to-end real-mode upload + virus scan + SMS
+notification + JWE-signed inbound now closes the loop.
+
+### AJ — Appeal favourable resolution auto-chains to settlement (PR #41)
+
+- AH/AI deliberately stopped at `APPEAL_RESOLVED` so operators could
+  decide what comes next. AJ closes the obvious loop: when the
+  resolution kind is `approved` / `partially_approved`,
+  `AppealService.resolve` delegates to `SettlementService.expectPayment`
+  inside the same flow.
+- Service-boundary preservation: AppealService doesn't write payment
+  events directly — it calls the existing `expectPayment` so the
+  state-machine + settlement-row writes go through one canonical path.
+- Rejected resolutions stay manual (operator chooses write-off vs.
+  another appeal cycle). Settlement creation is gated on
+  `claim.approvedAmount > 0` because the state machine rejects
+  `payment.expected` from `APPEAL_RESOLVED` without an approved amount.
+- 3 new integration tests: approved auto-chains, partially_approved
+  auto-chains, rejected stays at APPEAL_RESOLVED.
+
+### AK — `@ApiTags` on every controller + tag descriptions (PR #42)
+
+- AB shipped Swagger UI with auto-tagged routes (controller class
+  names). AK adds explicit `@ApiTags` on all 17 controllers and the
+  19 named tag descriptions on the document, so the UI groups by
+  domain (`auth`, `cases`, `preauth`, `settlement`, `appeal`, …)
+  rather than `AuthController`, `CaseController`, etc.
+- Tag-description list lives at the document level in `openapi.ts`;
+  order there drives UI presentation order.
+- `operationIdFactory` returns `${controllerKey}_${methodKey}` so
+  client-codegen tools get readable function names.
+- Smoke test (`openapi.spec.ts`) extended to assert that the tag
+  descriptions ship on the document and that a representative
+  per-controller tag survives the auto-discovery pass.
+
+### AL — Payer remittance batch reconciliation API (PR #43)
+
+- New `POST /settlement/remittance` accepts up to 1000 rows (each:
+  `claimRefNum`, `receivedAmount`, optional `receivedAt` / `bankTxnId`
+  / `shortPaymentReasons`). Pre-fetches `Claim` rows by
+  `claimRefNum` in a single tenant-scoped query, then dispatches each
+  row to `SettlementService.recordReceipt` so the existing state-
+  machine + ledger semantics stay identical to the per-claim flow.
+- Per-row outcome enum: `applied | unmatched_no_claim |
+  unmatched_no_settlement | failed`. The endpoint returns the full
+  per-row breakdown so the operator UI can show a summary without a
+  follow-up request per row.
+- Failures don't roll back the batch — applied rows stay applied.
+  Strict match on `claimRefNum`; fuzzy / partial matching is a
+  hardening item for later if it actually becomes a problem.
+- `settlement.upload_eob` permission gate; reader without it → 403.
+- 3 integration tests: mixed batch (applied / short-paid / unmatched
+  no claim / unmatched no settlement), RBAC, empty batch → 422.
+
+### AM — Remittance batch upload page in the operator UI (PR #44)
+
+- `apps/web/app/(dashboard)/admin/remittance/page.tsx` — paste-CSV →
+  preview → apply batch → render results with colour-coded outcome
+  badges (`applied`, `unmatched_no_claim`, `unmatched_no_settlement`,
+  `failed`).
+- Strict CSV parser: split on `\r?\n`, comma-split per row, semicolon-
+  split for `shortPaymentReasons`. Required columns: `claimRefNum`,
+  `receivedAmount`. Optional: `receivedAt`, `bankTxnId`,
+  `shortPaymentReasons`. Operators pre-clean payer exports if their
+  format is ugly — a real CSV parser is a Sprint 5+ hardening item if
+  it becomes a problem.
+- Errors surface through `useErrorModal`; per-row preview lets
+  operators sanity-check before applying.
+- The UI collects `bankTxnId` per row even though the API drops it
+  on the floor at this slice — closed in AN.
+
+### AN — Persist `bankTxnId` on `Settlement` (PR #45)
+
+- Closes the gap from AM. Migration adds nullable `bankTxnId TEXT`
+  on the `settlement` table; schema + `SettlementSchema` contract +
+  `RecordReceiptRequest` schema all carry the field through.
+- `SettlementService.recordReceipt` writes the column when set and
+  the `toSettlement` mapper exposes it. Remittance dispatcher
+  forwards `row.bankTxnId` instead of the prior log-only behaviour.
+- Integration test now reads the raw `Settlement` row through a
+  `platform_admin` tx and asserts `bankTxnId === 'BANK-9001'` for a
+  row that carried one, and `null` for a row that didn't. Finance
+  can now reconcile a settlement back to the originating bank line.
+
+### AO — HCX inbound HTTP signature guard (PR #46)
+
+- The public `/nhcx/inbound` route accepted any TLS-terminated POST
+  and relied entirely on JWE for cryptographic proof. AO adds a
+  Cavage HTTP-Signature guard at the HTTP edge so unsigned, replayed,
+  or impersonated callbacks are rejected with 401 before the body is
+  decrypted.
+- Pure verifier with explicit support for `rsa-sha256` only, body
+  digest binding via the `Digest` header (SHA-256), required-header
+  set enforcement (so an attacker can't strip `digest` from the
+  signed list), and configurable clock-skew window (default 300s,
+  matches the existing JWE TTL).
+- `NestExpressApplication` boots with `rawBody: true` so digest
+  verification is byte-exact. Boot-time gate: `NODE_ENV=production`
+  must set `NHCX_INBOUND_VERIFY_SIGNATURE=true` and
+  `NHCX_GATEWAY_PUBLIC_KEY_BASE64`. Dev/test default is permissive
+  per the env-gate strictness rule.
+- 9 unit tests on the verifier (happy + 7 adversarial mutations) +
+  4 integration tests booting the full app with verification
+  enabled.
+- Bugs caught in CI: supertest sends `Host: 127.0.0.1:<port>`
+  regardless of `.set('Host', ...)`, so the signed signing-string
+  has to use the actually-bound port (fix: pre-bind + capture the
+  AddressInfo). Then `.send(Buffer)` with `Content-Type:
+  application/json` makes supertest run the buffer through
+  `JSON.stringify`, producing `{"type":"Buffer","data":[...]}` on
+  the wire — the digest was on the original buffer, so verification
+  failed (fix: send the JS object directly, compute digest on
+  canonical `JSON.stringify` bytes).
+
+### AP — KMS-wrap of tenant comms-config secrets at rest (PR #47)
+
+- Closes CLAUDE.md hard-rule #9 for tenant `smtp.password` and
+  `sms.apiKey`. Both were going into the `tenant.commsConfig` JSON
+  column as plaintext; AP wraps them with AES-256-GCM under a per-
+  tenant DEK derived from `PII_KMS_ROOT_KEY_BASE64` via HKDF-SHA256
+  (salt `digisparsh-comms-v1`, distinct from the PII path's
+  `digisparsh-pii-v1` so a key compromise on one path doesn't bleed
+  across).
+- On-disk format: `kms:v1:<base64(iv || ct || tag)>`. The prefix
+  lets readers distinguish wrapped from legacy plaintext, so
+  tenants seeded before AP keep working without a backfill.
+- `TenantCommsConfigService.update` wraps before persist;
+  `getConfig` unwraps on cache fill so adapters still see plaintext.
+- 8 unit tests on the helper (round-trip, IV uniqueness, wrong-
+  tenant-key fail-closed, wrong-root fail-closed, salt-namespacing
+  isolation, legacy passthrough, key-length validation) + new on-
+  disk wrap assertion in `tenant-comms-config.e2e-spec.ts` (reads
+  the raw row through a `platform_admin` tx and proves the secrets
+  carry the `kms:v1:` prefix and never the input strings).
+
+### AQ — Real ClamAV INSTREAM TCP scan adapter (PR #48)
+
+- Replaces the placeholder fall-through where `VIRUS_SCAN_MODE=real`
+  silently routed to the disabled adapter (uploads passed as
+  `skipped`). The new adapter speaks clamd's INSTREAM protocol over
+  TCP — `zINSTREAM\0` command, 4-byte big-endian length-prefixed
+  body chunks (64 KiB), zero-length end-of-stream sentinel — and
+  maps clamd's three reply shapes (`stream: OK`,
+  `stream: <sig> FOUND`, `... ERROR`) to the existing `ScanResult`
+  enum.
+- Boot-time gate: `VIRUS_SCAN_MODE=real` requires
+  `VIRUS_SCAN_ENDPOINT` (host:port of clamd). Calls without an
+  in-memory buffer return `failed` (loud, not silent — S3 streaming
+  closed in AS).
+- 12 unit tests against a `node:net` mock-clamd server: clean,
+  EICAR-shaped infected, hyphenated/dotted signatures, ERROR
+  replies, empty replies, multi-chunk payloads (>64 KiB), abrupt
+  socket close, missing buffer, missing endpoint, connection refused.
+
+### AR — Real TextGuru SMS provider (PR #49)
+
+- Replaces the log-only stub for tenants whose `commsConfig.sms.provider`
+  is `textguru`. POSTs to `<TEXTGURU_BASE_URL>/api/v1/sms/send` with
+  bearer auth (the per-tenant `apiKey`, KMS-wrapped at rest since
+  AP), JSON body `{ to, message, senderId? }`, 15s default timeout.
+  Non-2xx, network errors, and timeouts throw — the upstream
+  `notification_outbox` row flips to `failed` and the surrounding
+  API request still succeeds (CLAUDE.md: "notification failure must
+  not block").
+- `SmsAdapter` now delegates to a dedicated `TextGuruSmsProvider`;
+  the missing-apiKey case throws (it previously logged a warning
+  and silently succeeded, which would silently drop production SMS).
+- 9 unit tests against a `node:http` mock server: request shape
+  (path, bearer, content-type, body keys), 401/503 throws, timeout,
+  missing apiKey, missing base URL, trailing-slash stripping,
+  connection refused. Mock uses `closeAllConnections()` so the
+  timeout test doesn't leak the worker process between suites.
+
+### AS — ClamAV scans presigned-PUT uploads via S3 streaming (PR #50)
+
+- Closes the production gap from AQ. The ClamAV adapter previously
+  returned `failed` for every scan input that lacked an in-memory
+  `buffer` — i.e. every upload through the presigned-PUT path
+  (which is most of them in `STORAGE_MODE=real`). AS extends
+  `StorageAdapter` with `getObject(input) → Promise<Buffer>` and
+  threads it through.
+- S3 implementation: `GetObjectCommand` + `transformToByteArray`.
+  Buffer is bounded by `S3_MAX_UPLOAD_BYTES` (default 50 MiB) so
+  it fits in a worker's heap. Stub implementation throws on
+  purpose: `VIRUS_SCAN_MODE=real` with `STORAGE_MODE=stub` is a
+  misconfig and silent passthroughs are worse than a loud error.
+- `ClamAvScanAdapter` now `@Inject`s `STORAGE_ADAPTER` and falls
+  through to `getObject` when no buffer is provided. AccessDenied /
+  NoSuchKey / etc. surface as `ScanResult { status: 'failed' }` so
+  the worker retries and operators see the reason.
+- 4 new clamav adapter tests (bucket/key clean, bucket/key EICAR-
+  shaped infected, storage throws, neither input present) + 1 stub-
+  storage test asserting `getObject` throws with a `STORAGE_MODE=
+  real` hint. Buffer-path tests stay; they use a never-call storage
+  stub as a regression guard against accidental S3 fetches.
+
 ## Sprint 4 — NHCX bidirectional + appeal lifecycle (May 2026)
 
 Ten slices (Z–AI). Theme: close the NHCX integration loop. Sprint 2/3
