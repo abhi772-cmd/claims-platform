@@ -33,6 +33,23 @@ export interface ParsedCommunication {
   text: string;
 }
 
+// Slice BC — gateway-pushed PaymentNotice. Surfaces the load-bearing
+// fields SettlementService.recordReceipt needs. claimRefNum is
+// optional in the parser output: HCX bundles often (but not always)
+// include the upstream claim's reference identifier. When missing
+// the dispatcher falls back to the matching outbound row's claimId.
+export interface ParsedPaymentNotice {
+  // 'paid' is the only status we act on. Cancelled / draft notices
+  // are recorded for ops visibility but don't drive a transition.
+  kind: 'paid' | 'cancelled' | 'unknown';
+  receivedAmount: number;
+  receivedAt?: string;
+  bankTxnId?: string;
+  // Echoed back if present, useful for cross-referencing logs but
+  // not required by the dispatcher.
+  claimRefNum?: string;
+}
+
 export class FhirParseError extends Error {
   constructor(message: string) {
     super(message);
@@ -293,6 +310,91 @@ function extractCommunicationText(r: Record<string, unknown>): string | undefine
       const title = attachment['title'];
       if (typeof title === 'string' && title.length > 0) return title;
     }
+  }
+  return undefined;
+}
+
+// Slice BC — pull a PaymentNotice resource off the Bundle. The gateway
+// sends one of these when the payer settles. We surface receivedAmount
+// and receivedAt as load-bearing; bankTxnId comes off whichever
+// identifier slot the gateway uses (HCX 0.7.1 doesn't pin it
+// strictly — Mediassist uses .identifier[0].value, Paramount uses
+// .request.identifier — so we try both).
+export function parsePaymentNotice(bundle: unknown): ParsedPaymentNotice {
+  const r = findResource<{ resourceType: 'PaymentNotice' }>(bundle, 'PaymentNotice');
+  if (!r) {
+    throw new FhirParseError('Bundle does not contain a PaymentNotice resource');
+  }
+  const obj = r as unknown as Record<string, unknown>;
+  const status = typeof obj['status'] === 'string' ? (obj['status'] as string) : '';
+  const kind: ParsedPaymentNotice['kind'] =
+    status === 'active' || status === 'completed' || status === 'paid'
+      ? 'paid'
+      : status === 'cancelled' || status === 'entered-in-error'
+        ? 'cancelled'
+        : 'unknown';
+
+  const amount = isObject(obj['amount']) ? (obj['amount'] as Record<string, unknown>) : null;
+  const valueRaw = amount?.['value'];
+  if (typeof valueRaw !== 'number' || !Number.isFinite(valueRaw) || valueRaw < 0) {
+    throw new FhirParseError('PaymentNotice.amount.value missing or non-numeric');
+  }
+  const receivedAmount = Math.trunc(valueRaw);
+
+  // paymentDate is the canonical FHIR field; some gateways send `created`
+  // when the notice was issued and paymentDate when funds settled. Prefer
+  // paymentDate, fall back to created.
+  const paymentDate = typeof obj['paymentDate'] === 'string' ? (obj['paymentDate'] as string) : undefined;
+  const created = typeof obj['created'] === 'string' ? (obj['created'] as string) : undefined;
+  const receivedAt = paymentDate ?? created;
+
+  const bankTxnId = extractBankTxnId(obj);
+  const claimRefNum = extractClaimRefFromNotice(obj);
+
+  const out: ParsedPaymentNotice = { kind, receivedAmount };
+  if (receivedAt !== undefined) out.receivedAt = receivedAt;
+  if (bankTxnId !== undefined) out.bankTxnId = bankTxnId;
+  if (claimRefNum !== undefined) out.claimRefNum = claimRefNum;
+  return out;
+}
+
+function extractBankTxnId(obj: Record<string, unknown>): string | undefined {
+  // Top-level identifier — most common shape (Mediassist, Star).
+  const ids = obj['identifier'];
+  if (Array.isArray(ids)) {
+    for (const id of ids) {
+      if (isObject(id) && typeof id['value'] === 'string' && id['value'].length > 0) {
+        return id['value'];
+      }
+    }
+  }
+  // Reference-style — Paramount nests it on .request.identifier.value.
+  const request = obj['request'];
+  if (isObject(request)) {
+    const reqId = request['identifier'];
+    if (isObject(reqId) && typeof reqId['value'] === 'string' && reqId['value'].length > 0) {
+      return reqId['value'];
+    }
+  }
+  return undefined;
+}
+
+function extractClaimRefFromNotice(obj: Record<string, unknown>): string | undefined {
+  // PaymentNotice.request is a Reference to a Claim or ClaimResponse.
+  // FHIR uses Reference.identifier (logical ref) more often than
+  // Reference.reference (URL) on cross-organisation messages, so we
+  // accept either.
+  const request = obj['request'];
+  if (!isObject(request)) return undefined;
+  const ref = request['reference'];
+  if (typeof ref === 'string' && ref.includes('/')) {
+    const parts = ref.split('/');
+    const tail = parts[parts.length - 1];
+    if (tail && tail.length > 0) return tail;
+  }
+  const id = request['identifier'];
+  if (isObject(id) && typeof id['value'] === 'string' && id['value'].length > 0) {
+    return id['value'];
   }
   return undefined;
 }

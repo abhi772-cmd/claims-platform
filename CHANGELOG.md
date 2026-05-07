@@ -10,6 +10,33 @@ Theme not yet committed; sprint axis pending the user's call (see
 `docs/sprint-5-exit.md` open questions). First slice is a follow-on
 to the AO signature guard from Sprint 5.
 
+### BC — `paymentnotice/request` inbound handler (PR #62)
+
+- New NHCX inbound message type. The gateway pushes a
+  PaymentNotice when the payer settles a previously-submitted
+  claim; the dispatcher routes it through
+  `SettlementService.recordReceipt` so the claim auto-flips to
+  PAYMENT_RECEIVED (or SHORT_PAID) without operator action.
+- `paymentnotice/request` added to `NhcxInboundOperationSchema`.
+  Tenant + claim resolution reuses the existing matching-outbound
+  pattern (the gateway echoes the original `claim/on_submit`
+  correlationId), so no cross-tenant lookup is needed.
+- New `parsePaymentNotice` FHIR helper extracts
+  `{ kind, receivedAmount, receivedAt?, bankTxnId?, claimRefNum? }`
+  defensively. `bankTxnId` reads from either the top-level
+  `identifier` (Mediassist / Star) or the nested
+  `request.identifier` (Paramount). Cancelled / unknown notices
+  log + skip without driving a transition.
+- `RecordReceiptInput.actorUserId` is now `string | null` —
+  matches the existing `claim_event.actorUserId` nullability so
+  gateway-driven calls write a row with no operator attached.
+  All existing operator-triggered call sites pass a string and
+  type-check unchanged.
+- 8 unit tests on the parser + 3 integration tests against an
+  in-process JWE: full payment → PAYMENT_RECEIVED + bankTxnId
+  on Settlement; short payment → SHORT_PAID; cancelled notice
+  recorded but no transition driven.
+
 ### BB — Reconcile UI with deduction lines (PR #61)
 
 - Reconcile branch on `PAYMENT_RECEIVED` was a single "Reconcile
