@@ -141,6 +141,15 @@ const EVENT_TO_CLASS: Readonly<Record<AuditEvent, RetentionClass>> = {
   // compliance audit trail must outlast the redacted personal data.
   [AuditEvents.ERASURE_REQUEST_PROCESSED]: RetentionClasses.GOVERNANCE,
   [AuditEvents.ERASURE_REQUEST_REJECTED]: RetentionClasses.GOVERNANCE,
+
+  // Slice BS — breach incident lifecycle. Governance for the same
+  // reason as erasure: the compliance trail must outlast the
+  // incident itself. Detector self-audit also lands here so ops can
+  // verify the sweep ran on cadence years later.
+  [AuditEvents.BREACH_INCIDENT_OPENED]: RetentionClasses.GOVERNANCE,
+  [AuditEvents.BREACH_INCIDENT_NOTIFIED]: RetentionClasses.GOVERNANCE,
+  [AuditEvents.BREACH_INCIDENT_DISMISSED]: RetentionClasses.GOVERNANCE,
+  [AuditEvents.BREACH_DETECTOR_SCAN_COMPLETED]: RetentionClasses.GOVERNANCE,
 };
 
 // Classify an audit event for retention. Defaults to FINANCIAL when

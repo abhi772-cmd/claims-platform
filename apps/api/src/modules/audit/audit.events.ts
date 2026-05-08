@@ -62,6 +62,16 @@ export const AuditEvents = {
   // blocked). v1 has no intermediate verified/pending state.
   ERASURE_REQUEST_PROCESSED: 'ERASURE_REQUEST_PROCESSED',
   ERASURE_REQUEST_REJECTED: 'ERASURE_REQUEST_REJECTED',
+
+  // Slice BS — DPDP §8(6) breach incident lifecycle. Detection (auto)
+  // and manual filing both land BREACH_INCIDENT_OPENED; transition
+  // events flip status to notified / dismissed / resolved. The detector
+  // also writes a self-audit row at sweep end so ops can see when it
+  // last ran.
+  BREACH_INCIDENT_OPENED: 'BREACH_INCIDENT_OPENED',
+  BREACH_INCIDENT_NOTIFIED: 'BREACH_INCIDENT_NOTIFIED',
+  BREACH_INCIDENT_DISMISSED: 'BREACH_INCIDENT_DISMISSED',
+  BREACH_DETECTOR_SCAN_COMPLETED: 'BREACH_DETECTOR_SCAN_COMPLETED',
 } as const;
 
 export type AuditEvent = (typeof AuditEvents)[keyof typeof AuditEvents];

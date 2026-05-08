@@ -1068,3 +1068,86 @@ model AuditLog {
   @@index([retentionClass, occurredAt])
   @@map("audit_log")
 }
+
+// Slice BS — DPDP §8(6) breach incident record. One row per
+// detected (or operator-filed) anomaly that *might* require a
+// 72-hour breach notification to the Data Protection Board. The
+// detector populates rows automatically from data_access_event
+// patterns; operators can also file rows manually for incidents
+// the heuristic doesn't catch (lost laptop, vendor breach, etc.).
+//
+// Lifecycle:
+//   detected → notified | dismissed | resolved
+//
+// dpdpNotificationDueAt is openedAt + 72h. Rows where
+// dpdpNotificationSentAt is null and the deadline has passed
+// surface red on BU's compliance dashboard. dpdpNotificationPayload
+// snapshots the rendered template at notify-time so we can prove
+// what was sent.
+//
+// Detector idempotency: the unique constraint on
+// (tenantId, kind, actorUserId, windowStart) prevents the same
+// scan-window from creating duplicate incidents on re-runs. Manual
+// rows have actorUserId nullable + windowStart nullable to skip
+// the constraint (manual reports aren't deduplicated).
+model BreachIncident {
+  id                       String   @id @default(uuid()) @db.Uuid
+  tenantId                 String   @db.Uuid
+  // 'BURST_DECRYPT' = single actor decrypted > N patients in M
+  // minutes (auto-detected from data_access_event). 'MANUAL_REPORT'
+  // = operator filed via POST /breach-incidents.
+  kind                     String
+  // 'low' | 'medium' | 'high' | 'critical'. Detector emits 'high'
+  // for bursts; manual reports take the operator's classification.
+  severity                 String
+  // 'detected' | 'notified' | 'dismissed' | 'resolved'. State
+  // machine lives in the service; UPDATE policy permits same-tenant
+  // flips so the controller can mark notified / dismissed.
+  status                   String   @default("detected")
+  // Suspect actor for auto-detected rows; null for manual reports
+  // where the actor isn't the on-platform user (vendor breach,
+  // lost device, etc.).
+  actorUserId              String?  @db.Uuid
+  // Distinct count of data principals (patients) whose data the
+  // detector observed being touched. Drives the §8(6) "categories
+  // and approximate number of data principals affected" line in
+  // the notification template.
+  affectedDataPrincipals   Int      @default(0)
+  // Field-name + resourceType labels affected. JSON list of strings
+  // ['aadhaar', 'mobile', 'patient'] for the template's "categories
+  // of personal data affected" line.
+  dataCategories           Json
+  // Free-text description. Auto-detected rows get a structured
+  // synopsis; manual rows take operator copy.
+  description              String
+  // Up to N data_access_event ids that the detector attributes to
+  // this incident. Audit-trail for "what evidence triggered this?"
+  // Capped server-side so the JSON stays bounded.
+  evidenceEventIds         Json
+  // Detector's observation window. windowStart is rounded down to
+  // the minute boundary so re-runs of the scan in the same minute
+  // converge on the same primary key (idempotency). Null for
+  // manual reports.
+  windowStart              DateTime?
+  windowEnd                DateTime?
+  openedAt                 DateTime @default(now())
+  // openedAt + 72h. Stamped at INSERT time so the dashboard query
+  // is a simple `dpdpNotificationDueAt < now()` comparison.
+  dpdpNotificationDueAt    DateTime
+  dpdpNotificationSentAt   DateTime?
+  // Snapshot of the rendered notification template at notify-time
+  // (subject + body + structured fields). Empty until status flips
+  // to 'notified'.
+  dpdpNotificationPayload  Json?
+  dismissalReason          String?
+  processedByUserId        String?  @db.Uuid
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@unique([tenantId, kind, actorUserId, windowStart])
+  @@index([tenantId, openedAt])
+  @@index([tenantId, status])
+  @@index([tenantId, kind])
+  @@index([tenantId, dpdpNotificationDueAt])
+  @@map("breach_incident")
+}
