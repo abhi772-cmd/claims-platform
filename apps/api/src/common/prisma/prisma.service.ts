@@ -5,7 +5,10 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { type AppConfig } from '../../config/configuration';
 import { type TenantPrisma } from '../../types/express';
 
-export type TenantRole = 'tenant' | 'platform_admin';
+// 'retention_sweeper' (Slice BP) is a privileged role used only by
+// the audit retention sweep — it's the only role allowed to DELETE
+// from audit_log, gated by the audit_log_delete_retention RLS policy.
+export type TenantRole = 'tenant' | 'platform_admin' | 'retention_sweeper';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
