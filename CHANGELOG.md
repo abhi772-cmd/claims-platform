@@ -52,6 +52,49 @@ deferred to production-rollout config swaps.
   missing-`token` paths, HTTP 401 / 500 errors, and connection
   refused.
 
+### BM — FHIR code-system whitelist (PMJAY-aware)
+
+- New pure validator at `apps/api/src/modules/nhcx/fhir-validator/`.
+  Walks an inbound (or outbound) FHIR Bundle, collects every unique
+  `coding.system` and `identifier.system` URI, and classifies them
+  against four buckets:
+  - `universal` — HL7 / FHIR R4 terminology shared across rails
+    (e.g. `terminology.hl7.org/CodeSystem/v2-0203`,
+    `hl7.org/fhir/sid/icd-10`).
+  - `nhcx` — ABDM + NDHM core registries (HPR, ABHA, facility) plus
+    DigiSparsh-internal identifiers (`urn:digisparsh:*`).
+  - `pmjay` — PMJAY-specific systems documented in
+    `HIMS-PMJAY suppporting docs/FHIR_bundles_PMJAY_ext/`:
+    `payer.pmjay.nha.gov.in` (package + diagnosis codes),
+    `payer.pmjay.nha.gov.in/CodeSystem/task-{operation,reason}`
+    (Slices BH/BI), `hcx.pmjay.gov.in/v1/{coverageeligibility/check,
+    preauthorization, claim}`, `bis.pmjay.gov.in`,
+    `provider.pmjay.gov.in`, `payer.nha.gov.in`,
+    `nhcx.pmjay.gov.in`.
+  - `unknown` — anything not in the above three sets.
+- Identifier-type code detection: under
+  `nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code`, we
+  recognise `PMJAY`, `HPID`, `HPIN`, `JHN`, `PI`, `NPI`, `NIIP`,
+  `NH`. The validator surfaces a `usesPmjayIdentifierType` boolean
+  for cross-checks and lists any unknown codes under that system.
+- Wired into `NhcxInboundService.process()` after JWE decryption.
+  When the validator finds anything (unknown systems, unknown
+  identifier-type codes, or PMJAY systems on a non-PMJAY-mode
+  tenant — likely a misrouted callback), the dispatcher emits a
+  structured warning carrying correlationId + tenantId. Non-blocking
+  in v1: the gateway evolves faster than our whitelist could, and
+  rejecting callbacks would hold up legitimate traffic. The
+  signal is for ops triage.
+- 10 unit cases on the validator: standard NHCX bundle classifies
+  cleanly with no unknowns, real-shape PMJAY bundle (mirroring
+  `coveragerequest_benefits.txt` from the supporting docs) hits
+  all three whitelist buckets and detects the PMJAY identifier
+  type, unknown payer systems land in `unknown`, unknown
+  identifier-type codes under the NDHM system surface, codes under
+  non-NDHM systems are NOT mis-classified, non-object inputs
+  return empty results, and `summariseFindings` returns null on
+  the happy path / surfaces misroute warning / lists unknowns.
+
 ### BL — PMJAY drop Communication-based query response (re-submit instead)
 
 - PMJAY tenants don't respond to payer queries via FHIR Communication;

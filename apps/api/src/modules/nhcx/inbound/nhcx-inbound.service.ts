@@ -22,6 +22,8 @@ import { DischargeService } from '../../discharge/discharge.service';
 import { EligibilityService } from '../../eligibility/eligibility.service';
 import { PreauthService } from '../../preauth/preauth.service';
 import { SettlementService } from '../../settlement/settlement.service';
+import { TenantService } from '../../tenant/tenant.service';
+import { summariseFindings, validateBundle } from '../fhir-validator';
 import {
   NHCX_KEY_RESOLVER,
   type NhcxKeyResolver,
@@ -79,6 +81,7 @@ export class NhcxInboundService {
     private readonly discharge: DischargeService,
     private readonly settlement: SettlementService,
     private readonly senderAllowlist: NhcxSenderAllowlistService,
+    private readonly tenants: TenantService,
     private readonly config: ConfigService<AppConfig, true>,
     @Optional() @Inject(NHCX_KEY_RESOLVER) private readonly keyResolver: NhcxKeyResolver | null,
   ) {}
@@ -220,6 +223,23 @@ export class NhcxInboundService {
 
     const decrypted = await this.decryptBundle(input.body.payload);
     const operation = input.operation;
+
+    // Slice BM — FHIR code-system whitelist. Walks the decrypted
+    // bundle, classifies every coding/identifier `system` URI, and
+    // logs anything outside our known set. PMJAY systems on a
+    // non-PMJAY tenant surface as a likely-misrouted-callback signal.
+    // Non-blocking: the gateway evolves faster than our whitelist
+    // could, and a hard reject would hold up legitimate callbacks.
+    const tenant = await this.tenants.findById(row.tenantId);
+    const validation = validateBundle(decrypted);
+    const findings = summariseFindings(validation, {
+      pmjayMode: tenant?.pmjayMode === 'on' ? 'on' : 'off',
+    });
+    if (findings) {
+      this.log.warn(
+        `nhcx fhir-validator findings correlationId=${input.correlationId} tenantId=${row.tenantId} ${findings}`,
+      );
+    }
 
     let summary: Record<string, unknown> = { operation };
 
