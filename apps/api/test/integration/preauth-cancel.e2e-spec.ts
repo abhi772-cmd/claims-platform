@@ -186,10 +186,11 @@ describe('Slice BH — PMJAY preauth cancel', () => {
     const caseId = create.body.id as string;
     const claimId = create.body.claims[0].id as string;
 
+    // Slice BK: PMJAY tenants must specify a purpose for eligibility.
     const elig = await request(app.getHttpServer())
       .post(`/cases/${caseId}/claims/${claimId}/eligibility`)
       .set('Cookie', cookies)
-      .send({});
+      .send({ purpose: 'benefits' });
     expect(elig.status).toBe(200);
 
     const tr = await request(app.getHttpServer())
