@@ -52,6 +52,51 @@ deferred to production-rollout config swaps.
   missing-`token` paths, HTTP 401 / 500 errors, and connection
   refused.
 
+### BJ — PMJAY beneficiary policies lookup (`/participant/get/policies`)
+
+- New endpoint `POST /pmjay/policies/lookup` — pre-eligibility step
+  where the operator enters an ABHA / mobile and the API returns
+  the matching PMJAY policies the beneficiary is enrolled in. The
+  operator picks one to attach to the case before running
+  eligibility.
+- Identifier types per the PMJAY supporting docs: ABHA (14 digits,
+  no hyphens) and mobile (10 digits). Aadhaar is intentionally NOT
+  supported — PMJAY's API requires ABHA / mobile linkage at
+  registration; the docs are silent on Aadhaar.
+- Per-policy fields sourced from NHCX PMJAY Integration Handbook
+  §5.6: `payerId`, `memberId`, `productId`, `productName`,
+  `policyNumber`. Optional fields like `sumInsured`, `state`,
+  `status` aren't documented and aren't surfaced by the adapter
+  yet — extend defensively when the upstream response is observed.
+- New `NhcxAdapter.lookupPmjayPolicies` on the interface + stub.
+  JWE real-mode is **deferred**: the upstream sandbox/prod URL for
+  `/participant/get/policies` isn't published in the supporting
+  docs, and per §5.6 this endpoint is plain-REST + bearer-auth
+  (NOT JWE-wrapped) so it doesn't fit `callOperation`'s envelope.
+  JWE adapter throws a clear "real-mode not yet implemented" error
+  pointing at the §5.6 reference; ops must run `NHCX_MODE=stub`
+  for now.
+- Stub adapter: deterministic fixtures keyed off the identifier:
+  - non-sentinel → one PMJAY Rajasthan policy with values derived
+    from the last 6 chars of the identifier
+  - `STUB-EMPTY-*` → empty `policies` array (beneficiary not linked)
+  - `STUB-MULTI-*` → two policies on different products
+- New module `pmjay-policies/` with thin `PmjayPoliciesService`
+  (tenant gate → adapter pass-through; no persistence). PMJAY-only
+  — non-PMJAY tenants get 422 `tenant: ['PMJAY policies lookup is
+  currently a PMJAY-only operation.']`.
+- Permission: reuses `PREAUTH_DRAFT` rather than introducing a new
+  permission. Every operator who can start a preauth needs to be
+  able to look up the beneficiary's policy; a dedicated permission
+  is a future split if the desks separate.
+- Tests:
+  - 4 unit cases on the stub adapter (single, empty, multi, echo)
+  - 3 unit cases on `PmjayPoliciesService` (PMJAY pass-through,
+    non-PMJAY rejection, unknown-tenant rejection)
+  - 5 e2e cases: PMJAY ABHA lookup, mobile lookup, non-PMJAY
+    rejection, malformed ABHA → 422 from Zod, malformed mobile →
+    422 from Zod
+
 ### BI — PMJAY claim reprocess (CRC) via outbound `task/submit`
 
 - Mirror of Slice BH on the claim side: outbound `task/submit` with

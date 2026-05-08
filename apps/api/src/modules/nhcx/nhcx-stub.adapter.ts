@@ -12,6 +12,9 @@ import {
   type AdapterEligibilityRequest,
   type AdapterEligibilityResponse,
   type AdapterEnvelopedResult,
+  type AdapterPmjayPolicy,
+  type AdapterPmjayPolicyLookupInput,
+  type AdapterPmjayPolicyLookupResult,
   type AdapterPreauthCancelInput,
   type AdapterPreauthCancelResult,
   type AdapterPreauthQueryRespondInput,
@@ -152,6 +155,55 @@ export class NhcxStubAdapter implements NhcxAdapter {
         correlationId,
         timestamp: new Date().toISOString(),
       },
+    };
+  }
+
+  // Slice BJ — PMJAY beneficiary policies lookup. Deterministic
+  // fixtures based on the identifier:
+  //   * `STUB-EMPTY-*` → returns no policies (e.g. ABHA not linked)
+  //   * `STUB-MULTI-*` → returns two policies (multi-policy beneficiary)
+  //   * any other ABHA / mobile → returns one policy with values
+  //                               derived from the identifier so
+  //                               operator-side tests can assert
+  //                               on the round-trip.
+  async lookupPmjayPolicies(
+    input: AdapterPmjayPolicyLookupInput,
+  ): Promise<AdapterPmjayPolicyLookupResult> {
+    if (input.identifier.startsWith('STUB-EMPTY')) {
+      return {
+        policies: [],
+        identifierType: input.identifierType,
+        identifier: input.identifier,
+      };
+    }
+    const baseSuffix = input.identifier.slice(-6).toUpperCase();
+    const primary: AdapterPmjayPolicy = {
+      payerId: 'pmjay@hcx',
+      memberId: `MEM-${baseSuffix}`,
+      productId: 'PMJAY-RAN-V2',
+      productName: 'PMJAY Rajasthan',
+      policyNumber: `PMJAY/RJ/${baseSuffix}`,
+    };
+    if (input.identifier.startsWith('STUB-MULTI')) {
+      return {
+        policies: [
+          primary,
+          {
+            payerId: 'pmjay@hcx',
+            memberId: `MEM-${baseSuffix}-2`,
+            productId: 'PMJAY-PMM-V2',
+            productName: 'PMJAY Maharashtra',
+            policyNumber: `PMJAY/MH/${baseSuffix}`,
+          },
+        ],
+        identifierType: input.identifierType,
+        identifier: input.identifier,
+      };
+    }
+    return {
+      policies: [primary],
+      identifierType: input.identifierType,
+      identifier: input.identifier,
     };
   }
 

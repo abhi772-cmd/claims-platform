@@ -13,6 +13,15 @@ export {
   type AdapterDischargeSubmitInput,
   type AdapterClaimSubmitInput,
   type AdapterClaimSubmitResult,
+  type AdapterPreauthCancelInput,
+  type AdapterPreauthCancelResult,
+  type AdapterClaimReprocessInput,
+  type AdapterClaimReprocessReason,
+  type AdapterClaimReprocessResult,
+  type AdapterPmjayLookupIdentifierType,
+  type AdapterPmjayPolicy,
+  type AdapterPmjayPolicyLookupInput,
+  type AdapterPmjayPolicyLookupResult,
 } from './nhcx-adapter.interface';
 export {
   encryptToParticipant,

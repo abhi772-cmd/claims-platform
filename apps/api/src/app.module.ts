@@ -30,6 +30,7 @@ import { NotificationModule } from './modules/notification';
 import { OnboardingModule } from './modules/onboarding';
 import { PasswordModule } from './modules/password';
 import { PatientModule } from './modules/patient';
+import { PmjayPoliciesModule } from './modules/pmjay-policies';
 import { PreauthModule } from './modules/preauth';
 import { AppSecurityModule } from './modules/security';
 import { SettlementModule } from './modules/settlement';
@@ -99,6 +100,7 @@ import { UserModule } from './modules/user/user.module';
     CaseModule,
     EligibilityModule,
     PreauthModule,
+    PmjayPoliciesModule,
     DocumentModule,
     DischargeModule,
     ClaimSubmitModule,

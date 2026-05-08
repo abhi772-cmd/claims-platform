@@ -25,6 +25,8 @@ import {
   type AdapterEligibilityResponse,
   type AdapterEnvelopedResult,
   type AdapterPatientFields,
+  type AdapterPmjayPolicyLookupInput,
+  type AdapterPmjayPolicyLookupResult,
   type AdapterPreauthCancelInput,
   type AdapterPreauthCancelResult,
   type AdapterPreauthQueryRespondInput,
@@ -253,6 +255,26 @@ export class NhcxJweAdapter implements NhcxAdapter {
       rawRequest: op.request as unknown as Record<string, unknown>,
       rawResponse: op.response as unknown as Record<string, unknown>,
     };
+  }
+
+  // Slice BJ — PMJAY beneficiary policies lookup. Plain-REST
+  // (NOT JWE-wrapped) per NHCX PMJAY Integration Handbook §5.6.
+  // Real-mode is deferred: the upstream gateway URL for
+  // `/participant/get/policies` is documented internally but
+  // the sandbox/prod base URL hasn't been published in the
+  // supporting docs. When the URL lands, swap this for a fetch
+  // call carrying `Authorization: Bearer <NHCX session token>`,
+  // `X-CM-ID: <env>`, and the documented body shape from the
+  // Handbook. Until then the JWE adapter rejects the call so
+  // ops can't accidentally promote real-mode and watch every
+  // lookup fail; `BIOMETRIC_AUTH_MODE=stub` covers the path for
+  // every test + dev today.
+  async lookupPmjayPolicies(
+    _input: AdapterPmjayPolicyLookupInput,
+  ): Promise<AdapterPmjayPolicyLookupResult> {
+    throw new Error(
+      'PMJAY policies lookup real-mode is not yet implemented — upstream URL pending. Use NHCX_MODE=stub.',
+    );
   }
 
   // Slice BI — outbound `task/submit` with `code: 'reprocess'`
