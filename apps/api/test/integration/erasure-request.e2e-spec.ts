@@ -291,19 +291,28 @@ describe('Slice BQ — erasure on request', () => {
     expect(after!.mobileKeyVersion).toBeNull();
   });
 
+  // Read a user.id under platform_admin context — migrator's default
+  // session inherits FORCE RLS without the GUC set, so a bare
+  // `findUnique({ where: { email } })` returns null even though the
+  // row exists.
+  async function readUserIdByEmail(email: string): Promise<string> {
+    return migrator.$transaction(async (tx) => {
+      await tx.$executeRaw(Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`);
+      const u = await tx.user.findUniqueOrThrow({ where: { email }, select: { id: true } });
+      return u.id;
+    });
+  }
+
   it('patient with active claim → rejected; rejectionReason lists blocking claim; no redaction', async () => {
     const cookies = await loginAs(ADMIN_A);
     const patientId = await seedPatient(tenantAId, 'Active Claim Patient');
-    const adminRow = await migrator.user.findUniqueOrThrow({
-      where: { email: ADMIN_A },
-      select: { id: true },
-    });
+    const adminId = await readUserIdByEmail(ADMIN_A);
     const { caseId, claimId } = await seedCaseWithClaim(
       tenantAId,
       patientId,
       'MRN-BQ-ACTIVE',
       'PREAUTH_QUEUED',
-      adminRow.id,
+      adminId,
     );
 
     const r = await request(app.getHttpServer())
@@ -328,16 +337,13 @@ describe('Slice BQ — erasure on request', () => {
   it('patient with CLOSED claim → completed (closed claims do not block)', async () => {
     const cookies = await loginAs(ADMIN_A);
     const patientId = await seedPatient(tenantAId, 'Closed Claim Patient');
-    const adminRow = await migrator.user.findUniqueOrThrow({
-      where: { email: ADMIN_A },
-      select: { id: true },
-    });
+    const adminId = await readUserIdByEmail(ADMIN_A);
     const { caseId } = await seedCaseWithClaim(
       tenantAId,
       patientId,
       'MRN-BQ-CLOSED',
       'CLOSED',
-      adminRow.id,
+      adminId,
     );
 
     const r = await request(app.getHttpServer())
