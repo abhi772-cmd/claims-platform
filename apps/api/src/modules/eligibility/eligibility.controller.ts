@@ -61,6 +61,8 @@ export class EligibilityController {
       actorUserId: user.userId,
       ...(body.policyNumber !== undefined ? { policyNumber: body.policyNumber } : {}),
       ...(body.payerCode !== undefined ? { payerCode: body.payerCode } : {}),
+      // Slice BK: forward PMJAY's three-purpose dispatch when present.
+      ...(body.purpose !== undefined ? { purpose: body.purpose } : {}),
       ip: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,
     });

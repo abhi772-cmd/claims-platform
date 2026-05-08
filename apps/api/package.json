@@ -12,7 +12,7 @@
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:integration": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --config test/jest-e2e.json --runInBand",
+    "test:integration": "cross-env NODE_OPTIONS=\"--experimental-vm-modules --max-old-space-size=4096\" jest --config test/jest-e2e.json --runInBand",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:reset": "prisma migrate reset --force --skip-seed",

@@ -191,10 +191,13 @@ describe('Slice BG — PMJAY biometric gate', () => {
     const caseId = create.body.id as string;
     const claimId = create.body.claims[0].id as string;
 
+    // Slice BK: PMJAY tenants must specify a purpose for eligibility.
+    // We're driving downstream preauth/biometric flow here, so pick
+    // 'benefits' (the pre-preauth purpose) to satisfy the gate.
     const elig = await request(app.getHttpServer())
       .post(`/cases/${caseId}/claims/${claimId}/eligibility`)
       .set('Cookie', cookies)
-      .send({});
+      .send({ purpose: 'benefits' });
     expect(elig.status).toBe(200);
 
     const tr = await request(app.getHttpServer())

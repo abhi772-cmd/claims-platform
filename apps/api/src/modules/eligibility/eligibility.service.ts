@@ -3,12 +3,14 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { CaseNotFoundError } from '../../common/errors/case-errors';
+import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 import { ClaimService } from '../claim';
 import { IntegrationMessageService } from '../integration';
-import { NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
+import { type AdapterEligibilityPurpose, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 import { PatientService } from '../patient';
+import { TenantService } from '../tenant/tenant.service';
 
 export interface RunEligibilityInput {
   tenantId: string;
@@ -17,6 +19,11 @@ export interface RunEligibilityInput {
   actorUserId: string;
   policyNumber?: string;
   payerCode?: string;
+  // Slice BK — PMJAY-via-NHCX runs eligibility three times with
+  // different purposes (validation / benefits / auth-requirements).
+  // Required for PMJAY tenants; ignored (legacy combined value) on
+  // private rails when omitted.
+  purpose?: AdapterEligibilityPurpose;
   ip: string | null;
   userAgent: string | null;
 }
@@ -32,6 +39,7 @@ export class EligibilityService {
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
     private readonly patients: PatientService,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly tenants: TenantService,
   ) {}
 
   // Orchestration:
@@ -48,6 +56,21 @@ export class EligibilityService {
   // The adapter call is deliberately OUTSIDE the tx so we don't hold
   // locks across a network round-trip.
   async run(input: RunEligibilityInput): Promise<EligibilityResponse> {
+    // Slice BK — PMJAY-via-NHCX dispatches eligibility three times with
+    // different purposes. PMJAY tenants must specify which one; we
+    // refuse a missing purpose at the gate so it doesn't silently fall
+    // through to the private-rail combined ['benefits','validation']
+    // default in the FHIR builder. Private rails may still omit
+    // purpose and get the legacy behaviour.
+    const tenant = await this.tenants.findById(input.tenantId);
+    if (tenant?.pmjayMode === 'on' && !input.purpose) {
+      throw new ValidationFailedError({
+        purpose: [
+          'PMJAY eligibility requires a purpose: one of validation, benefits, or auth-requirements.',
+        ],
+      });
+    }
+
     // 1. Pre-call: load case + claim, validate ownership, transition,
     // record outbound message.
     const ctx = await this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
@@ -83,7 +106,13 @@ export class EligibilityService {
       claimId: input.claimId,
       eventType: 'eligibility.requested',
       actorUserId: input.actorUserId,
-      payload: { policyNumber: input.policyNumber, payerCode: input.payerCode },
+      payload: {
+        policyNumber: input.policyNumber,
+        payerCode: input.payerCode,
+        // Slice BK: stamp purpose on the event so the audit trail
+        // distinguishes PMJAY's three-purpose dispatch.
+        ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
+      },
       // Stamp payerCode on the materialised claim so subsequent phase
       // services (preauth, discharge, claim-submit, communication) can
       // build the coverage actor for outbound FHIR Bundles without
@@ -102,6 +131,11 @@ export class EligibilityService {
       patientName: ctx.patientName,
       ...(input.policyNumber !== undefined ? { policyNumber: input.policyNumber } : {}),
       ...(input.payerCode !== undefined ? { payerCode: input.payerCode } : {}),
+      // Slice BK: forward purpose to the adapter — the FHIR builder
+      // uses it to populate CoverageEligibilityRequest.purpose with a
+      // single-element array. Omitting it preserves the legacy
+      // combined ['benefits','validation'] default.
+      ...(input.purpose !== undefined ? { purpose: input.purpose } : {}),
       // Slice T enrichment — feeds the FHIR R4 bundle builder. Stub
       // adapter ignores these fields; the JWE adapter materialises
       // them into a CoverageEligibilityRequest bundle.

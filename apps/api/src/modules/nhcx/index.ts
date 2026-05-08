@@ -4,6 +4,7 @@ export { NhcxJweAdapter } from './nhcx-jwe.adapter';
 export {
   NHCX_ADAPTER,
   type NhcxAdapter,
+  type AdapterEligibilityPurpose,
   type AdapterEligibilityRequest,
   type AdapterEligibilityResponse,
   type AdapterPreauthSubmitInput,

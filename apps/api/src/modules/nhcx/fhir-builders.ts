@@ -53,11 +53,18 @@ export interface FhirCoverageFields {
   memberId: string;
 }
 
+// Slice BK — PMJAY runs eligibility with a single-purpose array per
+// scenario (validation / benefits / auth-requirements). When
+// `purpose` is omitted we keep the legacy private-rail combined value
+// `['benefits','validation']` to preserve existing callers.
+export type FhirEligibilityPurpose = 'validation' | 'benefits' | 'auth-requirements';
+
 export interface FhirEligibilityRequestInput extends FhirDeterminismDeps {
   actors: FhirActorIds;
   patient: FhirPatientFields;
   coverage: FhirCoverageFields;
   serviceDate: string; // YYYY-MM-DD
+  purpose?: FhirEligibilityPurpose;
 }
 
 export interface FhirPreauthSubmitInput extends FhirDeterminismDeps {
@@ -234,11 +241,15 @@ export function buildEligibilityRequestBundle(input: FhirEligibilityRequestInput
   const coverageUrn = URN('coverage');
   const requestUrn = URN('eligibility-request');
 
+  const purpose: FhirEligibilityPurpose[] = input.purpose
+    ? [input.purpose]
+    : ['benefits', 'validation'];
+
   const eligibilityRequest: Record<string, unknown> = {
     resourceType: 'CoverageEligibilityRequest',
     id: requestUrn,
     status: 'active',
-    purpose: ['benefits', 'validation'],
+    purpose,
     patient: { reference: patientUrn },
     servicedDate: input.serviceDate,
     created: ts,

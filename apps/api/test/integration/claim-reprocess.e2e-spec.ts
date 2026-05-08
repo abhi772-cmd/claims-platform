@@ -183,10 +183,11 @@ describe('Slice BI — PMJAY claim reprocess (CRC)', () => {
     const caseId = create.body.id as string;
     const claimId = create.body.claims[0].id as string;
 
+    // Slice BK: PMJAY tenants must specify a purpose for eligibility.
     await request(app.getHttpServer())
       .post(`/cases/${caseId}/claims/${claimId}/eligibility`)
       .set('Cookie', cookies)
-      .send({})
+      .send({ purpose: 'benefits' })
       .expect(200);
 
     await request(app.getHttpServer())

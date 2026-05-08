@@ -52,6 +52,42 @@ deferred to production-rollout config swaps.
   missing-`token` paths, HTTP 401 / 500 errors, and connection
   refused.
 
+### BK — PMJAY eligibility three-purpose dispatch
+
+- PMJAY-via-NHCX runs `coverageeligibility/check` three times per
+  case, each with a different FHIR `CoverageEligibilityRequest.purpose`
+  value: `validation` (post-registration / wallet check),
+  `benefits` (before preauth, to confirm coverage limits), and
+  `auth-requirements` (before submission, to fetch the document
+  checklist). Reference bundles are in
+  `HIMS-PMJAY suppporting docs/FHIR_bundles_PMJAY_ext/coverageeligibility/`.
+- New `purpose` field on `EligibilityRequestSchema` (zod enum:
+  `validation | benefits | auth-requirements`). Optional at the
+  schema level for backwards-compatibility with the existing private-
+  rail callers, but **required for PMJAY tenants** — the eligibility
+  service rejects a missing purpose with HTTP 422 when
+  `tenant.pmjayMode === 'on'`.
+- `buildEligibilityRequestBundle` now accepts a single-element
+  purpose; when set it emits `purpose: [purpose]`, when omitted it
+  falls back to the legacy combined `['benefits', 'validation']`.
+  Adapter interface gains `AdapterEligibilityPurpose` +
+  `purpose?: ...` on `AdapterEligibilityRequest`. Stub adapter
+  echoes purpose into the inbound `rawResponse` so integration
+  tests can assert the correct dispatch landed. JWE adapter
+  forwards purpose to the builder.
+- New eligibility request payload field is the only API surface
+  change. No new permission, no migration. The PMJAY purpose is
+  also stamped on the `eligibility.requested` claim event payload
+  so the audit ledger distinguishes the three calls.
+- 4 unit tests on the FHIR builder verify the four purpose
+  variants (legacy + 3 single-purpose values). 6 e2e cases on
+  `/cases/:caseId/claims/:claimId/eligibility`: PMJAY missing
+  purpose → 422 with field-targeted error from the gate, PMJAY
+  with each of the three purposes → 200 + ledger echo, PMJAY
+  with a bogus purpose value (FHIR `discovery`, not in our enum)
+  → 422 from Zod, non-PMJAY tenant + omitted purpose → 200
+  legacy path with no purpose echo.
+
 ### BJ — PMJAY beneficiary policies lookup (`/participant/get/policies`)
 
 - New endpoint `POST /pmjay/policies/lookup` — pre-eligibility step

@@ -43,13 +43,16 @@ export class NhcxStubAdapter implements NhcxAdapter {
       correlationId,
       timestamp: new Date().toISOString(),
       result: verified ? 'eligible' : 'not_eligible',
+      // Slice BK: echo the purpose back so integration tests can assert
+      // PMJAY's three-purpose dispatch landed on the adapter correctly.
+      ...(input.purpose ? { purpose: input.purpose } : {}),
       ...(verified
         ? { planName: 'Stub Health Insurance Gold', sumInsured: 500_000 }
         : { failureReason: 'Plan not active or unknown member.' }),
       bundleType: 'CoverageEligibilityResponse',
     };
     this.log.log(
-      `nhcx stub eligibility tenantId=${input.tenantId} mrn=${input.hospitalMrn} verified=${verified}`,
+      `nhcx stub eligibility tenantId=${input.tenantId} mrn=${input.hospitalMrn} purpose=${input.purpose ?? 'legacy'} verified=${verified}`,
     );
 
     return verified
