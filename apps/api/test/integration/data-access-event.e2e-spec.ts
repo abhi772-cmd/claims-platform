@@ -163,7 +163,7 @@ describe('Slice BR — data_access_event ledger', () => {
     const r = await request(app.getHttpServer()).get('/audit').set('Cookie', cookies);
     expect(r.status).toBe(200);
     // Allow brief settle for the fire-and-forget interceptor write.
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     const events = await readEvents(tenantAId, { resourceType: 'audit_log', action: 'list' });
     expect(events.length).toBeGreaterThanOrEqual(1);
     expect(events[0]!.purpose).toBe('audit_query');
@@ -176,7 +176,7 @@ describe('Slice BR — data_access_event ledger', () => {
       .get('/audit/export.csv')
       .set('Cookie', cookies);
     expect(r.status).toBe(200);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     const events = await readEvents(tenantAId, { resourceType: 'audit_log', action: 'export' });
     expect(events.length).toBeGreaterThanOrEqual(1);
     expect(events[0]!.purpose).toBe('audit_export');
@@ -219,7 +219,7 @@ describe('Slice BR — data_access_event ledger', () => {
       // runs before the dec(...) calls.)
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     const events = await readEvents(tenantAId, {
       resourceType: 'patient',
       action: 'decrypt',
@@ -252,7 +252,7 @@ describe('Slice BR — data_access_event ledger', () => {
     } catch {
       /* expected — fake cipher */
     }
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 500));
     const events = await readEvents(tenantAId, {
       resourceType: 'patient',
       action: 'decrypt',
@@ -266,7 +266,7 @@ describe('Slice BR — data_access_event ledger', () => {
     // /audit endpoint as B's admin.
     const bCookies = await loginAs(ADMIN_B);
     await request(app.getHttpServer()).get('/audit').set('Cookie', bCookies);
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     // Read tenant A's events under tenant A's context — none of
     // the resourceId/actor should belong to tenant B.

@@ -150,15 +150,14 @@ export class PatientService {
       tx.patient.findUnique({ where: { id: patientId } }),
     );
     if (!row || row.tenantId !== tenantId) return null;
-    const key = this.tenantKey(tenantId);
 
-    const dec = (cipher: string | null): string | null =>
-      cipher ? decryptString(cipher, key) : null;
-
-    // Compute the field-name list we actually decrypted so the
-    // access ledger can report "this caller decrypted aadhaar +
-    // mobile" instead of "touched the row". Cheap; runs after
-    // the loads, before the (best-effort) record.
+    // Record the access BEFORE we attempt decryption. The row
+    // read already happened — operators need to see that the row
+    // was touched even when downstream key derivation or cipher
+    // unwrapping throws (missing master key, rotated DEK version,
+    // truncated ciphertext, etc.). Best-effort fire-and-forget;
+    // log failures must never break a decryption that
+    // orchestrators depend on.
     const fieldNames: string[] = [];
     if (row.aadhaarCipher) fieldNames.push('aadhaar');
     if (row.abhaIdCipher) fieldNames.push('abhaId');
@@ -166,9 +165,6 @@ export class PatientService {
     if (row.mobileCipher) fieldNames.push('mobile');
     if (row.emailCipher) fieldNames.push('email');
     if (fieldNames.length > 0) {
-      // Best-effort. We don't .await; log failures must never
-      // break a decryption that the orchestrator above is
-      // depending on.
       void this.accessLog
         .record({
           tenantId,
@@ -183,6 +179,10 @@ export class PatientService {
         })
         .catch(() => undefined);
     }
+
+    const key = this.tenantKey(tenantId);
+    const dec = (cipher: string | null): string | null =>
+      cipher ? decryptString(cipher, key) : null;
 
     return {
       id: row.id,
