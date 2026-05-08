@@ -11,6 +11,9 @@ import {
   type PreauthDraftResponse,
   type PreauthQueryResponseRequest,
   PreauthQueryResponseRequestSchema,
+  type PreauthResubmitRequest,
+  PreauthResubmitRequestSchema,
+  type PreauthResubmitResponse,
   type PreauthSubmitRequest,
   PreauthSubmitRequestSchema,
   type PreauthSubmitResponse,
@@ -170,6 +173,31 @@ export class PreauthController {
       queryId,
       actorUserId: user.userId,
       responseText: body.responseText,
+    });
+  }
+
+  // Slice BL — PMJAY tenants pull the preauth back to PREAUTH_DRAFTING
+  // instead of responding via Communication. State-only flip; the
+  // operator's next preauth submit hits the gateway. We reuse
+  // PREAUTH_RESPOND_QUERY because both gestures resolve an
+  // outstanding query — the user with permission to "respond to a
+  // query" is also the user with permission to "re-submit on query".
+  @Post('resubmit')
+  @HttpCode(200)
+  @RequirePermission(Permissions.PREAUTH_RESPOND_QUERY)
+  async resubmitOnQuery(
+    @Param('caseId', new ParseUUIDPipe()) caseId: string,
+    @Param('claimId', new ParseUUIDPipe()) claimId: string,
+    @Body(new ZodValidationPipe(PreauthResubmitRequestSchema))
+    body: PreauthResubmitRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<PreauthResubmitResponse> {
+    await this.assertOwns(user.tenantId, caseId, claimId);
+    return this.preauth.resubmitOnQuery({
+      tenantId: user.tenantId,
+      claimId,
+      actorUserId: user.userId,
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
     });
   }
 

@@ -95,6 +95,11 @@ export const ClaimEventTypeSchema = z.enum([
   // Slice BH — operator-driven cancellation post-submit (PMJAY
   // task/submit outbound).
   'preauth.cancelled',
+  // Slice BL — PMJAY tenants don't use Communication-based query
+  // responses; instead, an operator pulls the preauth back to
+  // PREAUTH_DRAFTING, edits, and re-submits. The query record
+  // stays in place for audit.
+  'preauth.resubmission_started',
 
   // enhancement
   'enhancement.drafting_started',
@@ -116,6 +121,9 @@ export const ClaimEventTypeSchema = z.enum([
   'claim.partially_approved',
   // Slice BI — operator-driven CRC reprocess via PMJAY task/submit.
   'claim.reprocess_requested',
+  // Slice BL — PMJAY tenants re-submit instead of responding via
+  // Communication. Pulls the claim back to CLAIM_DRAFTING for edit.
+  'claim.resubmission_started',
 
   // payment / settlement
   'payment.expected',

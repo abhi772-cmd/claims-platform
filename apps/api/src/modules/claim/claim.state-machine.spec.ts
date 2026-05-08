@@ -76,6 +76,27 @@ describe('claim.state-machine', () => {
     );
   });
 
+  // Slice BL — PMJAY tenants pull back to drafting on query instead of
+  // responding via Communication.
+  it('PMJAY resubmit-on-query: PREAUTH_QUERY_RAISED → preauth.resubmission_started → PREAUTH_DRAFTING', () => {
+    expect(nextStatus('PREAUTH_QUERY_RAISED', 'preauth.resubmission_started')).toBe(
+      'PREAUTH_DRAFTING',
+    );
+    expect(isTransitionAllowed('PREAUTH_QUERY_RAISED', 'preauth.resubmission_started')).toBe(true);
+  });
+
+  it('PMJAY resubmit-on-query: CLAIM_QUERY_RAISED → claim.resubmission_started → CLAIM_DRAFTING', () => {
+    expect(nextStatus('CLAIM_QUERY_RAISED', 'claim.resubmission_started')).toBe('CLAIM_DRAFTING');
+    expect(isTransitionAllowed('CLAIM_QUERY_RAISED', 'claim.resubmission_started')).toBe(true);
+  });
+
+  it('resubmission events are rejected from non-QUERY_RAISED states', () => {
+    expect(isTransitionAllowed('PREAUTH_SUBMITTED', 'preauth.resubmission_started')).toBe(false);
+    expect(isTransitionAllowed('PREAUTH_DRAFTING', 'preauth.resubmission_started')).toBe(false);
+    expect(isTransitionAllowed('CLAIM_SUBMITTED', 'claim.resubmission_started')).toBe(false);
+    expect(isTransitionAllowed('CLAIM_DRAFTING', 'claim.resubmission_started')).toBe(false);
+  });
+
   it('appeal flow: rejection → appeal → resolved → payment_pending', () => {
     expect(nextStatus('CLAIM_REJECTED', 'appeal.started')).toBe('APPEAL_INITIATED');
     expect(nextStatus('APPEAL_INITIATED', 'appeal.submitted')).toBe('APPEAL_SUBMITTED');

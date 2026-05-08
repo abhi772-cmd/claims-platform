@@ -44,6 +44,9 @@ export const Permissions = {
   CLAIM_SUBMIT: 'claim.submit',
   // Slice BI — PMJAY CRC (Claim Re-Consideration) request.
   CLAIM_REPROCESS: 'claim.reprocess',
+  // Slice BL — PMJAY claim re-submit on query (mirror of
+  // PREAUTH_RESPOND_QUERY on the claim side).
+  CLAIM_RESPOND_QUERY: 'claim.respond_query',
 
   // Settlement
   SETTLEMENT_UPLOAD_EOB: 'settlement.upload_eob',

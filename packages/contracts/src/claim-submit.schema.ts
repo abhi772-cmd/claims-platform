@@ -78,3 +78,17 @@ export const ClaimReprocessResponseSchema = z.object({
   correlationId: z.string(),
 });
 export type ClaimReprocessResponse = z.infer<typeof ClaimReprocessResponseSchema>;
+
+// Slice BL — PMJAY claim re-submit on query. Mirror of the preauth
+// resubmit flow: state-only flip from CLAIM_QUERY_RAISED back to
+// CLAIM_DRAFTING; the next /claim-submission/submit is what reaches
+// the gateway. PMJAY-only.
+export const ClaimResubmitRequestSchema = z.object({
+  reason: z.string().max(2000).optional(),
+});
+export type ClaimResubmitRequest = z.infer<typeof ClaimResubmitRequestSchema>;
+
+export const ClaimResubmitResponseSchema = z.object({
+  status: z.string(),
+});
+export type ClaimResubmitResponse = z.infer<typeof ClaimResubmitResponseSchema>;
