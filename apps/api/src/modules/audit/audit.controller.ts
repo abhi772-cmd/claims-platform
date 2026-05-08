@@ -16,6 +16,7 @@ import { RequirePermission } from '../../common/decorators/require-permission.de
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { LogsPiiAccess } from '../data-access/logs-pii-access.decorator';
 
 const ListQuerySchema = AuditLogFilterSchema.extend({
   limit: z.coerce.number().int().min(1).max(200).optional(),
@@ -32,6 +33,7 @@ export class AuditController {
 
   @Get()
   @RequirePermission(Permissions.AUDIT_VIEW)
+  @LogsPiiAccess({ resourceType: 'audit_log', action: 'list', purpose: 'audit_query' })
   async list(
     @Query(new ZodValidationPipe(ListQuerySchema))
     q: AuditLogFilter & { limit?: number; offset?: number },
@@ -65,6 +67,7 @@ export class AuditController {
   // narrow the filter or ask for a paginated dump.
   @Get('export.csv')
   @RequirePermission(Permissions.AUDIT_VIEW)
+  @LogsPiiAccess({ resourceType: 'audit_log', action: 'export', purpose: 'audit_export' })
   async export(
     @Query(new ZodValidationPipe(ExportQuerySchema)) q: AuditLogFilter,
     @CurrentUser() user: Express.AuthenticatedUser,

@@ -14,6 +14,47 @@ sweeper (BP), erasure-on-request (BQ), data-access ledger (BR),
 breach detection (BS), consent record + UI (BT), and the
 compliance dashboard (BU).
 
+### BR — DPDP §17 data access ledger + interceptor
+
+- New append-only `data_access_event` table records every read of
+  personal data (decryption of an encrypted PII field, bulk view
+  of a PII-bearing list, audit-log query). Distinct from
+  `audit_log` (which records state changes); this ledger records
+  reads. DPDP Rules 2025 require operators to be able to answer
+  "show me every time this patient's data was accessed". Rows
+  carry `actorUserId`, `actorType`, `resourceType`, `resourceId`,
+  `action`, `purpose`, optional `fieldNames` JSON, plus IP / UA /
+  correlationId. Append-only at the RLS level (no UPDATE / DELETE
+  policies); same tenant-scoped SELECT pattern as audit_log.
+- New `DataAccessLogService` mirrors `AuditService` shape with
+  `record()` (opens its own platform_admin transaction) and
+  `recordWithTx()` (writes inside a caller's tenant tx).
+- Two recording paths:
+  - **Service-level decryption hook**: `PatientService.getDecrypted`
+    now records an `action='decrypt'` event with a `fieldNames`
+    list of the encrypted columns that were actually populated
+    (`['aadhaar', 'mobile', ...]`). Optional `ctx` arg threads
+    `actorUserId` + `purpose` + `correlationId` from the calling
+    service; missing context falls back to `purpose='unspecified'`
+    so coverage isn't lost during incremental rollout. Recording
+    is best-effort and fire-and-forget — log failures must never
+    break a decryption that orchestrators depend on.
+  - **HTTP interceptor**: `@LogsPiiAccess({resourceType, action,
+    purpose})` decorator on a controller method tags the handler;
+    `PiiAccessInterceptor` (registered as `APP_INTERCEPTOR`) reads
+    the metadata after the handler resolves successfully and
+    writes a row tagging the actor + IP + UA. We log only on
+    success — failed reads are audit_log territory. Applied on
+    `AuditController.list` (purpose `audit_query`) and
+    `AuditController.export` (purpose `audit_export`).
+- 5 e2e canary cases on `data-access-event.e2e-spec.ts`:
+  GET /audit emits a list event with the right purpose, GET
+  /audit/export.csv emits an export event, `getDecrypted` records
+  a decrypt event with field names from the explicit ctx,
+  `getDecrypted` without ctx falls back to `purpose='unspecified'`,
+  cross-tenant SELECT under tenant A's context returns no rows
+  whose actor belongs to tenant B (RLS canary).
+
 ### BQ — DPDP §11 erasure-on-request
 
 - New `erasure_request` table + `POST /erasure-requests` endpoint

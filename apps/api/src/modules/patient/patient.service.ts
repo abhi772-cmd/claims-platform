@@ -5,6 +5,7 @@ import { decryptString, deriveTenantKey, encryptString, lookupHash } from './pii
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 import { type TenantPrisma } from '../../types/express';
+import { DataAccessLogService } from '../data-access/data-access-log.service';
 
 export interface PatientPiiInput {
   fullName: string;
@@ -36,6 +37,7 @@ export class PatientService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly accessLog: DataAccessLogService,
   ) {}
 
   // Per-tenant DEK is derived once and cached for the lifetime of the
@@ -127,13 +129,58 @@ export class PatientService {
     return { id: row.id };
   }
 
-  async getDecrypted(tenantId: string, patientId: string): Promise<DecryptedPatient | null> {
+  async getDecrypted(
+    tenantId: string,
+    patientId: string,
+    // Slice BR — every decryption records a data_access_event row
+    // with actor + purpose so DPDP §17 access-history queries work.
+    // ctx is optional to keep call-site churn contained: callers
+    // that don't pass it land 'unspecified' on the ledger and BU's
+    // dashboard surfaces those for triage. Callers SHOULD pass
+    // explicit purpose values from the standard vocabulary
+    // (eligibility.verify, preauth.submit, etc.).
+    ctx?: {
+      actorUserId?: string | null;
+      actorType?: 'user' | 'system' | 'scheduled';
+      purpose?: string;
+      correlationId?: string | null;
+    },
+  ): Promise<DecryptedPatient | null> {
     const row = await this.prisma.runInTenantContext(tenantId, 'tenant', (tx) =>
       tx.patient.findUnique({ where: { id: patientId } }),
     );
     if (!row || row.tenantId !== tenantId) return null;
-    const key = this.tenantKey(tenantId);
 
+    // Record the access BEFORE we attempt decryption. The row
+    // read already happened — operators need to see that the row
+    // was touched even when downstream key derivation or cipher
+    // unwrapping throws (missing master key, rotated DEK version,
+    // truncated ciphertext, etc.). Best-effort fire-and-forget;
+    // log failures must never break a decryption that
+    // orchestrators depend on.
+    const fieldNames: string[] = [];
+    if (row.aadhaarCipher) fieldNames.push('aadhaar');
+    if (row.abhaIdCipher) fieldNames.push('abhaId');
+    if (row.policyNumberCipher) fieldNames.push('policyNumber');
+    if (row.mobileCipher) fieldNames.push('mobile');
+    if (row.emailCipher) fieldNames.push('email');
+    if (fieldNames.length > 0) {
+      void this.accessLog
+        .record({
+          tenantId,
+          actorUserId: ctx?.actorUserId ?? null,
+          actorType: ctx?.actorType ?? 'system',
+          resourceType: 'patient',
+          resourceId: row.id,
+          action: 'decrypt',
+          purpose: ctx?.purpose ?? 'unspecified',
+          fieldNames,
+          correlationId: ctx?.correlationId ?? null,
+        })
+        .catch(() => undefined);
+    }
+
+    const key = this.tenantKey(tenantId);
     const dec = (cipher: string | null): string | null =>
       cipher ? decryptString(cipher, key) : null;
 
