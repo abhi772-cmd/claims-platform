@@ -104,7 +104,7 @@ describe('Slice BP — audit retention sweeper', () => {
         VALUES (
           gen_random_uuid(),
           ${tenantId}::uuid,
-          now() - make_interval(days => ${daysAgo}),
+          now() - make_interval(days => ${daysAgo}::int),
           'system',
           ${action},
           'user',

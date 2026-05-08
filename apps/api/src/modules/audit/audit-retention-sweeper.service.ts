@@ -69,8 +69,12 @@ export class AuditRetentionSweeperService {
 
       for (const cls of ALL_RETENTION_CLASSES) {
         const days = RETENTION_FLOOR_DAYS[cls];
+        // Cast to INT explicitly — Prisma templates JS numbers as
+        // bigint, but `audit_retention_sweep(TEXT, INTEGER)` expects
+        // a 4-byte int. Without the cast Postgres errors with
+        // "function audit_retention_sweep(text, bigint) does not exist".
         const rows = await tx.$queryRaw<Array<{ deleted: number }>>(
-          Prisma.sql`SELECT audit_retention_sweep(${cls}, ${days}) AS deleted`,
+          Prisma.sql`SELECT audit_retention_sweep(${cls}, ${days}::int) AS deleted`,
         );
         counts[cls] = Number(rows[0]?.deleted ?? 0);
       }
