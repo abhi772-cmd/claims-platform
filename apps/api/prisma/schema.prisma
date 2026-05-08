@@ -966,8 +966,17 @@ model AuditLog {
   ipAddress    String?
   userAgent    String?
   correlationId String?
+  // Slice BO — retention classification driving the BP sweeper, BQ
+  // erasure-on-request consent check, and BU compliance dashboard.
+  // Values are stable semantic labels: financial / clinical /
+  // security / session / governance / consent. The actual year
+  // mapping lives in `retention-classes.ts` so policy can change
+  // without a schema migration.
+  retentionClass String @default("financial")
 
   @@index([tenantId, resourceType, resourceId])
   @@index([tenantId, occurredAt])
+  // BP will use this index for a "rows past retention" sweep.
+  @@index([retentionClass, occurredAt])
   @@map("audit_log")
 }

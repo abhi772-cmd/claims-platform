@@ -4,6 +4,61 @@ Notable changes to the DigiSparsh Claims Platform. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) but oriented around
 sprint slices rather than calendar releases.
 
+## Sprint 8 — TBD (May 2026)
+
+Theme: **audit retention on the strictest-of-three floor (DPDP Act
+2023 + DPDP Rules 2025 + IRDAI 5y for claims + RBI 10y because
+DigiSparsh-lending is planned in v1)**. Sprint 8 puts the schema
+and write-time stamping in place; subsequent slices ship the
+sweeper (BP), erasure-on-request (BQ), data-access ledger (BR),
+breach detection (BS), consent record + UI (BT), and the
+compliance dashboard (BU).
+
+### BO — `audit_log.retentionClass` column + classifier + backfill
+
+- Adds a stable semantic label to every `audit_log` row so BP's
+  sweeper, BQ's erasure-on-request consent check, and BU's
+  compliance dashboard can read from one column instead of
+  re-deriving from the action string. Six classes, naming
+  semantic-not-numeric so the year mapping can change without a
+  schema migration:
+  - `financial`  — RBI 10y. Settlement / payment / lending /
+    monetary-impact decisions. Default fallback for unmapped
+    actions (conservative — keep longer).
+  - `clinical`   — IRDAI 5y. Claim/preauth/discharge transitions,
+    doctor signatures, FHIR exchanges.
+  - `security`   — DPDP/IRDAI 3y. Failed logins, account lock /
+    unlock, password resets, MFA changes.
+  - `session`    — DPDP transit, 90d. Login / logout / session
+    revoked.
+  - `governance` — 8y. Tenant lifecycle, NHCX cert rotations,
+    role grants, invitations, user lifecycle.
+  - `consent`    — 8y after withdrawal (BT will refine). DPDP
+    consent records.
+- New TS classifier at
+  `apps/api/src/modules/audit/retention-classes.ts` maps every
+  defined `AuditEvent` to a class. Coverage test asserts no
+  current event silently hits the FINANCIAL fallback — adding a
+  new event is a hard-fail on the spec until classified.
+- Centralised `RETENTION_FLOOR_DAYS` map: `financial=3650`,
+  `clinical=1825`, `security=1095`, `session=90`,
+  `governance=2920`, `consent=2920`. BP reads from this; if
+  DigiSparsh-lending slips out of v1, only this map needs to
+  change to collapse `financial` to IRDAI 5y.
+- Migration `20260524000000_audit_retention_class` adds the
+  column with `NOT NULL DEFAULT 'financial'`, backfills existing
+  rows by mapping action → class (mirrors the TS classifier),
+  and adds a `(retentionClass, occurredAt)` index for BP's
+  sweeper.
+- `AuditService.recordWithTx` calls the classifier on every new
+  write so the column is stamped at insert time.
+- 21 unit cases on the classifier + taxonomy invariants
+  (financial = longest, session = 90d, clinical = IRDAI 5y, etc.)
+  + a 6-case e2e canary that asserts the column is stamped
+  per-event by the service path AND the column-default kicks in
+  for raw inserts skipping the column AND no fresh-DB row has a
+  null/empty retentionClass.
+
 ## Sprint 7 — TBD (May 2026)
 
 Theme settled mid-sprint: **PMJAY-via-NHCX is in v1**. Discovery

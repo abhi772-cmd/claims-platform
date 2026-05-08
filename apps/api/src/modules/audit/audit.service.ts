@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { type AuditEvent } from './audit.events';
+import { classifyAuditEvent } from './retention-classes';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type TenantPrisma } from '../../types/express';
 
@@ -85,6 +86,12 @@ export class AuditService {
         ipAddress: input.ipAddress ?? null,
         userAgent: input.userAgent ?? null,
         correlationId: input.correlationId ?? null,
+        // Slice BO — stamp the retention class at write time so BP's
+        // sweeper, BQ's erasure-on-request, and BU's dashboard all
+        // read from one stable column. Unknown actions fall back to
+        // 'financial' (longest retention) per the classifier
+        // contract.
+        retentionClass: classifyAuditEvent(input.action),
       },
     });
   }
