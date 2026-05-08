@@ -42,6 +42,8 @@ const ROLE_SEEDS: RoleSeed[] = [
       'package.master.sync',
       'audit.view',
       'erasure.process',
+      'breach_incident.view',
+      'breach_incident.manage',
       'tenant.comms_config.update',
     ],
   },
@@ -79,6 +81,8 @@ const ROLE_SEEDS: RoleSeed[] = [
       'analytics.export',
       'audit.view',
       'erasure.process',
+      'breach_incident.view',
+      'breach_incident.manage',
     ],
   },
   {

@@ -65,6 +65,14 @@ export const Permissions = {
   // permission rather than reusing audit.view. Tenant-admin-only
   // by default; seed roles take it explicitly.
   ERASURE_PROCESS: 'erasure.process',
+
+  // Slice BS — DPDP §8(6) breach incident management. Split into
+  // view (compliance dashboards, security analysts) vs. manage
+  // (DPO / tenant admin filing manual reports, marking notified /
+  // dismissed). Both are sensitive — incidents reveal the actor's
+  // identity and the categories of personal data implicated.
+  BREACH_INCIDENT_VIEW: 'breach_incident.view',
+  BREACH_INCIDENT_MANAGE: 'breach_incident.manage',
 } as const;
 
 export type Permission = (typeof Permissions)[keyof typeof Permissions];

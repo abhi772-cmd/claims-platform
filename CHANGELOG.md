@@ -14,6 +14,100 @@ sweeper (BP), erasure-on-request (BQ), data-access ledger (BR),
 breach detection (BS), consent record + UI (BT), and the
 compliance dashboard (BU).
 
+### BS — DPDP §8(6) breach detection + 72h notification template
+
+- New append-only-on-DELETE `breach_incident` table records both
+  auto-detected anomalies and operator-filed manual reports. Status
+  lifecycle (`detected → notified | dismissed`) is enforced by the
+  service; RLS UPDATE policy permits same-tenant flips so the
+  controller can mark notified / dismissed atomically. DELETE is
+  blocked at the policy level — breach records are themselves a
+  compliance artifact.
+- Unique constraint on `(tenantId, kind, actorUserId, windowStart)`
+  gives the detector idempotency: re-running the scan within the
+  same minute boundary converges on the same row instead of
+  duplicating. Manual reports leave `actorUserId` and `windowStart`
+  null, naturally skipping the constraint (PG NULL ≠ NULL semantics
+  in unique indexes).
+- New `BreachDetectorService.scan()` — v1 heuristic is
+  **BURST_DECRYPT**: for each `(tenantId, actorUserId)` seen in the
+  `data_access_event` ledger over the past `windowMinutes`, count
+  distinct patient resourceIds that were decrypted. If the count
+  exceeds 50 (configurable via `BURST_DECRYPT_PATIENT_THRESHOLD`),
+  open a `severity='high'` incident tagged with the union of
+  `fieldNames` from the events. Distinct-patients (not raw event
+  count) is the right signal: one operator triaging a complex case
+  may legitimately decrypt the same patient many times; touching
+  many patients quickly is the suspicious pattern. The detector
+  runs platform-wide in one pass (platform_admin role for the
+  SELECT) and inserts per-tenant under the tenant role for the
+  INSERT — so the RLS INSERT policy still gates writes correctly.
+- New `BreachIncidentService` with five operations:
+  - `fileManual()` — operator-filed `kind='MANUAL_REPORT'` (lost
+    laptop, vendor breach, anything the heuristic doesn't catch).
+  - `openAutoWithTx(tx, ...)` — detector-driven insert; returns
+    `null` on the unique-constraint conflict so re-runs are a no-op.
+  - `list(input)` — tenant-scoped, optional filters on
+    `status` / `kind` / `from` / `to`, ordered by `openedAt desc`.
+  - `findById()` + `renderNotificationPreview()` — view + show the
+    rendered template before notifying.
+  - `notify()` — flip `detected → notified`, snapshot the §8(6)
+    template into `dpdpNotificationPayload`, stamp
+    `dpdpNotificationSentAt`. Rejects when status isn't `detected`.
+  - `dismiss()` — flip `detected → dismissed` with a required
+    `reason` (DPDP audit trail needs the reason a potential
+    breach was deemed not-reportable). Rejects when status isn't
+    `detected`.
+- New DPDP §8(6) notification template renderer at
+  `apps/api/src/modules/breach/dpdp-notification-template.ts`. Pure
+  function: takes the incident + tenant context and produces a
+  `{subject, body, fields}` payload covering all six required
+  Schedule II elements (description, approximate count of data
+  principals, categories of data, likely consequences, mitigation
+  measures, grievance officer contact). `BURST_DECRYPT` and
+  `MANUAL_REPORT` get different stock copy for the consequences /
+  mitigations sections. The 72-hour deadline is centralised as
+  `DPDP_NOTIFICATION_WINDOW_MS = 72 * 60 * 60 * 1000` so the
+  service + dashboard read from one source.
+- New endpoints (`/breach-incidents`):
+  - `POST /breach-incidents/scan` — manage; trigger detector pass.
+  - `POST /breach-incidents` — manage; manual file.
+  - `GET  /breach-incidents` — view; list (filter by status / kind / date).
+  - `GET  /breach-incidents/:id` — view; row + rendered preview when
+    status='detected', or the snapshotted payload when notified.
+  - `POST /breach-incidents/:id/notify` — manage; flip + snapshot.
+  - `POST /breach-incidents/:id/dismiss` — manage; flip with reason.
+- New permissions: `breach_incident.view` + `breach_incident.manage`.
+  Both granted to `platform_admin` and `tenant_admin` seed roles by
+  default. Other roles (billing manager, insurance desk, reader)
+  are intentionally excluded — incident records expose actor
+  identity and the categories of personal data implicated.
+- New audit events: `BREACH_INCIDENT_OPENED`,
+  `BREACH_INCIDENT_NOTIFIED`, `BREACH_INCIDENT_DISMISSED`,
+  `BREACH_DETECTOR_SCAN_COMPLETED`. All classified as governance
+  (`retentionClass='governance'`, 8-year floor) so the compliance
+  trail outlasts the incidents themselves.
+- New CLI: `pnpm --filter @claims/api breach:scan`. Same shape as
+  `audit:retention-sweep` — boots the Nest app, runs one
+  `BreachDetectorService.scan()` pass, prints the structured result
+  to stdout, exits. Production wiring is an external scheduler
+  (k8s CronJob, cloud cron, pg_cron) on a 10–15 minute cadence for
+  tight detection or hourly for steady state. Optional
+  `--window-minutes=N` flag overrides the default 60-minute lookback.
+- 8 e2e canary cases on `breach-incident.e2e-spec.ts`: detector
+  raises BURST_DECRYPT when threshold exceeded; idempotent on
+  re-run within the same minute; manual file lands MANUAL_REPORT
+  with 72h `dpdpNotificationDueAt`; preview renders all six §8(6)
+  sections; notify flips status + captures payload + rejects
+  second notify; dismiss flips status with reason + rejects
+  subsequent notify; viewer with `breach_incident.view` only is
+  read-only (file/notify/dismiss → 403); reader with no breach
+  permission can't list (403); cross-tenant GET → 422 (RLS canary).
+- 6 unit tests on `dpdp-notification-template.spec.ts` lock the
+  72h constant, the six §8(6) sections, the placeholder fallback
+  for missing grievance contact, the kind-specific consequences /
+  mitigations copy, and the structured-fields ISO round-trip.
+
 ### BR — DPDP §17 data access ledger + interceptor
 
 - New append-only `data_access_event` table records every read of
