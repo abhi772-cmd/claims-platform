@@ -192,6 +192,50 @@ export interface AdapterClaimReprocessResult {
   rawResponse: Record<string, unknown>;
 }
 
+// Slice BJ — PMJAY beneficiary policies lookup. Pre-eligibility step
+// where the operator enters an ABHA number (without hyphens) or a
+// mobile number, and the API returns the list of PMJAY policies the
+// beneficiary is enrolled in. The operator picks one to attach to
+// the case before running eligibility. Plain-REST endpoint on the
+// gateway side (NOT JWE-wrapped) — the NHCX PMJAY Integration
+// Handbook §5.6 documents the internal wrapper but leaves the
+// upstream URL for sandbox/prod gateway as TBD; real-mode is a
+// follow-up slice once the URL is published.
+//
+// Identifier types per the scenario doc are ABHA + mobile only.
+// Aadhaar is intentionally NOT supported here; PMJAY's policies
+// API requires the beneficiary to have linked their ABHA / mobile
+// at registration.
+export type AdapterPmjayLookupIdentifierType = 'abha' | 'mobile';
+
+export interface AdapterPmjayPolicyLookupInput {
+  tenantId: string;
+  identifierType: AdapterPmjayLookupIdentifierType;
+  // Format-checked at the controller. ABHA: 14 digits, no hyphens.
+  // Mobile: 10 digits.
+  identifier: string;
+}
+
+// Per-policy fields the NHCX PMJAY Integration Handbook §5.6
+// commits to as documented downstream consumers' shape. Optional
+// fields are left out rather than null'd because the upstream
+// gateway omits them in the same way.
+export interface AdapterPmjayPolicy {
+  payerId: string;
+  memberId: string;
+  productId: string;
+  productName: string;
+  policyNumber: string;
+}
+
+export interface AdapterPmjayPolicyLookupResult {
+  policies: AdapterPmjayPolicy[];
+  // Echoed back for cross-referencing; the operator-facing UI
+  // surfaces this so the lookup is auditable end-to-end.
+  identifierType: AdapterPmjayLookupIdentifierType;
+  identifier: string;
+}
+
 export interface NhcxAdapter {
   verifyEligibility(input: AdapterEligibilityRequest): Promise<AdapterEligibilityResponse>;
   submitPreauth(input: AdapterPreauthSubmitInput): Promise<AdapterPreauthSubmitResult>;
@@ -202,4 +246,7 @@ export interface NhcxAdapter {
   submitClaim(input: AdapterClaimSubmitInput): Promise<AdapterClaimSubmitResult>;
   cancelPreauth(input: AdapterPreauthCancelInput): Promise<AdapterPreauthCancelResult>;
   reprocessClaim(input: AdapterClaimReprocessInput): Promise<AdapterClaimReprocessResult>;
+  lookupPmjayPolicies(
+    input: AdapterPmjayPolicyLookupInput,
+  ): Promise<AdapterPmjayPolicyLookupResult>;
 }
