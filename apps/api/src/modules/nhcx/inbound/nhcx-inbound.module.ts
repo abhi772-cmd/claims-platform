@@ -10,12 +10,15 @@ import { DischargeModule } from '../../discharge/discharge.module';
 import { EligibilityModule } from '../../eligibility/eligibility.module';
 import { PreauthModule } from '../../preauth/preauth.module';
 import { SettlementModule } from '../../settlement/settlement.module';
+import { TenantModule } from '../../tenant/tenant.module';
 
 // NhcxModule (the global one) supplies NHCX_KEY_RESOLVER + crypto +
 // adapter. IntegrationModule is global so IntegrationMessageService is
 // available without an explicit import. We pull in the phase modules
 // whose services receive parsed callbacks — Slice BC adds
-// SettlementModule for the paymentnotice/request handler.
+// SettlementModule for the paymentnotice/request handler. Slice BM
+// adds TenantModule so the dispatcher can read pmjayMode for the
+// FHIR-validator misroute warnings.
 @Module({
   imports: [
     EligibilityModule,
@@ -23,6 +26,7 @@ import { SettlementModule } from '../../settlement/settlement.module';
     ClaimSubmitModule,
     DischargeModule,
     SettlementModule,
+    TenantModule,
   ],
   controllers: [NhcxInboundController],
   providers: [
