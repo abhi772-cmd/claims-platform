@@ -132,6 +132,10 @@ const EVENT_TO_CLASS: Readonly<Record<AuditEvent, RetentionClass>> = {
   [AuditEvents.TENANT_REACTIVATED]: RetentionClasses.GOVERNANCE,
   [AuditEvents.TENANT_CHURNED]: RetentionClasses.GOVERNANCE,
   [AuditEvents.TENANT_IP_ALLOWLIST_UPDATED]: RetentionClasses.GOVERNANCE,
+
+  // Self-audit of retention sweeps — kept under governance so the
+  // record outlasts the things it documents.
+  [AuditEvents.AUDIT_RETENTION_SWEEP_COMPLETED]: RetentionClasses.GOVERNANCE,
 };
 
 // Classify an audit event for retention. Defaults to FINANCIAL when

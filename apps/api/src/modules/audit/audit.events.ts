@@ -51,6 +51,11 @@ export const AuditEvents = {
   TENANT_REACTIVATED: 'TENANT_REACTIVATED',
   TENANT_CHURNED: 'TENANT_CHURNED',
   TENANT_IP_ALLOWLIST_UPDATED: 'TENANT_IP_ALLOWLIST_UPDATED',
+
+  // Slice BP — self-audit row written at the end of every retention
+  // sweep. Captures per-class delete counts + duration so ops /
+  // compliance auditors can see when data was last erased.
+  AUDIT_RETENTION_SWEEP_COMPLETED: 'AUDIT_RETENTION_SWEEP_COMPLETED',
 } as const;
 
 export type AuditEvent = (typeof AuditEvents)[keyof typeof AuditEvents];

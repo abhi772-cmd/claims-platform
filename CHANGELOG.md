@@ -14,6 +14,49 @@ sweeper (BP), erasure-on-request (BQ), data-access ledger (BR),
 breach detection (BS), consent record + UI (BT), and the
 compliance dashboard (BU).
 
+### BP — Audit retention sweeper
+
+- Postgres function `audit_retention_sweep(p_class TEXT, p_floor_days INT) RETURNS INT`
+  deletes rows where `retentionClass = p_class AND occurredAt < now() - p_floor_days days`,
+  returns the count. Rejects non-positive `p_floor_days` and empty
+  `p_class` with a clear `RAISE EXCEPTION` so a misconfigured caller
+  trips a hard error instead of silently deleting nothing.
+- New RLS policy `audit_log_delete_retention` allows DELETE only when
+  `app_current_role() = 'retention_sweeper'`. The existing
+  `audit_log_no_delete USING(false)` policy continues to block every
+  other role; both policies OR together at the row level so `tenant`
+  and `platform_admin` callers still cannot delete audit rows. The
+  new privileged role is set transactionally via `set_config('app.role',
+  'retention_sweeper', true)` and never persists outside the sweep.
+- `AuditRetentionSweeperService.sweepAll()` flips the role, iterates
+  all six retention classes via the Postgres function in a single
+  transaction, sums per-class counts, and emits a self-audit row
+  (`action=AUDIT_RETENTION_SWEEP_COMPLETED`,
+  `retentionClass=governance`) with the per-class counts + duration
+  in the JSON `after` field. The self-audit row uses the zero-UUID
+  tenantId sentinel because the sweep is platform-scoped, not
+  tenant-scoped.
+- `TenantRole` extended to include `retention_sweeper` (alongside
+  `tenant` and `platform_admin`) so the privileged role is a
+  first-class type and can't be passed by typo from arbitrary
+  callers.
+- Operator triggering: new CLI script invoked via
+  `pnpm --filter @claims/api audit:retention-sweep`. Boots the
+  NestJS application context (no HTTP listener), runs `sweepAll()`,
+  prints a JSON summary, and exits. Wire to k8s CronJob / cloud
+  cron / pg_cron for nightly cadence. We deliberately don't ship an
+  in-app `@Cron` decorator — Redis is deferred and a naive
+  `setInterval` would race across replicas and over-delete.
+- 4 e2e canary cases: sweep deletes past-floor rows in each class
+  while preserving recent rows; self-audit row carries the per-class
+  counts; calling the function under the wrong role (e.g. `platform_admin`)
+  silently deletes 0 rows (RLS gate works); the function rejects
+  invalid `p_floor_days <= 0` and empty `p_class`.
+- Self-audit event `AUDIT_RETENTION_SWEEP_COMPLETED` added to the
+  `AuditEvents` enum and explicitly classified as `governance`. The
+  classifier coverage test from BO is what would catch a future
+  audit event being added without classification.
+
 ### BO — `audit_log.retentionClass` column + classifier + backfill
 
 - Adds a stable semantic label to every `audit_log` row so BP's
