@@ -60,6 +60,11 @@ export const Permissions = {
 
   // Audit
   AUDIT_VIEW: 'audit.view',
+  // Slice BQ — DPDP §11 erasure-on-request. Privileged operation
+  // (PII redaction is irreversible) so we gate it on a dedicated
+  // permission rather than reusing audit.view. Tenant-admin-only
+  // by default; seed roles take it explicitly.
+  ERASURE_PROCESS: 'erasure.process',
 } as const;
 
 export type Permission = (typeof Permissions)[keyof typeof Permissions];

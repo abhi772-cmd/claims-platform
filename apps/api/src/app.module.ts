@@ -19,6 +19,7 @@ import { DocumentModule } from './modules/document';
 import { VirusScanModule } from './modules/document/scan';
 import { EligibilityModule } from './modules/eligibility';
 import { EobOcrModule } from './modules/eob-ocr';
+import { ErasureModule } from './modules/erasure/erasure.module';
 import { HealthModule } from './modules/health/health.module';
 import { HprModule } from './modules/hpr';
 import { IntegrationModule } from './modules/integration';
@@ -111,6 +112,7 @@ import { UserModule } from './modules/user/user.module';
     TenantModule,
     UserModule,
     AuthModule,
+    ErasureModule,
   ],
 })
 export class AppModule implements NestModule {

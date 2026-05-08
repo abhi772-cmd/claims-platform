@@ -14,6 +14,48 @@ sweeper (BP), erasure-on-request (BQ), data-access ledger (BR),
 breach detection (BS), consent record + UI (BT), and the
 compliance dashboard (BU).
 
+### BQ — DPDP §11 erasure-on-request
+
+- New `erasure_request` table + `POST /erasure-requests` endpoint
+  for honouring data principal erasure requests under DPDP Act 2023
+  §11. Tenant-scoped, append-only at the RLS level (no UPDATE /
+  DELETE policies), so every request commits with its final
+  outcome and can't be edited later.
+- Two terminal outcomes:
+  - `completed` — patient PII redacted in-place. Encrypted ciphers
+    + key versions + lookup hashes nulled (Aadhaar / ABHA /
+    mobile / email / policy-number); plaintext fields scrubbed
+    (fullName → `REDACTED-{6-digit-suffix}`, dateOfBirth → null,
+    gender → null). Linked Case rows get `patientName` +
+    `hospitalMrn` replaced with the same placeholder. The patient
+    + case rows themselves stay because the linked Claim records
+    carry IRDAI 5y / RBI 10y retention obligations against the
+    now-redacted personal data.
+  - `rejected` — DPDP §13 carve-out applies because one or more
+    claims are still in non-terminal status. The response payload
+    includes `rejectionReason.blockingClaims` listing each
+    `{id, status}` so the operator can come back when the
+    blocking claims close. "Erasable" statuses are `CLOSED`,
+    `ABANDONED`, `WRITTEN_OFF` — broader than the state-machine's
+    `TERMINAL_STATUSES` (CLOSED + ABANDONED only) because
+    WRITTEN_OFF is functionally terminal for DPDP purposes.
+- New permission `Permissions.ERASURE_PROCESS` (`erasure.process`).
+  Seeded onto the two tenant-admin roles that already had
+  `audit.view` (tenant_admin + billing_manager). Other roles are
+  blocked with HTTP 403.
+- New audit events `ERASURE_REQUEST_PROCESSED` +
+  `ERASURE_REQUEST_REJECTED`, both classified as `governance` so
+  the compliance audit trail outlasts the redacted personal data
+  it documents. The classifier coverage test added in BO catches
+  unclassified events at PR-time.
+- 6 e2e canary cases: reader without permission → 403, no-claims
+  patient → completed + PII scrubbed (verified by reading the
+  patient + case rows back), patient with active PREAUTH_QUEUED
+  claim → rejected + blockingClaims list + no redaction performed,
+  patient with CLOSED claim → completed (closed claims don't
+  block), cross-tenant GET on someone else's request id → 422
+  (RLS canary), unknown patientId → 422.
+
 ### BP — Audit retention sweeper
 
 - Postgres function `audit_retention_sweep(p_class TEXT, p_floor_days INT) RETURNS INT`
