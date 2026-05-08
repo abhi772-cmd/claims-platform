@@ -23,9 +23,22 @@
 -- (`pnpm --filter @claims/api audit:retention-sweep`) which ops can
 -- wire to an external scheduler (k8s CronJob / cloud cron / pg_cron).
 
--- 1. Allow DELETE for the retention_sweeper role.
+-- 1a. Allow DELETE for the retention_sweeper role.
 CREATE POLICY audit_log_delete_retention ON "audit_log"
   FOR DELETE USING (app_current_role() = 'retention_sweeper');
+
+-- 1b. Extend SELECT to also permit retention_sweeper. PG evaluates
+-- DELETE's WHERE-scan through the SELECT policy first; without this
+-- the sweeper finds zero rows even though its DELETE USING clause
+-- would permit them. The new role still doesn't see anything outside
+-- of audit_log because we add it only here.
+DROP POLICY audit_log_select ON "audit_log";
+CREATE POLICY audit_log_select ON "audit_log"
+  FOR SELECT USING (
+    app_current_role() = 'platform_admin'
+    OR app_current_role() = 'retention_sweeper'
+    OR ("tenantId" = app_current_tenant_id())
+  );
 
 -- 2. The sweep function. Returns the count of rows deleted in this
 -- call. Plain SQL is enough — no plpgsql needed.
