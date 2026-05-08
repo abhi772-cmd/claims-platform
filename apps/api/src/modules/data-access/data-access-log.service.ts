@@ -42,6 +42,13 @@ export interface DataAccessWriteInput {
   ipAddress?: string | null;
   userAgent?: string | null;
   correlationId?: string | null;
+  // Slice BT — id of the ConsentRecord that authorised this access.
+  // Optional because (1) callers wired before BT shipped land null
+  // and (2) some reads happen under a non-consent lawful basis
+  // (legal_obligation / public_interest) that doesn't bind to a
+  // specific consent grant. BU's dashboard groups by this column
+  // to answer "show every read authorised by this grant".
+  consentGrantId?: string | null;
 }
 
 @Injectable()
@@ -68,6 +75,7 @@ export class DataAccessLogService {
         ipAddress: input.ipAddress ?? null,
         userAgent: input.userAgent ?? null,
         correlationId: input.correlationId ?? null,
+        consentGrantId: input.consentGrantId ?? null,
       },
     });
   }

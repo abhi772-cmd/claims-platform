@@ -144,6 +144,12 @@ export class PatientService {
       actorType?: 'user' | 'system' | 'scheduled';
       purpose?: string;
       correlationId?: string | null;
+      // Slice BT — id of the ConsentRecord that authorised this
+      // decrypt. Service callers that depend on consent (preauth /
+      // claim submit) thread the active grant id here so the
+      // access ledger row is bound back to the grant. Null when
+      // the read is under a non-consent lawful basis.
+      consentGrantId?: string | null;
     },
   ): Promise<DecryptedPatient | null> {
     const row = await this.prisma.runInTenantContext(tenantId, 'tenant', (tx) =>
@@ -176,6 +182,7 @@ export class PatientService {
           purpose: ctx?.purpose ?? 'unspecified',
           fieldNames,
           correlationId: ctx?.correlationId ?? null,
+          consentGrantId: ctx?.consentGrantId ?? null,
         })
         .catch(() => undefined);
     }

@@ -44,6 +44,8 @@ const ROLE_SEEDS: RoleSeed[] = [
       'erasure.process',
       'breach_incident.view',
       'breach_incident.manage',
+      'consent.view',
+      'consent.manage',
       'tenant.comms_config.update',
     ],
   },
@@ -83,6 +85,8 @@ const ROLE_SEEDS: RoleSeed[] = [
       'erasure.process',
       'breach_incident.view',
       'breach_incident.manage',
+      'consent.view',
+      'consent.manage',
     ],
   },
   {
@@ -109,6 +113,8 @@ const ROLE_SEEDS: RoleSeed[] = [
       'settlement.write_off',
       'analytics.view',
       'analytics.export',
+      'consent.view',
+      'consent.manage',
     ],
   },
   {
@@ -129,6 +135,8 @@ const ROLE_SEEDS: RoleSeed[] = [
       'settlement.categorize_deduct',
       'settlement.appeal',
       'analytics.view',
+      'consent.view',
+      'consent.manage',
     ],
   },
   {

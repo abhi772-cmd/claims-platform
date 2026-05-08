@@ -72,6 +72,13 @@ export const AuditEvents = {
   BREACH_INCIDENT_NOTIFIED: 'BREACH_INCIDENT_NOTIFIED',
   BREACH_INCIDENT_DISMISSED: 'BREACH_INCIDENT_DISMISSED',
   BREACH_DETECTOR_SCAN_COMPLETED: 'BREACH_DETECTOR_SCAN_COMPLETED',
+
+  // Slice BT — DPDP consent record lifecycle. Grant + withdraw are
+  // operator-driven; expiry is currently triggered by the read-time
+  // `requireConsent` check (no sweeper yet — a future slice can add
+  // one when v1 demand justifies it).
+  CONSENT_GRANTED: 'CONSENT_GRANTED',
+  CONSENT_WITHDRAWN: 'CONSENT_WITHDRAWN',
 } as const;
 
 export type AuditEvent = (typeof AuditEvents)[keyof typeof AuditEvents];

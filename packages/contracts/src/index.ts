@@ -21,5 +21,6 @@ export * from './biometric-auth.schema';
 export * from './pmjay-policies.schema';
 export * from './erasure.schema';
 export * from './breach.schema';
+export * from './consent.schema';
 export * from './problem-details.schema';
 export { Permissions, ALL_PERMISSIONS, type Permission as AppPermission } from './permissions';

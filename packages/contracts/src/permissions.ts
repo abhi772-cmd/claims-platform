@@ -73,6 +73,16 @@ export const Permissions = {
   // identity and the categories of personal data implicated.
   BREACH_INCIDENT_VIEW: 'breach_incident.view',
   BREACH_INCIDENT_MANAGE: 'breach_incident.manage',
+
+  // Slice BT — DPDP consent record management. View granted to
+  // most operator roles (intake desks need to see if a patient
+  // has consented to NHCX processing); manage limited to roles
+  // capturing consent at admission + the DPO who handles
+  // withdrawals. Withdrawals are irreversible at the record level
+  // — a withdrawn grant cannot be re-granted; a new grant must
+  // be filed.
+  CONSENT_VIEW: 'consent.view',
+  CONSENT_MANAGE: 'consent.manage',
 } as const;
 
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
