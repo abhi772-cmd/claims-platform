@@ -52,6 +52,48 @@ deferred to production-rollout config swaps.
   missing-`token` paths, HTTP 401 / 500 errors, and connection
   refused.
 
+### BN — PMJAY participant onboarding CLI
+
+- One-shot per-hospital CLI at
+  `apps/api/src/scripts/pmjay-onboard/`. Drives the four-step PMJAY
+  participant flow:
+  1. `participant/create` → SMS OTP issued.
+  2. `validate?transactionId&passcode` → status PENDING → ACTIVE.
+  3. `participant/update` (with public key + endpoint URL) → new
+     SMS OTP, 24h TTL.
+  4. `update/validate?transactionId&passcode` → certificate
+     registered, endpoint live, status fully ACTIVE.
+- State (participantid + both transactionids + key paths) persists
+  to a JSON file the operator passes via `--state-file`. The
+  step-3 OTP can land 24 hours later, so resume between runs is a
+  first-class flow: `--resume` re-enters the saved step. State
+  written with mode 0600 on POSIX (best-effort no-op on Windows).
+- Generates a 2048-bit RSA keypair locally if one isn't already at
+  the configured path prefix (writes `*.private.pem` 0600 +
+  `*.public.pem` 0644). Public key is base64(pem-text) for
+  `encryptioncert`. Refuses to clobber a single pre-existing file
+  to protect operator-generated keys.
+- Run via `pnpm --filter @claims/api pmjay:onboard --base-url
+  https://apisbx.abdm.gov.in/pmjay/sbxhcx/participanthcxservice/v2/`
+  and similar for production. All inputs (registry id, mobile,
+  email, endpoint URL) are prompted interactively; flags supply
+  them non-interactively for scripted runs.
+- Three test files (20 total cases): HTTP client coverage on URL
+  composition, bearer header, query-param encoding for OTP
+  validates, Zod input validation, error envelope handling, and
+  non-JSON response capture; state file round-trip + corruption
+  rejection + resume; keypair generation, idempotency on existing
+  files, refusal to clobber a half-existing pair, and base64-PEM
+  serialisation.
+- Source contract: `HIMS-PMJAY suppporting docs/PMJAY Hospital
+  Migration to HMIS via NHCX.docx` §3.1–3.4 (authoritative payload
+  shapes), `NHCX-PMJAY-HMIS Integration Guide (1).pdf` §1.7
+  (sandbox prerequisites), `NHCX PMJAY Integration Handbook.docx`
+  §5.5.2 (host pattern). After step 4, the operator must raise an
+  NHA ticket to map PMJAY Hospital ID (HEM ID) ↔ NHCX Participant
+  ID — that's the manual go-live trigger and is out of scope for
+  the CLI.
+
 ### BM — FHIR code-system whitelist (PMJAY-aware)
 
 - New pure validator at `apps/api/src/modules/nhcx/fhir-validator/`.

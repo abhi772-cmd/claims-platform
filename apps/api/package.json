@@ -18,7 +18,8 @@
     "db:reset": "prisma migrate reset --force --skip-seed",
     "db:seed": "ts-node --transpile-only --project tsconfig.json prisma/seed.ts",
     "db:seed:master": "ts-node --transpile-only --project tsconfig.json prisma/seed-master-data.ts",
-    "prisma:generate": "prisma generate"
+    "prisma:generate": "prisma generate",
+    "pmjay:onboard": "ts-node --transpile-only -r tsconfig-paths/register src/scripts/pmjay-onboard/pmjay-onboard.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1042.0",
