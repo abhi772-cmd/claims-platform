@@ -14,6 +14,85 @@ sweeper (BP), erasure-on-request (BQ), data-access ledger (BR),
 breach detection (BS), consent record + UI (BT), and the
 compliance dashboard (BU).
 
+### BT — DPDP §6 / Rule 8 consent record + access-ledger binding
+
+- New `consent_record` table holds operator-captured DPDP consents.
+  One row per `(patient, consentType)` grant lifecycle: a withdrawn
+  / expired / superseded row sits alongside a later granted row;
+  `findActiveFor` reads the most-recent `granted` row whose
+  `expiresAt` is null or in the future. RLS = same-tenant SELECT /
+  INSERT / UPDATE (status flips for withdrawal). DELETE blocked —
+  consent records are themselves a compliance artifact and outlast
+  the data they authorise. FK to `patient` is `ON DELETE NO
+  ACTION` so a future BQ erasure scrubs the patient row in place
+  without taking the consent record with it.
+- Captured fields: `consentType` (`nhcx_processing` | `pmjay_processing`
+  | `analytics` | `communication`), `dataCategories` + `purposes`
+  JSON arrays, `lawfulBasis` (`consent` | `legitimate_use` |
+  `legal_obligation` | `public_interest`), `source` (free-text
+  channel descriptor), `evidence` JSON snapshot of the notice
+  shown to the data principal at consent time, optional
+  `expiresAt` and `documentId` (link to a stored paper-form
+  scan), `capturedByUserId`, `withdrawnAt` + `withdrawalReason`
+  on flip.
+- New `ConsentService` with five operations:
+  - `grant(input)` — create a row with status='granted'; verifies
+    patient belongs to tenant; emits `CONSENT_GRANTED` audit row
+    (consent retention class — held until withdrawal + statutory
+    floor under Rule 8).
+  - `withdraw(id, reason)` — flip granted → withdrawn with the
+    required reason for §13 traceability; rejects when status
+    isn't 'granted'; emits `CONSENT_WITHDRAWN` audit row.
+  - `list(filter)` — tenant-scoped, optional filters on patient /
+    type / status, ordered by `grantedAt desc`.
+  - `findActiveFor(tenant, patient, type)` — returns the most-
+    recent granted row covering the (patient, type) tuple; null
+    when none exists.
+  - `requireConsent(...)` — call-site guard; throws
+    ValidationFailedError when no active grant exists. Service
+    code gating PII reads (preauth / claim submit) calls this
+    before decryption.
+- **Access-ledger binding**: `data_access_event` gains a nullable
+  `consentGrantId UUID` column. `DataAccessLogService` accepts it
+  in the write input; `PatientService.getDecrypted` extends ctx
+  with `consentGrantId`. Service callers (eligibility / preauth /
+  claim submit slices in subsequent work) thread the active grant
+  id from `findActiveFor` into the decrypt ctx, and the row's
+  binding back to the consent grant lets BU's compliance dashboard
+  answer "show every read authorised by this grant" with a single
+  index lookup. Loose-coupled by uuid (no FK) so the ledger row
+  outlives any future consent-record migration.
+- New endpoints (`/consents`):
+  - `POST /consents` — manage; capture a new grant.
+  - `GET  /consents` — view; list with optional patient / type / status filters.
+  - `GET  /consents/:id` — view; row.
+  - `POST /consents/:id/withdraw` — manage; flip + reason.
+- New permissions: `consent.view` + `consent.manage`. View is
+  granted broadly (intake desks need to see whether a patient has
+  consented before processing); manage is restricted to roles that
+  capture consent at admission and the DPO who handles
+  withdrawals. Default seed: `platform_admin` and `tenant_admin`
+  get both; `billing_manager` and `insurance_desk_executive` get
+  both (they're the operator-level roles capturing consent at
+  intake); `pmam`, `doctor`, `finance_viewer`, `read_only` are
+  intentionally excluded.
+- New audit events: `CONSENT_GRANTED`, `CONSENT_WITHDRAWN` —
+  classified as `consent` retention class (held until withdrawal
+  + statutory floor; distinct from governance because the
+  withdrawal of a consent is itself a data-principal right).
+- New web admin route at `/admin/consents` mirrors the audit
+  viewer pattern: filterable list (patient / type / status) with
+  inline withdraw button (prompts for reason) for `granted` rows.
+- 8 e2e canary cases on `consent-record.e2e-spec.ts`: grant lands
+  status='granted'; list filters by patient + status; withdraw
+  flips status with reason + rejects second withdraw (422);
+  `requireConsent` throws when no grant + returns row when active;
+  `findActiveFor` excludes expired (past `expiresAt`) and
+  withdrawn rows; `PatientService.getDecrypted` threads
+  `consentGrantId` into the resulting `data_access_event` row;
+  reader without `consent.view` → 403; cross-tenant GET → 422
+  (RLS canary).
+
 ### BS — DPDP §8(6) breach detection + 72h notification template
 
 - New append-only-on-DELETE `breach_incident` table records both

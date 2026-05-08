@@ -150,6 +150,14 @@ const EVENT_TO_CLASS: Readonly<Record<AuditEvent, RetentionClass>> = {
   [AuditEvents.BREACH_INCIDENT_NOTIFIED]: RetentionClasses.GOVERNANCE,
   [AuditEvents.BREACH_INCIDENT_DISMISSED]: RetentionClasses.GOVERNANCE,
   [AuditEvents.BREACH_DETECTOR_SCAN_COMPLETED]: RetentionClasses.GOVERNANCE,
+
+  // Slice BT — consent lifecycle. CONSENT class — held until
+  // withdrawal + statutory floor (Rule 8). Distinct from governance:
+  // the withdrawal of a consent is itself a data principal right
+  // and the audit trail must align with the consent record's own
+  // retention.
+  [AuditEvents.CONSENT_GRANTED]: RetentionClasses.CONSENT,
+  [AuditEvents.CONSENT_WITHDRAWN]: RetentionClasses.CONSENT,
 };
 
 // Classify an audit event for retention. Defaults to FINANCIAL when

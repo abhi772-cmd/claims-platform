@@ -14,6 +14,7 @@ import { BreachModule } from './modules/breach/breach.module';
 import { CaseModule } from './modules/case';
 import { ClaimModule } from './modules/claim';
 import { ClaimSubmitModule } from './modules/claim-submit';
+import { ConsentModule } from './modules/consent/consent.module';
 import { DataAccessModule } from './modules/data-access/data-access.module';
 import { DischargeModule } from './modules/discharge';
 import { DoctorModule } from './modules/doctor';
@@ -117,6 +118,7 @@ import { UserModule } from './modules/user/user.module';
     AuthModule,
     ErasureModule,
     BreachModule,
+    ConsentModule,
   ],
 })
 export class AppModule implements NestModule {

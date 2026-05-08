@@ -991,10 +991,19 @@ model DataAccessEvent {
   ipAddress      String?
   userAgent      String?
   correlationId  String?
+  // Slice BT — optional binding to the ConsentRecord that authorised
+  // this access. Service callers thread it through ctx; null means
+  // the read happened under a non-consent lawful basis (legitimate
+  // use, legal obligation) or the call site hasn't been wired to
+  // consent yet. The compliance dashboard (BU) can group by
+  // consentGrantId to answer "show every read authorised by this
+  // grant" and surface reads with no binding for triage.
+  consentGrantId String?  @db.Uuid
 
   @@index([tenantId, occurredAt])
   @@index([tenantId, resourceType, resourceId])
   @@index([tenantId, actorUserId])
+  @@index([tenantId, consentGrantId])
   @@map("data_access_event")
 }
 
@@ -1150,4 +1159,76 @@ model BreachIncident {
   @@index([tenantId, kind])
   @@index([tenantId, dpdpNotificationDueAt])
   @@map("breach_incident")
+}
+
+// Slice BT — DPDP Act 2023 §6 / Rule 8 consent record. One row per
+// (patient, consentType) grant-or-withdrawal lifecycle. Captures the
+// lawful basis the operator is relying on plus the evidence of the
+// notice that was shown to the data principal.
+//
+// Lifecycle:
+//   granted → withdrawn   (data principal exercises §13 right)
+//   granted → expired     (passes expiresAt without renewal)
+//   granted → superseded  (a newer grant covers the same scope —
+//                          v1 doesn't auto-supersede; reserved)
+//
+// `requireConsent(patientId, consentType)` reads the latest
+// status='granted' row whose expiresAt is null or in the future. If
+// none exists the caller throws a domain error and the access
+// short-circuits before any decryption.
+//
+// RLS: same-tenant SELECT + INSERT + UPDATE (status flips for
+// withdrawal). DELETE blocked — consent records are themselves a
+// compliance artifact and outlast the data they authorised.
+model ConsentRecord {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @db.Uuid
+  patientId          String   @db.Uuid
+  // Stable label: 'nhcx_processing' | 'pmjay_processing' |
+  // 'analytics' | 'communication' | etc. Code paths gate access on
+  // a known string; new types land in the contracts package first.
+  consentType        String
+  // List of personal-data categories the grant covers. Conventional
+  // labels: 'aadhaar' | 'mobile' | 'medical_records' | etc. Used by
+  // BU's dashboard to filter "what data am I authorised to read".
+  dataCategories     Json
+  // List of purposes the grant authorises. Same vocabulary as
+  // data_access_event.purpose ('eligibility.verify' | 'preauth.submit'
+  // | etc.) so the binding round-trips. Empty list = bound to
+  // consentType only (legacy callers).
+  purposes           Json
+  // 'consent' | 'legitimate_use' | 'legal_obligation' |
+  // 'public_interest'. Most rows are 'consent' — the others are for
+  // emergency / regulatory reads that DPDP §7 carve-outs allow
+  // without an explicit grant. Captured here so the access ledger
+  // can surface the basis without joining a separate table.
+  lawfulBasis        String   @default("consent")
+  // 'granted' | 'withdrawn' | 'expired' | 'superseded'. UPDATE
+  // policy permits same-tenant flips; the service enforces the
+  // legal sequencing.
+  status             String   @default("granted")
+  // Free-text capture of how the grant was obtained — 'in_person'
+  // | 'abha_otp' | 'paper_form_doc:<docId>' | 'tele_consent_call:<id>'.
+  // Operators map this to their existing channels.
+  source             String
+  // Snapshot of the notice the data principal saw at consent time.
+  // Stored verbatim so a later DPDP audit can reconstruct what they
+  // agreed to even after the platform's notice copy changes.
+  evidence           Json
+  grantedAt          DateTime @default(now())
+  expiresAt          DateTime?
+  withdrawnAt        DateTime?
+  withdrawalReason   String?
+  capturedByUserId   String?  @db.Uuid
+  // Optional link to the document_storage row holding a scanned
+  // paper form / signed PDF. Decoupled from the evidence JSON so a
+  // future S3-backed audit can reach back to the original artifact.
+  documentId         String?  @db.Uuid
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([tenantId, patientId, consentType, status])
+  @@index([tenantId, status])
+  @@index([tenantId, expiresAt])
+  @@map("consent_record")
 }
