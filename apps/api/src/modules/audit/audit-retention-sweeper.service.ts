@@ -67,16 +67,22 @@ export class AuditRetentionSweeperService {
         Prisma.sql`SELECT set_config('app.role', ${'retention_sweeper'}, true)`,
       );
 
+      // Delete via Prisma's deleteMany rather than the
+      // `audit_retention_sweep` SQL function — same transaction +
+      // connection, so the GUC set above governs the DELETE; we just
+      // skip the PL/pgSQL boundary that clouds GUC visibility on
+      // some PG versions. The function lives on for direct SQL +
+      // pg_cron callers (see migration 20260525000000).
       for (const cls of ALL_RETENTION_CLASSES) {
         const days = RETENTION_FLOOR_DAYS[cls];
-        // Cast to INT explicitly — Prisma templates JS numbers as
-        // bigint, but `audit_retention_sweep(TEXT, INTEGER)` expects
-        // a 4-byte int. Without the cast Postgres errors with
-        // "function audit_retention_sweep(text, bigint) does not exist".
-        const rows = await tx.$queryRaw<Array<{ deleted: number }>>(
-          Prisma.sql`SELECT audit_retention_sweep(${cls}, ${days}::int) AS deleted`,
-        );
-        counts[cls] = Number(rows[0]?.deleted ?? 0);
+        const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+        const result = await tx.auditLog.deleteMany({
+          where: {
+            retentionClass: cls,
+            occurredAt: { lt: cutoff },
+          },
+        });
+        counts[cls] = result.count;
       }
     });
 
