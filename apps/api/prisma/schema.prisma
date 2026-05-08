@@ -952,6 +952,52 @@ model DocumentChecklistRule {
 
 // Append-only via RLS (see migration). Application code that tries to
 // UPDATE or DELETE rows is silently rejected.
+// Slice BR — DPDP §17 data access ledger. Append-only record of
+// every read of personal data (decryption of an encrypted PII
+// field, bulk view of a PII-bearing list, audit-log query). Distinct
+// from `audit_log` which records state changes; this ledger
+// records reads. DPDP Rules 2025 require this for compliance and
+// expect operators to be able to answer "show me every time this
+// patient's data was accessed".
+//
+// Append-only at the RLS level (no UPDATE/DELETE policies on the
+// access path; the BP retention sweeper is the only DELETE
+// pathway, gated by retention class). Class is 'governance' by
+// default (8y) since access logs document compliance posture; ops
+// can reclassify to 'security' for non-PII access if/when surface
+// expands.
+model DataAccessEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @db.Uuid
+  occurredAt     DateTime @default(now())
+  // Actor — null when system-driven (NHCX inbound dispatcher
+  // touching PII for FHIR-bundle parsing, retention sweeper, etc.).
+  actorUserId    String?  @db.Uuid
+  actorType      String   // 'user' | 'system' | 'scheduled'
+  // What was read.
+  resourceType   String   // 'patient' | 'case' | 'audit_log' | etc.
+  resourceId     String?
+  // 'decrypt' | 'list' | 'view' | 'export'
+  action         String
+  // Why the read happened. Free-text but conventional values:
+  // 'eligibility.verify' | 'preauth.submit' | 'manual_view' |
+  // 'audit_query' | 'audit_export' | 'erasure_check' | etc.
+  purpose        String
+  // Optional list of sensitive field names that were touched
+  // (e.g. ['aadhaarCipher', 'mobileCipher'] when decrypting). The
+  // dashboard surfaces this so operators can see *which* fields
+  // were accessed, not just that the row was touched.
+  fieldNames     Json?
+  ipAddress      String?
+  userAgent      String?
+  correlationId  String?
+
+  @@index([tenantId, occurredAt])
+  @@index([tenantId, resourceType, resourceId])
+  @@index([tenantId, actorUserId])
+  @@map("data_access_event")
+}
+
 // Slice BQ — DPDP Act 2023 §11 erasure-on-request log. One row per
 // data-subject erasure request the platform receives. The body of
 // the redaction (patient PII null-ing, case denormalised-name

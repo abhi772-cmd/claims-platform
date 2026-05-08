@@ -13,6 +13,7 @@ import { BiometricAuthModule } from './modules/biometric-auth';
 import { CaseModule } from './modules/case';
 import { ClaimModule } from './modules/claim';
 import { ClaimSubmitModule } from './modules/claim-submit';
+import { DataAccessModule } from './modules/data-access/data-access.module';
 import { DischargeModule } from './modules/discharge';
 import { DoctorModule } from './modules/doctor';
 import { DocumentModule } from './modules/document';
@@ -82,6 +83,7 @@ import { UserModule } from './modules/user/user.module';
     PrismaModule,
     SecurityModule,
     AuditModule,
+    DataAccessModule,
     NotificationModule,
     PasswordModule,
     MfaModule,
