@@ -40,6 +40,13 @@ const TRANSITIONS: readonly Transition[] = [
   { from: 'PREAUTH_SUBMITTED',                 event: 'preauth.rejected',              to: 'PREAUTH_REJECTED' },
   { from: 'PREAUTH_SUBMITTED',                 event: 'preauth.partially_approved',    to: 'PREAUTH_PARTIALLY_APPROVED' },
   { from: 'PREAUTH_QUERY_RAISED',              event: 'preauth.query_responded',       to: 'PREAUTH_QUERY_RESPONDED' },
+  // Slice BL — PMJAY operators don't respond to queries via
+  // Communication; they re-submit. The preauth controller route
+  // gates on `tenant.pmjayMode === 'on'`; the transition itself
+  // is rail-agnostic (private-rail tenants could still reach it
+  // through the /transitions admin escape hatch if they want, but
+  // the documented path is "respond via Communication").
+  { from: 'PREAUTH_QUERY_RAISED',              event: 'preauth.resubmission_started',  to: 'PREAUTH_DRAFTING' },
   { from: 'PREAUTH_QUERY_RESPONDED',           event: 'preauth.approved',              to: 'PREAUTH_APPROVED' },
   { from: 'PREAUTH_QUERY_RESPONDED',           event: 'preauth.query_received',        to: 'PREAUTH_QUERY_RAISED' },
   { from: 'PREAUTH_QUERY_RESPONDED',           event: 'preauth.rejected',              to: 'PREAUTH_REJECTED' },
@@ -80,6 +87,10 @@ const TRANSITIONS: readonly Transition[] = [
   { from: 'CLAIM_SUBMITTED',                   event: 'claim.rejected',                to: 'CLAIM_REJECTED' },
   { from: 'CLAIM_SUBMITTED',                   event: 'claim.partially_approved',      to: 'CLAIM_PARTIALLY_APPROVED' },
   { from: 'CLAIM_QUERY_RAISED',                event: 'claim.query_responded',         to: 'CLAIM_QUERY_RESPONDED' },
+  // Slice BL — PMJAY claim re-submit on query. Mirrors the preauth
+  // pull-back; the claim-submit controller route gates on
+  // `tenant.pmjayMode === 'on'`.
+  { from: 'CLAIM_QUERY_RAISED',                event: 'claim.resubmission_started',    to: 'CLAIM_DRAFTING' },
   { from: 'CLAIM_QUERY_RESPONDED',             event: 'claim.approved',                to: 'CLAIM_APPROVED' },
   { from: 'CLAIM_QUERY_RESPONDED',             event: 'claim.rejected',                to: 'CLAIM_REJECTED' },
   { from: 'CLAIM_QUERY_RESPONDED',             event: 'claim.partially_approved',      to: 'CLAIM_PARTIALLY_APPROVED' },

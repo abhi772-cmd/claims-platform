@@ -5,6 +5,9 @@ import {
   type ClaimReprocessRequest,
   ClaimReprocessRequestSchema,
   type ClaimReprocessResponse,
+  type ClaimResubmitRequest,
+  ClaimResubmitRequestSchema,
+  type ClaimResubmitResponse,
   type ClaimSubmissionResponse,
   type ClaimSubmissionStartRequest,
   ClaimSubmissionStartRequestSchema,
@@ -98,6 +101,27 @@ export class ClaimSubmitController {
       claimId,
       actorUserId: user.userId,
       reasonCode: body.reasonCode,
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    });
+  }
+
+  // Slice BL — PMJAY claim re-submit on query. Pulls the claim back
+  // to CLAIM_DRAFTING so the operator can edit and re-submit.
+  // PMJAY-only; service guards on tenant.pmjayMode === 'on'.
+  @Post('resubmit')
+  @HttpCode(200)
+  @RequirePermission(Permissions.CLAIM_RESPOND_QUERY)
+  async resubmit(
+    @Param('caseId', new ParseUUIDPipe()) caseId: string,
+    @Param('claimId', new ParseUUIDPipe()) claimId: string,
+    @Body(new ZodValidationPipe(ClaimResubmitRequestSchema)) body: ClaimResubmitRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<ClaimResubmitResponse> {
+    await this.assertOwns(user.tenantId, caseId, claimId);
+    return this.claimSubmit.resubmitOnQuery({
+      tenantId: user.tenantId,
+      claimId,
+      actorUserId: user.userId,
       ...(body.reason !== undefined ? { reason: body.reason } : {}),
     });
   }

@@ -87,3 +87,21 @@ export const PreauthCancelResponseSchema = z.object({
   correlationId: z.string(),
 });
 export type PreauthCancelResponse = z.infer<typeof PreauthCancelResponseSchema>;
+
+// Slice BL — PMJAY tenants don't respond to queries via Communication;
+// they pull the preauth back to PREAUTH_DRAFTING and re-submit. This
+// is a state-only flip (no NHCX call); the next preauth submit is
+// what reaches the gateway. PMJAY-only.
+export const PreauthResubmitRequestSchema = z.object({
+  // Optional free-text note from the operator. Stamped on every
+  // outstanding preauth_query row's responseText (prefixed
+  // [resubmit] ...) so the audit trail captures *why* the operator
+  // pulled back to drafting instead of responding.
+  reason: z.string().max(2000).optional(),
+});
+export type PreauthResubmitRequest = z.infer<typeof PreauthResubmitRequestSchema>;
+
+export const PreauthResubmitResponseSchema = z.object({
+  status: z.string(),
+});
+export type PreauthResubmitResponse = z.infer<typeof PreauthResubmitResponseSchema>;

@@ -421,6 +421,20 @@ export class PreauthService {
   }
 
   async respondToQuery(input: QueryResponseInput): Promise<{ status: string }> {
+    // Slice BL — PMJAY tenants don't use Communication-based query
+    // responses; they re-submit instead. We reject this endpoint at
+    // the gate with a clear message that points at the alternative
+    // path so the operator knows what to do. Private rails keep the
+    // existing Communication flow.
+    const tenant = await this.tenants.findById(input.tenantId);
+    if (tenant?.pmjayMode === 'on') {
+      throw new ValidationFailedError({
+        tenant: [
+          'PMJAY tenants do not respond to queries via Communication. Re-submit the preauth via POST /cases/:caseId/claims/:claimId/preauth/resubmit instead.',
+        ],
+      });
+    }
+
     const claim = await this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
       const q = await tx.preauthQuery.findUnique({ where: { id: input.queryId } });
       if (!q || q.tenantId !== input.tenantId || q.claimId !== input.claimId) {
@@ -477,6 +491,49 @@ export class PreauthService {
       eventType: 'preauth.query_responded',
       actorUserId: input.actorUserId,
       correlationId: adapterResult.correlationId,
+    });
+    return { status: snap.status };
+  }
+
+  // Slice BL — PMJAY-only. Pull the preauth back to PREAUTH_DRAFTING
+  // so the operator can edit the draft and submit again. The
+  // outstanding query record stays in place (respondedAt remains
+  // null) for audit; we mark it cancelled-by-resubmit by stamping
+  // responseText if a reason was supplied. No outbound NHCX call
+  // here — this is a state-only reset; the next preauth submit
+  // is what reaches the gateway.
+  async resubmitOnQuery(input: {
+    tenantId: string;
+    claimId: string;
+    actorUserId: string;
+    reason?: string;
+  }): Promise<{ status: string }> {
+    const tenant = await this.tenants.findById(input.tenantId);
+    if (tenant?.pmjayMode !== 'on') {
+      throw new ValidationFailedError({
+        tenant: ['Preauth resubmit on query is currently a PMJAY-only operation.'],
+      });
+    }
+
+    if (input.reason) {
+      // Stamp the operator's note onto every outstanding query for
+      // this claim so the audit trail captures *why* we pulled back
+      // to drafting. This is informational; the state-machine
+      // transition is what actually closes the query window.
+      await this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
+        await tx.preauthQuery.updateMany({
+          where: { claimId: input.claimId, tenantId: input.tenantId, respondedAt: null },
+          data: { respondedAt: new Date(), responseText: `[resubmit] ${input.reason}` },
+        });
+      });
+    }
+
+    const snap = await this.claims.transition({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      eventType: 'preauth.resubmission_started',
+      actorUserId: input.actorUserId,
+      payload: input.reason ? { reason: input.reason } : {},
     });
     return { status: snap.status };
   }

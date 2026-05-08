@@ -304,6 +304,31 @@ export class ClaimSubmitService {
     return { status: snap.status, correlationId: adapterResult.correlationId };
   }
 
+  // Slice BL — PMJAY-only. Pull a queried claim back to CLAIM_DRAFTING
+  // so the operator can edit and re-submit. State-only flip; no
+  // outbound NHCX call. Mirrors `preauthService.resubmitOnQuery`.
+  async resubmitOnQuery(input: {
+    tenantId: string;
+    claimId: string;
+    actorUserId: string;
+    reason?: string;
+  }): Promise<{ status: string }> {
+    const tenant = await this.tenants.findById(input.tenantId);
+    if (tenant?.pmjayMode !== 'on') {
+      throw new ValidationFailedError({
+        tenant: ['Claim resubmit on query is currently a PMJAY-only operation.'],
+      });
+    }
+    const snap = await this.claims.transition({
+      tenantId: input.tenantId,
+      claimId: input.claimId,
+      eventType: 'claim.resubmission_started',
+      actorUserId: input.actorUserId,
+      payload: input.reason ? { reason: input.reason } : {},
+    });
+    return { status: snap.status };
+  }
+
   async applyDecision(input: DecisionInput): Promise<{
     status: string;
     approvedAmount: number | null;

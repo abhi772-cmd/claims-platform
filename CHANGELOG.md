@@ -52,6 +52,46 @@ deferred to production-rollout config swaps.
   missing-`token` paths, HTTP 401 / 500 errors, and connection
   refused.
 
+### BL — PMJAY drop Communication-based query response (re-submit instead)
+
+- PMJAY tenants don't respond to payer queries via FHIR Communication;
+  the documented workflow is to pull the preauth (or claim) back to
+  drafting, fix whatever the payer asked about, and re-submit. We
+  reject the existing Communication-based response endpoint for PMJAY
+  callers with HTTP 422 and a tenant-field error that points the
+  operator at the new resubmit route.
+- Two new endpoints, both PMJAY-only at the service gate:
+  - `POST /cases/:caseId/claims/:claimId/preauth/resubmit` — flips
+    `PREAUTH_QUERY_RAISED → preauth.resubmission_started → PREAUTH_DRAFTING`
+    via a new state-machine transition. Outstanding `preauth_query`
+    rows on the claim are stamped with `responseText='[resubmit] ...'`
+    and `respondedAt=now()` so the audit trail captures *why* the
+    operator pulled back to drafting (informational; the state
+    transition is what closes the query window).
+  - `POST /cases/:caseId/claims/:claimId/claim-submission/resubmit`
+    — mirror of the preauth flow on the claim side. Flips
+    `CLAIM_QUERY_RAISED → claim.resubmission_started → CLAIM_DRAFTING`.
+- Both routes are state-only flips — no NHCX outbound. The next
+  `preauth/submit` (or `claim-submission/submit`) is what reaches
+  the gateway.
+- New permissions / events:
+  - `Permissions.CLAIM_RESPOND_QUERY` (mirror of the existing
+    `PREAUTH_RESPOND_QUERY`) for the claim resubmit route. Seeded
+    onto the four PMJAY-active roles in `prisma/seed.ts`. The
+    preauth resubmit route reuses `PREAUTH_RESPOND_QUERY` because
+    it's a query-resolution gesture.
+  - Two new claim events: `preauth.resubmission_started`,
+    `claim.resubmission_started`. New transitions are
+    `from`-restricted to the QUERY_RAISED states; the state-machine
+    spec asserts non-QUERY_RAISED inputs are refused.
+- 4 unit cases added to `claim.state-machine.spec.ts` covering the
+  new transitions + their refusal from non-QUERY_RAISED states.
+  6 e2e cases on `pmjay-resubmit-on-query.e2e-spec.ts`: PMJAY
+  Communication-respond rejected, PMJAY preauth resubmit happy path
+  (with `preauth_query` stamp assertion), non-PMJAY preauth resubmit
+  rejected, PMJAY claim resubmit happy path, non-PMJAY claim
+  resubmit rejected, PMJAY resubmit from non-QUERY_RAISED → 422.
+
 ### BK — PMJAY eligibility three-purpose dispatch
 
 - PMJAY-via-NHCX runs `coverageeligibility/check` three times per
