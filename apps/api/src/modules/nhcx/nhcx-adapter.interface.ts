@@ -25,6 +25,12 @@ export interface AdapterCoverageFields {
   memberId: string;
 }
 
+// Slice BK — PMJAY runs eligibility three times with different purposes
+// (one per FHIR CoverageEligibilityRequest.purpose value). Private rails
+// kept the legacy combined ['benefits','validation'] array; that lives
+// in the FHIR builder as the default when purpose is omitted.
+export type AdapterEligibilityPurpose = 'validation' | 'benefits' | 'auth-requirements';
+
 export interface AdapterEligibilityRequest {
   tenantId: string;
   claimId: string;
@@ -37,6 +43,9 @@ export interface AdapterEligibilityRequest {
   patient?: AdapterPatientFields;
   coverage?: AdapterCoverageFields;
   serviceDate?: string;
+  // Slice BK: when set, the FHIR bundle uses a single-element purpose
+  // array ([purpose]); when unset, the legacy combined array is used.
+  purpose?: AdapterEligibilityPurpose;
 }
 
 export interface AdapterEligibilityResponse {

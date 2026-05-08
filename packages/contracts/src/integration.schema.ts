@@ -68,11 +68,24 @@ export type IntegrationMessageListResponse = z.infer<
 // Eligibility request + response surface. The actual NHCX FHIR Bundle
 // shape lives elsewhere (see docs/07); this is the wire shape between
 // our web app and our API.
+
+// Slice BK — PMJAY runs eligibility three times with different purposes:
+//   - 'validation'        post-registration wallet / member-active check
+//   - 'benefits'          before preauth, to confirm coverage limits
+//   - 'auth-requirements' before submission, to fetch the document checklist
+// Private rails historically used the combined ['benefits','validation']
+// array; we keep that as the implicit default when purpose is omitted so
+// existing call sites stay unchanged. PMJAY tenants must specify which
+// one — the service rejects a missing purpose at the gate.
+export const EligibilityPurposeSchema = z.enum(['validation', 'benefits', 'auth-requirements']);
+export type EligibilityPurpose = z.infer<typeof EligibilityPurposeSchema>;
+
 export const EligibilityRequestSchema = z.object({
   // Optional fields that the stub uses to decide verified/failed; real
   // adapter reads the policy + patient details from the case.
   policyNumber: z.string().min(1).max(64).optional(),
   payerCode: z.string().min(1).max(64).optional(),
+  purpose: EligibilityPurposeSchema.optional(),
 });
 export type EligibilityRequest = z.infer<typeof EligibilityRequestSchema>;
 

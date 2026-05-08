@@ -68,6 +68,42 @@ describe('FHIR R4 bundle builders', () => {
       const patientUrn = (cov!['beneficiary'] as { reference: string }).reference;
       expect(patientUrn).toMatch(/-patient$/);
     });
+
+    // Slice BK — PMJAY runs eligibility three times with different
+    // purposes; the builder must emit a single-element purpose array
+    // when called with a purpose, and keep the legacy combined array
+    // when called without.
+    describe('purpose dispatch (Slice BK)', () => {
+      function purposeArrayOf(purpose?: 'validation' | 'benefits' | 'auth-requirements'): unknown {
+        const b = buildEligibilityRequestBundle({
+          actors,
+          patient,
+          coverage,
+          serviceDate: '2026-05-01',
+          ...(purpose ? { purpose } : {}),
+        });
+        const req = b.entry.find(
+          (e) => e.resource['resourceType'] === 'CoverageEligibilityRequest',
+        )?.resource as Record<string, unknown> | undefined;
+        return req!['purpose'];
+      }
+
+      it('omitted purpose → legacy combined array [benefits, validation]', () => {
+        expect(purposeArrayOf(undefined)).toEqual(['benefits', 'validation']);
+      });
+
+      it('purpose=validation → single-element [validation]', () => {
+        expect(purposeArrayOf('validation')).toEqual(['validation']);
+      });
+
+      it('purpose=benefits → single-element [benefits]', () => {
+        expect(purposeArrayOf('benefits')).toEqual(['benefits']);
+      });
+
+      it('purpose=auth-requirements → single-element [auth-requirements]', () => {
+        expect(purposeArrayOf('auth-requirements')).toEqual(['auth-requirements']);
+      });
+    });
   });
 
   describe('buildPreauthSubmitBundle', () => {

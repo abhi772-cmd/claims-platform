@@ -101,6 +101,10 @@ export class NhcxJweAdapter implements NhcxAdapter {
             patient: this.toFhirPatient(input.patient),
             coverage: this.toFhirCoverage(input.coverage),
             serviceDate: input.serviceDate ?? new Date().toISOString().slice(0, 10),
+            // Slice BK: PMJAY drives a single-purpose array; legacy
+            // private-rail callers omit purpose and get the combined
+            // ['benefits','validation'] default from the builder.
+            ...(input.purpose ? { purpose: input.purpose } : {}),
           })
         : {
             patientName: input.patientName,
