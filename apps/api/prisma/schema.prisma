@@ -952,6 +952,48 @@ model DocumentChecklistRule {
 
 // Append-only via RLS (see migration). Application code that tries to
 // UPDATE or DELETE rows is silently rejected.
+// Slice BQ — DPDP Act 2023 §11 erasure-on-request log. One row per
+// data-subject erasure request the platform receives. The body of
+// the redaction (patient PII null-ing, case denormalised-name
+// scrubbing) happens against the Patient + Case rows themselves;
+// this table is the audit/compliance record that lets us prove
+// we honoured (or rejected, with reason) every request.
+//
+// Status is final at insert time — v1 doesn't have a pending /
+// verified intermediate state because admins process synchronously.
+// Future BT consent UI may add staged states; for now every row is
+// either 'completed' or 'rejected'.
+model ErasureRequest {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @db.Uuid
+  // Patient whose data was erased. Nullable because we may
+  // eventually accept tenant-wide / operator-user requests; v1
+  // requires a patientId.
+  patientId         String?  @db.Uuid
+  // Free-text capture of who filed the request (ops desk reading
+  // off a paper form, an in-person ABHA / mobile match, etc.).
+  // Not authoritative — verification mechanism is on the audit
+  // ledger, not here.
+  requestedBy       String
+  reason            String?
+  // 'completed' = redaction performed; 'rejected' = active claims
+  // blocked the erasure (DPDP §13 carve-out for legal compliance).
+  status            String
+  // When status='rejected', list of blocking claim ids + their
+  // statuses so the operator can come back when claims close.
+  rejectionReason   Json?
+  // When status='completed', per-table affected-row counts
+  // (patient, case, etc.).
+  affectedCounts    Json?
+  processedByUserId String?  @db.Uuid
+  createdAt         DateTime @default(now())
+  completedAt       DateTime?
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, patientId])
+  @@map("erasure_request")
+}
+
 model AuditLog {
   id           String   @id @default(uuid()) @db.Uuid
   tenantId     String   @db.Uuid

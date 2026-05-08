@@ -56,6 +56,12 @@ export const AuditEvents = {
   // sweep. Captures per-class delete counts + duration so ops /
   // compliance auditors can see when data was last erased.
   AUDIT_RETENTION_SWEEP_COMPLETED: 'AUDIT_RETENTION_SWEEP_COMPLETED',
+
+  // Slice BQ — DPDP §11 erasure-on-request lifecycle. Two terminal
+  // outcomes: completed (PII redacted) or rejected (active claims
+  // blocked). v1 has no intermediate verified/pending state.
+  ERASURE_REQUEST_PROCESSED: 'ERASURE_REQUEST_PROCESSED',
+  ERASURE_REQUEST_REJECTED: 'ERASURE_REQUEST_REJECTED',
 } as const;
 
 export type AuditEvent = (typeof AuditEvents)[keyof typeof AuditEvents];

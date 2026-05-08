@@ -136,6 +136,11 @@ const EVENT_TO_CLASS: Readonly<Record<AuditEvent, RetentionClass>> = {
   // Self-audit of retention sweeps — kept under governance so the
   // record outlasts the things it documents.
   [AuditEvents.AUDIT_RETENTION_SWEEP_COMPLETED]: RetentionClasses.GOVERNANCE,
+
+  // Slice BQ — erasure-on-request audit. Governance because the
+  // compliance audit trail must outlast the redacted personal data.
+  [AuditEvents.ERASURE_REQUEST_PROCESSED]: RetentionClasses.GOVERNANCE,
+  [AuditEvents.ERASURE_REQUEST_REJECTED]: RetentionClasses.GOVERNANCE,
 };
 
 // Classify an audit event for retention. Defaults to FINANCIAL when
