@@ -1004,6 +1004,8 @@ model DataAccessEvent {
   @@index([tenantId, resourceType, resourceId])
   @@index([tenantId, actorUserId])
   @@index([tenantId, consentGrantId])
+  // CD — BU recent-decrypts list + unbound-count query.
+  @@index([tenantId, action, occurredAt])
   @@map("data_access_event")
 }
 
@@ -1075,6 +1077,8 @@ model AuditLog {
   @@index([tenantId, occurredAt])
   // BP will use this index for a "rows past retention" sweep.
   @@index([retentionClass, occurredAt])
+  // CD — BU's per-tenant per-class past-floor counts (dashboard).
+  @@index([tenantId, retentionClass, occurredAt])
   @@map("audit_log")
 }
 
@@ -1230,5 +1234,7 @@ model ConsentRecord {
   @@index([tenantId, patientId, consentType, status])
   @@index([tenantId, status])
   @@index([tenantId, expiresAt])
+  // CD — BU recent-consent-changes list orders by updatedAt.
+  @@index([tenantId, updatedAt])
   @@map("consent_record")
 }
