@@ -13,6 +13,33 @@ reviewers see canonicalised deduction categories from any of the
 top six payers) plus production-cron wiring + connection-pool /
 index work for cross-region Postgres.
 
+### CC — production cron wiring (pg_cron + cloud-cron + runbook)
+
+- New `infra/cron/pg-cron-setup.sql` — paste-and-run script for ops
+  to schedule per-class `audit_retention_sweep` calls under
+  pg_cron at 02:30–02:55 IST nightly. Idempotent (drops prior
+  schedules before recreating). The retention class floor-days
+  values mirror `RETENTION_FLOOR_DAYS` in
+  `apps/api/src/modules/audit/retention-classes.ts` — keep them in
+  lockstep when the floor map changes (e.g. if DigiSparsh-lending
+  slips out of v1 and `financial` drops from RBI 10y to IRDAI 5y).
+- New `infra/cron/cloud-cron.yaml` — generic example mapping onto
+  k8s CronJob / OVH cron / GCP Cloud Scheduler / AWS EventBridge
+  for the breach detector (which can't run inside Postgres because
+  it needs Prisma + per-tenant `runInTenantContext` inserts) and
+  for the retention sweep when pg_cron isn't available. Pick pg_cron
+  OR the cloud-cron retention-sweep job, not both.
+- New `docs/infra/production-cron.md` — runbook covering both
+  paths, inspection queries, cadence rationale (why nightly
+  retention + every-15-min breach), manual-fallback CLI commands,
+  and a list of v1-deliberately-not-scheduled jobs (consent
+  expiry sweep + erasure auto-retry; the BU dashboard surfaces
+  both for triage).
+- No code changes. The BP `audit_retention_sweep` SQL function +
+  the BS `BreachDetectorService.scan()` already exist; CC is the
+  operational deliverable that gets them running on cadence in
+  production.
+
 ### CB — consent threading on decrypt paths (preauth / claim / discharge / eligibility)
 
 - `FhirContextService.build` gains an optional `consent`
