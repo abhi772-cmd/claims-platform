@@ -13,6 +13,33 @@ reviewers see canonicalised deduction categories from any of the
 top six payers) plus production-cron wiring + connection-pool /
 index work for cross-region Postgres.
 
+### CD — perf indexes for the BU dashboard hot queries
+
+- Three composite indexes added in migration
+  `20260530000000_audit_perf_indexes`:
+  - `audit_log(tenantId, retentionClass, occurredAt)` — backs BU's
+    "past-floor count per tenant per class" query. The existing
+    `(retentionClass, occurredAt)` index lacks tenantId leading,
+    so PG either scanned every tenant's rows or fell back to
+    `(tenantId, occurredAt)` and filtered retentionClass on the
+    heap. With this composite, the
+    `WHERE tenantId = T AND retentionClass = X AND occurredAt < cutoff`
+    pattern becomes a bounded index range scan.
+  - `data_access_event(tenantId, action, occurredAt)` — backs BU's
+    recent-decrypts list (`WHERE tenantId AND action='decrypt'
+    ORDER BY occurredAt DESC LIMIT 20`) and the unbound-count
+    query in the past 24 hours.
+  - `consent_record(tenantId, updatedAt)` — backs BU's recent-
+    changes list which orders by `updatedAt` to surface fresh
+    withdrawals alongside fresh grants.
+- All three mirrored as `@@index` on the Prisma schema so future
+  `prisma generate` doesn't drop them.
+- No `CONCURRENTLY` (Prisma migrations run inside a single tx
+  which can't host CONCURRENTLY). Ops replaying these on a hot
+  prod table should re-create them via `CREATE INDEX
+  CONCURRENTLY` off-Prisma if downtime is a concern; the index
+  shape is the same.
+
 ### CC — production cron wiring (pg_cron + cloud-cron + runbook)
 
 - New `infra/cron/pg-cron-setup.sql` — paste-and-run script for ops
