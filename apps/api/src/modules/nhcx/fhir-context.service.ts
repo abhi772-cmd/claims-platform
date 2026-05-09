@@ -4,6 +4,7 @@ import {
   type AdapterCoverageFields,
   type AdapterPatientFields,
 } from './nhcx-adapter.interface';
+import { ConsentRequiredError } from '../../common/errors/consent-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ConsentService } from '../consent/consent.module';
 import { PatientService } from '../patient';
@@ -117,12 +118,20 @@ export class FhirContextService {
     // ledger surfaces the gap.
     let consentGrantId: string | null = null;
     if (consent && ctx.patientId) {
-      const consentType = await this.resolveConsentType(tenantId);
+      const { type: consentType, requireConsent } = await this.resolveConsentContext(tenantId);
       const grant = await this.consents.findActiveFor(tenantId, ctx.patientId, consentType);
       consentGrantId = grant?.id ?? null;
       if (!grant) {
+        // Slice CG — when the tenant flag is on, no grant means
+        // throw. When the flag is off (default), preserve CB's
+        // soft-binding behaviour (read proceeds under
+        // legitimate_use; the access ledger surfaces the gap on
+        // the BU dashboard's "unbound access" count).
+        if (requireConsent) {
+          throw new ConsentRequiredError({ patientId: ctx.patientId, consentType });
+        }
         this.log.debug(
-          `consent gap: tenantId=${tenantId} patientId=${ctx.patientId} type=${consentType} purpose=${consent.purpose}`,
+          `consent gap (soft): tenantId=${tenantId} patientId=${ctx.patientId} type=${consentType} purpose=${consent.purpose}`,
         );
       }
     }
@@ -170,18 +179,27 @@ export class FhirContextService {
     };
   }
 
-  // Resolves which consent type applies for this tenant. PMJAY
-  // tenants run under 'pmjay_processing' (the rail-specific notice
-  // wording covers PMJAY's data-sharing arrangement). Everyone else
-  // runs under 'nhcx_processing'. Tenant-table reads must run inside
-  // a tenant-context tx — see the BG lesson in the Sprint 7 exit
-  // doc. Falls back to 'nhcx_processing' if the tenant row is missing,
+  // Resolves which consent type applies for this tenant + whether
+  // hard enforcement is on. PMJAY tenants run under
+  // 'pmjay_processing' (the rail-specific notice wording covers
+  // PMJAY's data-sharing arrangement); everyone else runs under
+  // 'nhcx_processing'. Tenant-table reads must run inside a
+  // tenant-context tx — see the BG lesson in the Sprint 7 exit
+  // doc. Falls back to default values if the tenant row is missing,
   // which can't happen in practice since the claim's RLS already
   // gates by tenantId.
-  private async resolveConsentType(tenantId: string): Promise<'nhcx_processing' | 'pmjay_processing'> {
+  private async resolveConsentContext(
+    tenantId: string,
+  ): Promise<{ type: 'nhcx_processing' | 'pmjay_processing'; requireConsent: boolean }> {
     const tenant = await this.prisma.runInTenantContext(tenantId, 'tenant', (tx) =>
-      tx.tenant.findUnique({ where: { id: tenantId }, select: { pmjayMode: true } }),
+      tx.tenant.findUnique({
+        where: { id: tenantId },
+        select: { pmjayMode: true, requireConsent: true },
+      }),
     );
-    return tenant?.pmjayMode === 'on' ? 'pmjay_processing' : 'nhcx_processing';
+    return {
+      type: tenant?.pmjayMode === 'on' ? 'pmjay_processing' : 'nhcx_processing',
+      requireConsent: tenant?.requireConsent === true,
+    };
   }
 }

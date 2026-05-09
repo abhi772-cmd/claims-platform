@@ -204,6 +204,16 @@ model Tenant {
   // preauth submit and before claim submit (BG gate). 'off' is the
   // default — non-PMJAY tenants don't pay the integration tax.
   pmjayMode       String               @default("off")
+  // Slice CG — DPDP §6 hard-enforcement flag. When true,
+  // FhirContextService.build throws ConsentRequiredError if no
+  // active grant exists for the (patient, consentType) tuple at
+  // the start of any preauth / claim / discharge flow. Default
+  // false for back-compat: existing tenants run under soft
+  // binding (CB) until ops verifies their "unbound access in
+  // 24h" count is zero on the BU dashboard, then flips this on.
+  // Per-tenant flip means the rollout doesn't break tenants
+  // that haven't backfilled grants.
+  requireConsent  Boolean              @default(false)
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 

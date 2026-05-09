@@ -13,6 +13,40 @@ k8s manifests). Sprint 9 closed the audit-compliance + per-payer
 normalisation axes; Sprint 10 takes the platform from
 feature-complete to production-ready.
 
+### CG — DPDP §6 hard-enforcement flag (`tenant.requireConsent`)
+
+- New boolean column `tenant.requireConsent` (default `false` for
+  back-compat). When true, `FhirContextService.build` throws
+  `ConsentRequiredError` (HTTP 412, code `CONSENT_REQUIRED`) at
+  the start of any preauth / claim / discharge flow if no active
+  consent grant exists for the (patient, consentType) tuple.
+  When false, CB's soft-binding behaviour is preserved (read
+  proceeds with `consentGrantId=null`; the BU dashboard's
+  "unbound access in 24h" surfaces the gap).
+- New admin endpoint `POST /admin/tenants/:tenantId/require-consent`
+  with body `{ enabled: boolean }`. Gated on
+  `tenant.security.update`. Cross-tenant flips rejected. Each flip
+  writes a `TENANT_REQUIRE_CONSENT_UPDATED` audit row with
+  before/after state (governance retention class).
+- New `ConsentRequiredError` domain error + `CONSENT_REQUIRED`
+  error code. The problem-detail payload includes `patientId` +
+  `consentType` in `errors[]` so the frontend's consent-capture
+  modal pre-populates and the operator can grant + retry without
+  re-entering identifiers.
+- Frontend modal copy lands in `error-codes/titles.ts`: "Consent
+  required before processing" with a "Capture consent" primary
+  action.
+- Rollout flow per tenant: (1) ship CF intake capture (done), (2)
+  backfill historical patients with grants, (3) confirm BU
+  dashboard "unbound access in 24h" reads zero, (4) flip the
+  flag via the admin endpoint, (5) monitor for 24h. Flipping
+  back to `false` is supported for incident response.
+- 5 e2e canaries on `consent-hard-enforcement.e2e-spec.ts`:
+  default state preserves CB soft binding; admin endpoint flips
+  on with audit row; missing grant after flip throws
+  CONSENT_REQUIRED; active grant after flip → context builds;
+  flip back → soft binding resumes.
+
 ### CF — intake-flow consent capture
 
 - `POST /cases` accepts an optional `consent` block alongside the
