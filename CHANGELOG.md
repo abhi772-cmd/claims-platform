@@ -4,7 +4,54 @@ Notable changes to the DigiSparsh Claims Platform. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) but oriented around
 sprint slices rather than calendar releases.
 
-## Sprint 8 — TBD (May 2026)
+## Sprint 9 — TBD (May 2026)
+
+Theme: **per-payer EOB normalisation + perf hardening + parallel
+Python OCR machine.** Sprint 8 closed the audit-retention axis;
+Sprint 9 focuses on the EOB extraction surface (so settlement
+reviewers see canonicalised deduction categories from any of the
+top six payers) plus production-cron wiring + connection-pool /
+index work for cross-region Postgres.
+
+### CA — per-payer EOB extractor framework + Star Health + Bajaj Allianz
+
+- New `payer-extractors` module with a `PayerExtractor` interface
+  (`code`, `detect(eob)`, `normalise(eob)`) and a registry-driven
+  `PayerExtractorService.detectAndNormalise(eob)` that iterates the
+  registered extractors and returns the first match's normalised
+  `ExtractedEob` plus a `payerCode`. Generic fallback when no
+  detector matches — eob falls through unchanged with
+  `payerCode='generic'`.
+- Two worked extractors land:
+  - **Star Health** — detects on `claimRefNum` starting with
+    `STAR/` or 'Star Health' in reason copy. Maps Star's
+    deduction phrasing (Cap exceeded, Co-pay, Sub-limit,
+    Pre-existing, Exclusions, Non-payable items, Missing
+    documents) to the canonical taxonomy.
+  - **Bajaj Allianz** — detects on `BAGI`/`BAJAJ` claim ref
+    prefix or 'Bajaj Allianz' in reason copy. Maps Bajaj-specific
+    phrasing (Capping, Co-payment, Inner limit, PED, Excluded
+    items, Insufficient documentation) to the same taxonomy.
+- Canonical `DEDUCTION_CATEGORIES` shared across the module:
+  `cap_exceeded`, `copay`, `exclusion`, `pre_existing`,
+  `sublimit`, `non_payable_items`, `missing_documents`,
+  `non_admissible`, `unknown` (catch-all so settlement UI can
+  surface unmapped phrasing for taxonomy review).
+- Extended `ExtractedEob` with an optional `payerCode` field +
+  `EobExtractedFieldsSchema.payerCode` on the contract. The Python
+  OCR machine MAY pre-detect (when the layout model knows the
+  payer); the TS service respects an explicit value if set,
+  otherwise runs detection itself.
+- `DocumentService.extractEob` now wraps the OCR adapter call
+  with `payerExtractorService.detectAndNormalise(...)` so the
+  HTTP response carries `fields.payerCode` + canonicalised
+  deduction categories.
+- 17 unit tests on Star, Bajaj, and the registry/dispatch:
+  detect signals (claim-ref + name regex + reason-copy),
+  normalise mappings for every known category, fallback to
+  `unknown`, generic-fallback path, registry-order tie-breaks.
+
+## Sprint 8 — closed 2026-05-09 (May 2026)
 
 Theme: **audit retention on the strictest-of-three floor (DPDP Act
 2023 + DPDP Rules 2025 + IRDAI 5y for claims + RBI 10y because

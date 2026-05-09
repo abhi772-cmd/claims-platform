@@ -61,6 +61,12 @@ export interface ExtractedEob {
   // verify" vs "auto-extracted, high confidence". Real OCR engines
   // produce these natively; the stub fills them with 1.0.
   confidence?: ExtractedConfidence;
+  // Slice CA — populated by PayerExtractorService.detectAndNormalise
+  // once the OCR adapter has returned. The OCR adapter itself MAY
+  // populate it when the upstream Python OCR machine pre-detects
+  // (per-payer prompt tuning); the TS-side service then leaves it
+  // alone if already set. 'generic' = no extractor matched.
+  payerCode?: string;
 }
 
 export interface ExtractedConfidence {

@@ -19,6 +19,7 @@ import {
   type EobOcrAdapter,
   type ExtractInput,
 } from '../eob-ocr';
+import { PayerExtractorService } from '../payer-extractors/payer-extractors.module';
 import { STORAGE_ADAPTER, type StorageAdapter } from '../storage';
 
 export interface UploadStubInput {
@@ -77,6 +78,7 @@ export class DocumentService {
     @Inject(STORAGE_ADAPTER) private readonly storage: StorageAdapter,
     @Inject(VIRUS_SCAN_ADAPTER) private readonly scanner: VirusScanAdapter,
     @Inject(EOB_OCR_ADAPTER) private readonly eobOcr: EobOcrAdapter,
+    private readonly payerExtractors: PayerExtractorService,
   ) {}
 
   // V1 stub flow: synthesise + create the row in 'completed' state in
@@ -371,13 +373,25 @@ export class DocumentService {
       ...(input.buffer !== undefined ? { buffer: input.buffer } : {}),
     };
     const result = await this.eobOcr.extract(adapterInput);
-    // Return the adapter's result verbatim. Persistence + auto-fill of
-    // a Settlement draft is the next slice — keep this one focused on
-    // the extraction surface.
+    // Slice CA — when the OCR adapter returned structured fields,
+    // run the per-payer extractor framework. detectAndNormalise
+    // tags `payerCode` ('star_health' | 'bajaj_allianz' | 'generic'
+    // | etc.) and canonicalises deduction categories against the
+    // shared taxonomy. The OCR adapter's payerCode wins if it set
+    // one (Python-side detection is more reliable when the layout
+    // model knows the payer); otherwise the TS service tries.
+    const fields =
+      result.fields !== undefined
+        ? (() => {
+            if (result.fields!.payerCode) return result.fields;
+            const { payerCode, eob } = this.payerExtractors.detectAndNormalise(result.fields!);
+            return { ...eob, payerCode };
+          })()
+        : undefined;
     return {
       status: result.status,
       engine: result.engine,
-      ...(result.fields !== undefined ? { fields: result.fields } : {}),
+      ...(fields !== undefined ? { fields } : {}),
       ...(result.error !== undefined ? { error: result.error } : {}),
     };
   }

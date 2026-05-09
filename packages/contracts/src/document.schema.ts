@@ -145,6 +145,12 @@ export const EobExtractedFieldsSchema = z.object({
   bankTxnId: z.string().optional(),
   receivedAt: z.string().datetime().optional(),
   confidence: EobExtractedConfidenceSchema.optional(),
+  // Slice CA — payer detected by the per-payer extractor framework.
+  // 'star_health' | 'bajaj_allianz' | 'icici_lombard' | 'hdfc_ergo'
+  // | 'mediassist' | 'paramount' | 'generic'. Free-string in the
+  // contract (rather than an enum) so adding payers doesn't churn
+  // the wire shape; the API enum is the source of truth.
+  payerCode: z.string().optional(),
 });
 export type EobExtractedFields = z.infer<typeof EobExtractedFieldsSchema>;
 

@@ -35,6 +35,7 @@ import { NotificationModule } from './modules/notification';
 import { OnboardingModule } from './modules/onboarding';
 import { PasswordModule } from './modules/password';
 import { PatientModule } from './modules/patient';
+import { PayerExtractorsModule } from './modules/payer-extractors/payer-extractors.module';
 import { PmjayPoliciesModule } from './modules/pmjay-policies';
 import { PreauthModule } from './modules/preauth';
 import { AppSecurityModule } from './modules/security';
@@ -121,6 +122,7 @@ import { UserModule } from './modules/user/user.module';
     BreachModule,
     ConsentModule,
     ComplianceModule,
+    PayerExtractorsModule,
   ],
 })
 export class AppModule implements NestModule {
