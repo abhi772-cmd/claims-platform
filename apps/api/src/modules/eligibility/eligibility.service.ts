@@ -7,6 +7,7 @@ import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 import { ClaimService } from '../claim';
+import { ConsentService } from '../consent/consent.module';
 import { IntegrationMessageService } from '../integration';
 import { type AdapterEligibilityPurpose, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 import { PatientService } from '../patient';
@@ -40,6 +41,7 @@ export class EligibilityService {
     private readonly patients: PatientService,
     private readonly config: ConfigService<AppConfig, true>,
     private readonly tenants: TenantService,
+    private readonly consents: ConsentService,
   ) {}
 
   // Orchestration:
@@ -94,8 +96,24 @@ export class EligibilityService {
     // only forward fields the FHIR bundle needs — Aadhaar / mobile /
     // email stay encrypted at rest and never leave the service tier
     // (NHCX uses ABHA id + policy number for identity).
+    // Slice CB — best-effort consent lookup so the
+    // data_access_event row records the bound grant; same shape as
+    // FhirContextService.build (PMJAY tenants → 'pmjay_processing',
+    // others → 'nhcx_processing'). Soft enforcement: a missing grant
+    // doesn't block the read; the BU dashboard surfaces it.
+    let consentGrantId: string | null = null;
+    if (ctx.patientId) {
+      const consentType = tenant?.pmjayMode === 'on' ? 'pmjay_processing' : 'nhcx_processing';
+      const grant = await this.consents.findActiveFor(input.tenantId, ctx.patientId, consentType);
+      consentGrantId = grant?.id ?? null;
+    }
     const patientPii = ctx.patientId
-      ? await this.patients.getDecrypted(input.tenantId, ctx.patientId)
+      ? await this.patients.getDecrypted(input.tenantId, ctx.patientId, {
+          actorUserId: input.actorUserId,
+          actorType: 'user',
+          purpose: 'eligibility.verify',
+          consentGrantId,
+        })
       : null;
 
     // The transition itself opens its own tenant tx (ClaimService is

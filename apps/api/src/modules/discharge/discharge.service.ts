@@ -57,7 +57,11 @@ export class DischargeService {
     const docs = await this.documents.list(input.tenantId, input.claimId);
     const documentIds = docs.map((d) => d.id);
 
-    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId, {
+      actorUserId: input.actorUserId,
+      actorType: 'user',
+      purpose: 'discharge.submit',
+    });
     const adapter = await this.nhcx.submitDischarge({
       tenantId: input.tenantId,
       claimId: input.claimId,

@@ -13,6 +13,44 @@ reviewers see canonicalised deduction categories from any of the
 top six payers) plus production-cron wiring + connection-pool /
 index work for cross-region Postgres.
 
+### CB — consent threading on decrypt paths (preauth / claim / discharge / eligibility)
+
+- `FhirContextService.build` gains an optional `consent`
+  parameter (`actorUserId`, `actorType`, `purpose`,
+  `correlationId`). When supplied, the service:
+  1. Resolves consent type from `tenant.pmjayMode` — PMJAY tenants
+     bind against `pmjay_processing`, others against
+     `nhcx_processing`.
+  2. Best-effort `ConsentService.findActiveFor(...)` lookup. When
+     a grant exists the `consentGrantId` threads into
+     `PatientService.getDecrypted` ctx so the `data_access_event`
+     row binds back to the grant.
+  3. When no grant exists the read still proceeds (soft
+     enforcement) and the access-ledger row records
+     `consentGrantId=null`. The BU dashboard's
+     `unboundAccessCountLast24h` surfaces these gaps for
+     compliance triage.
+- Threaded through every existing `fhirContext.build(...)` call
+  site: preauth submit (`purpose='preauth.submit'`), preauth
+  cancel (`'preauth.cancel'`), preauth respond-query
+  (`'preauth.respond_query'`), claim submit (`'claim.submit'`),
+  claim reprocess (`'claim.reprocess'`), discharge submit
+  (`'discharge.submit'`).
+- `EligibilityService.run` calls `getDecrypted` directly (not
+  through `FhirContextService.build`) and got the same shape: it
+  now reads `tenant.pmjayMode`, looks up the matching consent
+  type's active grant, and threads `consentGrantId` into the
+  decrypt ctx with `purpose='eligibility.verify'`.
+- 3 e2e canary cases on `consent-binding-on-decrypt.e2e-spec.ts`:
+  granted nhcx_processing → bound; no grant → null binding;
+  PMJAY tenant with only nhcx_processing grant → null binding
+  (consent type mismatch).
+- Hard enforcement (throwing on missing grant) is **deliberately
+  deferred** to a future slice gated on a tenant-level
+  `requireConsent` flag — turning it on tenant-wide before
+  consent capture is wired into intake would break every
+  preauth submit on tenants without backfilled grants.
+
 ### CA — per-payer EOB extractor framework + Star Health + Bajaj Allianz
 
 - New `payer-extractors` module with a `PayerExtractor` interface
