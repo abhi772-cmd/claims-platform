@@ -14,6 +14,57 @@ sweeper (BP), erasure-on-request (BQ), data-access ledger (BR),
 breach detection (BS), consent record + UI (BT), and the
 compliance dashboard (BU).
 
+### BU — DPDP / IRDAI / RBI compliance dashboard
+
+- New `GET /admin/compliance/dashboard` endpoint returns one
+  tenant-scoped rollup payload covering every section of the
+  audit-retention surface in a single round-trip. Permission:
+  `audit.view` (broad) — operators, DPOs, and compliance reviewers
+  all need read access. The breach `notify` / `dismiss` actions on
+  the page additionally require `breach_incident.manage`; the
+  existing BS endpoints gate those calls.
+- `ComplianceDashboardService.load(tenantId)` runs ~14 bounded
+  queries inside a single `runInTenantContext` transaction (one
+  GUC set, one connection):
+  - Six retention-class rows with `total` + `pastFloor` counts so
+    operators can spot misclassified rows / a stale BP sweeper.
+  - Last 10 erasure requests with a `blockingClaimsCount` rollup
+    + 90-day window completed/rejected counts.
+  - Last 20 decrypt events with a join to `consent_record` so
+    each row carries the bound consent's status (`granted` / `withdrawn`
+    / `expired` / `superseded` / `unbound`). Withdrawn-but-still-
+    referenced is informational, not a breach — it surfaces in the
+    BU UI as an amber badge so DPOs can review.
+  - Past-24h `unboundAccessCountLast24h` — count of decrypt events
+    with `consentGrantId=null`. Engineering triage signal: callers
+    that haven't been wired to BT's consent thread.
+  - Breach incident counts per status + open-list ordered by
+    `dpdpNotificationDueAt asc`, with `overdue=true` flag computed
+    at read time when `dueAt < now`.
+  - Consent counts per status + last 10 grant/withdraw rows
+    ordered by `updatedAt desc` (so fresh withdrawals float
+    alongside fresh grants).
+- New web admin route `/admin/compliance` renders the payload as
+  six sections: top-row count cards (open breaches, notified, active
+  consents, unbound access), a red banner counting overdue breaches,
+  retention-class table, open-breach table with **inline notify /
+  dismiss buttons** (calls BS endpoints; window.prompt for the
+  required dismiss reason), recent decrypt events with consent
+  badges, recent erasures, recent consent changes. "Run breach
+  scan" button hits BS's `POST /breach-incidents/scan` for
+  on-demand sweeps without leaving the page.
+- 5 e2e canary cases on `compliance-dashboard.e2e-spec.ts`:
+  endpoint returns the full rollup with all six retention classes
+  even when totals=0; an open breach with `dpdpNotificationDueAt`
+  in the past is flagged `overdue=true`; bound vs unbound decrypt
+  events report the right `consentStatus` + bump
+  `unboundAccessCountLast24h`; reader without `audit.view` → 403;
+  cross-tenant payload sees only the calling tenant's counts (RLS
+  canary on every aggregation query).
+- Closes the audit-retention axis. With BO–BU merged, Sprint 8
+  is ready to exit — write `docs/sprint-8-exit.md` matching the
+  prior sprint format when the user signals close.
+
 ### BT — DPDP §6 / Rule 8 consent record + access-ledger binding
 
 - New `consent_record` table holds operator-captured DPDP consents.
