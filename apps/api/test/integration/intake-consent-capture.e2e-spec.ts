@@ -11,7 +11,7 @@
 //      using the new patientId, and the consentType matches what
 //      the form derived from the primary rail.
 
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
 
 import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -60,6 +60,12 @@ describe('Slice CF — intake-flow consent capture', () => {
     process.env['SMTP_PORT'] = '1';
     process.env['SMTP_FROM'] = 'no-reply@test';
     process.env['HPR_STUB_OTP'] = '000000';
+    // Patient encryption requires a stub KMS root key in the test
+    // env so PatientService.tenantKey() can derive a per-tenant DEK.
+    // Mirrors patient-pii.e2e-spec.ts setup.
+    process.env['PII_KMS_MODE'] = 'stub';
+    process.env['PII_KMS_ROOT_KEY_BASE64'] = randomBytes(32).toString('base64');
+    process.env['PII_KMS_KEY_VERSION'] = 'v1';
 
     const passwordHash = await hash(PASSWORD, { type: argon2id });
     await migrator.$transaction(async (tx) => {
