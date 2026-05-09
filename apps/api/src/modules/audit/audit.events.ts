@@ -63,6 +63,12 @@ export const AuditEvents = {
   ERASURE_REQUEST_PROCESSED: 'ERASURE_REQUEST_PROCESSED',
   ERASURE_REQUEST_REJECTED: 'ERASURE_REQUEST_REJECTED',
 
+  // Slice CG — DPDP §6 hard-enforcement flag flipped per tenant.
+  // Operators turn this on once the BU dashboard's "unbound
+  // access in 24h" count is zero for the tenant. Audit row
+  // captures before/after so the rollout history is reconstructable.
+  TENANT_REQUIRE_CONSENT_UPDATED: 'TENANT_REQUIRE_CONSENT_UPDATED',
+
   // Slice BS — DPDP §8(6) breach incident lifecycle. Detection (auto)
   // and manual filing both land BREACH_INCIDENT_OPENED; transition
   // events flip status to notified / dismissed / resolved. The detector

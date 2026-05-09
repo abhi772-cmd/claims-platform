@@ -132,6 +132,7 @@ const EVENT_TO_CLASS: Readonly<Record<AuditEvent, RetentionClass>> = {
   [AuditEvents.TENANT_REACTIVATED]: RetentionClasses.GOVERNANCE,
   [AuditEvents.TENANT_CHURNED]: RetentionClasses.GOVERNANCE,
   [AuditEvents.TENANT_IP_ALLOWLIST_UPDATED]: RetentionClasses.GOVERNANCE,
+  [AuditEvents.TENANT_REQUIRE_CONSENT_UPDATED]: RetentionClasses.GOVERNANCE,
 
   // Self-audit of retention sweeps — kept under governance so the
   // record outlasts the things it documents.

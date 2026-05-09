@@ -340,6 +340,14 @@ export const ErrorPresentations: Record<ErrorCode, ErrorPresentation> = {
     secondaryAction: 'Cancel',
   },
 
+  CONSENT_REQUIRED: {
+    title: 'Consent required before processing',
+    body: "DPDP Act 2023 requires explicit consent before this patient's data can be shared with payers. Capture consent to continue.",
+    severity: 'warning',
+    primaryAction: 'Capture consent',
+    secondaryAction: 'Cancel',
+  },
+
   VALIDATION_FAILED: {
     title: 'Check the details',
     body: 'Some fields need attention before you can continue.',

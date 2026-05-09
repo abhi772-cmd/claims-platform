@@ -77,6 +77,16 @@ export const ErrorCodes = {
   // different mode (face / iris) or retry.
   BIOMETRIC_VERIFICATION_FAILED: 'BIOMETRIC_VERIFICATION_FAILED',
 
+  // CONSENT (Slice CG — DPDP §6 hard enforcement)
+  // Server-side gate: a tenant with `requireConsent=true` tried to
+  // run a flow that decrypts patient PII (eligibility / preauth /
+  // claim / discharge) without an active consent grant. The
+  // frontend bounces the operator to the consent-capture flow,
+  // captures the grant, then retries the original request. The
+  // problem-detail payload includes `patientId` + `consentType`
+  // so the form can pre-populate.
+  CONSENT_REQUIRED: 'CONSENT_REQUIRED',
+
   // VALIDATION & GENERIC
   VALIDATION_FAILED: 'VALIDATION_FAILED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
@@ -126,6 +136,10 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
 
   BIOMETRIC_VERIFICATION_REQUIRED: 412,
   BIOMETRIC_VERIFICATION_FAILED: 422,
+  // 412 mirrors BIOMETRIC_VERIFICATION_REQUIRED — same shape: a
+  // pre-condition (active consent) is missing; the frontend
+  // captures it, then retries.
+  CONSENT_REQUIRED: 412,
 
   ONBOARDING_STEP_INCOMPLETE: 412,
   ONBOARDING_OUT_OF_ORDER: 412,
