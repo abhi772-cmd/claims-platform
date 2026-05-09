@@ -10,9 +10,11 @@ import {
 import { Injectable } from '@nestjs/common';
 
 import { CaseNotFoundError } from '../../common/errors/case-errors';
+import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditEvents, AuditService } from '../audit';
 import { ClaimService } from '../claim';
+import { ConsentService } from '../consent/consent.module';
 import { PatientService } from '../patient';
 
 export interface CreateCaseInput extends CreateCaseRequest {
@@ -44,6 +46,7 @@ export class CaseService {
     private readonly audit: AuditService,
     private readonly claims: ClaimService,
     private readonly patients: PatientService,
+    private readonly consents: ConsentService,
   ) {}
 
   // Create a Case AND mint the first Claim. The two are atomic via the
@@ -73,6 +76,15 @@ export class CaseService {
         patientId = created.id;
       }
 
+      // Slice CF — consent capture must come with a patient row. A
+      // consent grant binds back to a patientId; if PII wasn't
+      // supplied we have no row to bind to.
+      if (input.consent && patientId === null) {
+        throw new ValidationFailedError({
+          consent: ['Consent capture requires patient PII to be supplied alongside.'],
+        });
+      }
+
       const c = await tx.case.create({
         data: {
           tenantId: input.tenantId,
@@ -88,6 +100,27 @@ export class CaseService {
           createdById: input.actorUserId,
         },
       });
+
+      // Slice CF — grant consent inside the same tx so case +
+      // patient + consent commit atomically. The grant emits its
+      // own CONSENT_GRANTED audit row, distinct from the case-
+      // create audit row above.
+      if (input.consent && patientId !== null) {
+        await this.consents.grantWithTx(tx, {
+          tenantId: input.tenantId,
+          actorUserId: input.actorUserId,
+          patientId,
+          consentType: input.consent.consentType,
+          dataCategories: input.consent.dataCategories,
+          purposes: input.consent.purposes,
+          lawfulBasis: input.consent.lawfulBasis,
+          source: input.consent.source,
+          evidence: input.consent.evidence,
+          ...(input.consent.expiresAt !== undefined
+            ? { expiresAt: new Date(input.consent.expiresAt) }
+            : {}),
+        });
+      }
       // Audit record carries DISPLAY-safe fields only — no encrypted
       // identifiers in the audit_log payload (those would otherwise be
       // permanently exposed in plaintext snapshots).
