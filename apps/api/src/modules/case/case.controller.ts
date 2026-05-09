@@ -54,6 +54,7 @@ export class CaseController {
       primaryRail: body.primaryRail,
       ...(body.treatingDoctorId !== undefined ? { treatingDoctorId: body.treatingDoctorId } : {}),
       ...(body.patient !== undefined ? { patient: body.patient } : {}),
+      ...(body.consent !== undefined ? { consent: body.consent } : {}),
       ip: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,
     });
