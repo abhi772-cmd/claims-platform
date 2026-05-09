@@ -105,6 +105,42 @@ index work for cross-region Postgres.
   consent capture is wired into intake would break every
   preauth submit on tenants without backfilled grants.
 
+### CE — top-4 remaining payer extractors (ICICI Lombard, HDFC Ergo, Mediassist, Paramount)
+
+- Closes the top-six payer coverage opened in CA. Same
+  `PayerExtractor` shape, same canonical `DEDUCTION_CATEGORIES`
+  taxonomy, four new payer-specific implementations:
+  - **ICICI Lombard** — claim-ref `ICL` / `ICICI/` / `ILGI`;
+    name-regex `\bicici\s*lombard\b`; payer-specific category
+    rules including "room-rent capping → sublimit" (more
+    specific than `cap_exceeded`) and "first 24-hour exclusion".
+  - **HDFC Ergo** — claim-ref `HE/` / `HDFC/` / `HEHI`;
+    name-regex `\bhdfc\s*ergo\b`; "deductible → copay" and
+    "Reasonable & Customary → exclusion" (HDFC's signature
+    aesthetic-procedure denial copy, supports both `&` and
+    `and` forms).
+  - **Mediassist** — claim-ref `MA-` / `MAS/` / `MEDI`;
+    name-regex `\bmedi[\s-]?assist\b` (handles "Medi Assist",
+    "Medi-Assist", "Mediassist"); TPA-specific
+    "consumables and disposables → non_payable_items",
+    "proportionate deduction → sublimit".
+  - **Paramount** — claim-ref `PHS` / `PHI` / `PMT-`;
+    name-regex `\bparamount\s*health\b`; "co-share → copay",
+    "investigation in progress → missing_documents" (held-
+    pending-docs is operationally the same as missing-docs).
+- All four wired into `PayerExtractorsModule` after Star + Bajaj
+  in registry order (Star, Bajaj, ICICI, HDFC, Mediassist,
+  Paramount). First-match-wins detection means tie-breaks rarely
+  matter — the six payers are mutually exclusive on claim-ref
+  prefix.
+- 36 new unit tests (9 per payer + 1 extra TPA-name-detection
+  case in the registry suite) bringing payer-extractor coverage
+  to **53 tests**: every payer's detection signals (each ref
+  prefix variant + name regex + reason-copy fallback), every
+  canonical category mapping, fallback-to-unknown, registry
+  routing, and TPA detection that survives a non-matching
+  claim-ref.
+
 ### CA — per-payer EOB extractor framework + Star Health + Bajaj Allianz
 
 - New `payer-extractors` module with a `PayerExtractor` interface
