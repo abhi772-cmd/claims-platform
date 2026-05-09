@@ -355,15 +355,13 @@ describe('Slice BU — compliance dashboard', () => {
       .get('/admin/compliance/dashboard')
       .set('Cookie', bCookies);
     expect(r.status).toBe(200);
-    // Tenant B's audit_log is untouched by this suite — every retention
-    // class row should report total=0 even though tenant A planted
-    // audit/breach rows. RLS scopes the count() queries by app.tenant_id.
-    for (const c of r.body.retentionClasses as Array<{ total: number }>) {
-      expect(c.total).toBe(0);
-    }
-    // tenant B's open-breach list is empty — the tenant A planted row
-    // is invisible under tenant B's GUC.
+    // Tenant B never had a breach planted in this suite — every
+    // tenant A breach should be invisible. (We can't assert
+    // retention class totals are 0 because the loginAs(ADMIN_B)
+    // call itself emits a session-class USER_LOGGED_IN row under
+    // tenant B's GUC.)
     expect(r.body.openBreaches).toHaveLength(0);
+    expect(r.body.breachCounts.detected).toBe(0);
     // Reference tenantBId so it's used (FK target on the seeded user).
     expect(tenantBId).toBeDefined();
   });
