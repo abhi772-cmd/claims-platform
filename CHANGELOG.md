@@ -4,6 +4,57 @@ Notable changes to the DigiSparsh Claims Platform. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) but oriented around
 sprint slices rather than calendar releases.
 
+## Sprint 10 — TBD (May 2026)
+
+Theme: **v1 launch readiness.** OCR v1 (Python repo, parallel),
+intake-flow consent capture (TS), hard consent enforcement
+rollout (TS, gated on intake), production deploy work (OVH KMS,
+k8s manifests). Sprint 9 closed the audit-compliance + per-payer
+normalisation axes; Sprint 10 takes the platform from
+feature-complete to production-ready.
+
+### CF — intake-flow consent capture
+
+- `POST /cases` accepts an optional `consent` block alongside the
+  existing `patient` PII block. When supplied, the case + patient
+  + consent record + both audit rows (`CONSENT_GRANTED` from BT +
+  the existing case-create audit) commit atomically inside one
+  tenant tx — a failure on any of them rolls back all three.
+- New `IntakeConsentSchema` in `@claims/contracts` (consent type,
+  data categories, purposes, lawful basis, source, evidence,
+  optional expiresAt). Composes the existing BT `ConsentEvidenceSchema`
+  + `ConsentTypeSchema` + `LawfulBasisSchema` rather than
+  duplicating shapes.
+- `ConsentService.grantWithTx(tx, input)` — sibling of `grant()`
+  that runs inside a caller's existing tenant tx. CaseService
+  calls this so intake stays atomic; the existing `grant()`
+  endpoint flow (operator captures consent later via the consents
+  page) keeps using `grant()` which opens its own tx.
+- 422 guard: when a request supplies `consent` but no `patient`
+  block, the service rejects — a consent has nothing to bind to
+  without a patient row. Error message includes "patient PII"
+  copy so the frontend's error modal can surface a useful prompt.
+- Web `/cases/new` form now collects:
+  - Patient PII (Aadhaar, ABHA, mobile) in an encrypted-at-rest
+    section.
+  - DPDP §6 consent capture in a yellow-warning section that
+    auto-derives `consentType` from the primary rail (NHCX →
+    `nhcx_processing`, PMJAY → `pmjay_processing`, self-pay → no
+    consent block since no rail-driven processing happens).
+    Operator picks the acknowledgement method (in-person signed
+    form, ABHA OTP, tele-consent call, verbal counter-signed) +
+    edits the verbatim notice text that gets preserved in the
+    consent's `evidence` JSON for audit reconstruction.
+- 4 new e2e canaries on `intake-consent-capture.e2e-spec.ts`:
+  case + patient + consent commit atomically; back-compat path
+  without PII still works (Sprint 2 walking-skeleton); consent
+  without PII is rejected 422; PMJAY rail captures
+  `pmjay_processing` consent type with the right scope.
+- Unblocks the future tenant-level `requireConsent` flag for
+  hard enforcement — once intake captures consent on every new
+  case, the flag can be flipped per tenant without breaking
+  preauth/claim flows.
+
 ## Sprint 9 — TBD (May 2026)
 
 Theme: **per-payer EOB normalisation + perf hardening + parallel

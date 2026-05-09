@@ -6,6 +6,11 @@ import {
   ClaimSchema,
   ClaimStatusSchema,
 } from './claim.schema';
+import {
+  ConsentEvidenceSchema,
+  ConsentTypeSchema,
+  LawfulBasisSchema,
+} from './consent.schema';
 
 // Encrypted PII payload attached to a new case. patientName + hospitalMrn
 // remain on Case for fast list-view rendering; everything else goes into
@@ -26,6 +31,27 @@ export const PatientPiiInputSchema = z.object({
 });
 export type PatientPiiInput = z.infer<typeof PatientPiiInputSchema>;
 
+// Slice CF — consent block captured at intake time. Optional for
+// back-compat with Sprint 2-9 callers; the Sprint 10 hard-enforcement
+// rollout will require it on tenants whose `requireConsent` flag is
+// flipped. Lawful basis defaults to 'consent' which is the right
+// answer for every operator-driven intake; carve-outs (legal_obligation
+// for emergency walk-ins, public_interest for state schemes) are
+// explicit overrides.
+export const IntakeConsentSchema = z.object({
+  consentType: ConsentTypeSchema,
+  // At least one each — empty arrays defeat the point of consent
+  // (the dashboard surfaces "no scope" rows for review). Ranges
+  // mirror BT's GrantConsentSchema.
+  dataCategories: z.array(z.string().min(1).max(64)).min(1).max(20),
+  purposes: z.array(z.string().min(1).max(64)).min(1).max(20),
+  lawfulBasis: LawfulBasisSchema.default('consent'),
+  source: z.string().min(1).max(500),
+  evidence: ConsentEvidenceSchema,
+  expiresAt: z.string().datetime().optional(),
+});
+export type IntakeConsent = z.infer<typeof IntakeConsentSchema>;
+
 // POST /cases — admin / insurance desk creates a case + the first claim
 // in one shot. patientName + hospitalMrn live on Case (plaintext display
 // fields). All sensitive identifiers go into the optional `patient`
@@ -42,6 +68,12 @@ export const CreateCaseRequestSchema = z.object({
   // missing — that gate lives in the rail-specific submit layer, not
   // here.
   patient: PatientPiiInputSchema.optional(),
+  // Slice CF — capture consent at intake. When present, the case +
+  // patient + consent commit atomically inside one tenant tx.
+  // Server rejects with 422 when consent is supplied but
+  // patient is not (you can't bind a consent to a non-existent
+  // patient row).
+  consent: IntakeConsentSchema.optional(),
 });
 export type CreateCaseRequest = z.infer<typeof CreateCaseRequestSchema>;
 

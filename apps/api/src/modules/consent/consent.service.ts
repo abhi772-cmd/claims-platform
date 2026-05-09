@@ -75,50 +75,65 @@ export class ConsentService {
   // alongside the latest granted one. Callers reading via
   // findActiveFor get the most-recent active row.
   async grant(input: GrantConsentInput): Promise<ConsentRecordRow> {
-    return this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
-      // Verify patient exists and belongs to this tenant.
-      const patient = await tx.patient.findUnique({
-        where: { id: input.patientId },
-        select: { id: true, tenantId: true },
-      });
-      if (!patient || patient.tenantId !== input.tenantId) {
-        throw new ValidationFailedError({ patientId: ['Patient not found in this tenant.'] });
-      }
+    return this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) =>
+      this.grantWithTx(tx, input),
+    );
+  }
 
-      const row = await tx.consentRecord.create({
-        data: {
-          tenantId: input.tenantId,
-          patientId: input.patientId,
-          consentType: input.consentType,
-          dataCategories: input.dataCategories,
-          purposes: input.purposes,
-          lawfulBasis: input.lawfulBasis,
-          status: 'granted',
-          source: input.source,
-          evidence: input.evidence as unknown as object,
-          expiresAt: input.expiresAt ?? null,
-          capturedByUserId: input.actorUserId,
-          documentId: input.documentId ?? null,
-        },
-      });
-
-      await this.audit.recordWithTx(tx, {
-        tenantId: input.tenantId,
-        actorUserId: input.actorUserId,
-        actorType: 'user',
-        action: AuditEvents.CONSENT_GRANTED,
-        resourceType: 'consent_record',
-        resourceId: row.id,
-        after: {
-          patientId: input.patientId,
-          consentType: input.consentType,
-          purposes: input.purposes,
-          lawfulBasis: input.lawfulBasis,
-        },
-      });
-
-      return rowToShape(row);
+  // Slice CF — same shape as grant() but runs inside a caller's
+  // existing tenant tx. Used by CaseService.create so the consent
+  // record commits atomically with the Patient + Case rows. Without
+  // this variant the intake flow would write three separate
+  // transactions (patient, case, consent), and a failure in the
+  // third would leave a Case + Patient with no consent — exactly
+  // the situation the BU dashboard's "unbound access" signal is
+  // built to surface, but better to never create the row at all.
+  async grantWithTx(tx: TenantPrisma, input: GrantConsentInput): Promise<ConsentRecordRow> {
+    // Verify patient exists and belongs to this tenant. Cheap
+    // round-trip; the caller may have just created the patient
+    // in the same tx, so this both validates and confirms the
+    // earlier insert is visible to subsequent reads.
+    const patient = await tx.patient.findUnique({
+      where: { id: input.patientId },
+      select: { id: true, tenantId: true },
     });
+    if (!patient || patient.tenantId !== input.tenantId) {
+      throw new ValidationFailedError({ patientId: ['Patient not found in this tenant.'] });
+    }
+
+    const row = await tx.consentRecord.create({
+      data: {
+        tenantId: input.tenantId,
+        patientId: input.patientId,
+        consentType: input.consentType,
+        dataCategories: input.dataCategories,
+        purposes: input.purposes,
+        lawfulBasis: input.lawfulBasis,
+        status: 'granted',
+        source: input.source,
+        evidence: input.evidence as unknown as object,
+        expiresAt: input.expiresAt ?? null,
+        capturedByUserId: input.actorUserId,
+        documentId: input.documentId ?? null,
+      },
+    });
+
+    await this.audit.recordWithTx(tx, {
+      tenantId: input.tenantId,
+      actorUserId: input.actorUserId,
+      actorType: 'user',
+      action: AuditEvents.CONSENT_GRANTED,
+      resourceType: 'consent_record',
+      resourceId: row.id,
+      after: {
+        patientId: input.patientId,
+        consentType: input.consentType,
+        purposes: input.purposes,
+        lawfulBasis: input.lawfulBasis,
+      },
+    });
+
+    return rowToShape(row);
   }
 
   // Flip status to withdrawn. Idempotent at the controller level
