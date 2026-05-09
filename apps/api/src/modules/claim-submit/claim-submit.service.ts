@@ -110,7 +110,13 @@ export class ClaimSubmitService {
     // Bundle. Fields are pulled from the preauth draft because the
     // claim-submit phase doesn't capture them again — they were frozen
     // at preauth time. Documents come from the materialised list.
-    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
+    // Slice CB: thread consent ctx so the patient decrypt happening
+    // inside fhirContext.build binds to the active grant.
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId, {
+      actorUserId: input.actorUserId,
+      actorType: 'user',
+      purpose: 'claim.submit',
+    });
     const draft = await this.prisma.runInTenantContext(input.tenantId, 'tenant', (tx) =>
       tx.preauthDraft.findUnique({ where: { claimId: input.claimId } }),
     );
@@ -255,7 +261,11 @@ export class ClaimSubmitService {
       });
     }
 
-    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId, {
+      actorUserId: input.actorUserId,
+      actorType: 'user',
+      purpose: 'claim.reprocess',
+    });
     const adapterResult = await this.nhcx.reprocessClaim({
       tenantId: input.tenantId,
       claimId: input.claimId,

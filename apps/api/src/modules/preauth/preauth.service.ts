@@ -171,7 +171,14 @@ export class PreauthService {
     // fields; coverage may be undefined when the case never ran
     // eligibility with a payerCode (legacy case path), in which case
     // the adapter falls back to its lightweight-payload behaviour.
-    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
+    // Slice CB: thread consent ctx so the patient decrypt happening
+    // inside fhirContext.build binds to the active grant in the
+    // data_access_event ledger.
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId, {
+      actorUserId: input.actorUserId,
+      actorType: 'user',
+      purpose: 'preauth.submit',
+    });
     const adapterResult = await this.nhcx.submitPreauth({
       tenantId: input.tenantId,
       claimId: input.claimId,
@@ -304,7 +311,11 @@ export class PreauthService {
       });
     }
 
-    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId, {
+      actorUserId: input.actorUserId,
+      actorType: 'user',
+      purpose: 'preauth.cancel',
+    });
     const adapterResult = await this.nhcx.cancelPreauth({
       tenantId: input.tenantId,
       claimId: input.claimId,
@@ -449,7 +460,11 @@ export class PreauthService {
       });
       return tx.claim.findUniqueOrThrow({ where: { id: input.claimId } });
     });
-    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId);
+    const fhirCtx = await this.fhirContext.build(input.tenantId, input.claimId, {
+      actorUserId: input.actorUserId,
+      actorType: 'user',
+      purpose: 'preauth.respond_query',
+    });
     const adapterResult = await this.nhcx.respondPreauthQuery({
       tenantId: input.tenantId,
       claimId: input.claimId,
