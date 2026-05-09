@@ -1,0 +1,57 @@
+# Slice CC — example cloud-cron / k8s CronJob configuration.
+#
+# Two scheduled jobs run outside Postgres:
+#   * audit-retention-sweep — duplicates pg_cron's scheduling for
+#     environments that don't have pg_cron available (self-hosted
+#     PG without superuser access, dev cluster, etc.). Pick ONE
+#     of pg_cron OR this job, not both, otherwise sweeps double up.
+#   * breach-detector-scan — runs the TS-side BreachDetectorService.
+#     Cannot be replaced by pg_cron because the detector needs
+#     Prisma + per-tenant inserts under runInTenantContext.
+#
+# Format below is a generic shape that maps onto k8s CronJob, OVH
+# cron, GCP Cloud Scheduler, or AWS EventBridge — adapt to whatever
+# your operator stack runs.
+
+jobs:
+  # Audit retention sweep — nightly. ONLY enable this if pg_cron
+  # is not your scheduler (otherwise pg-cron-setup.sql handles it).
+  - name: audit-retention-sweep
+    schedule: '30 21 * * *' # 02:30 IST = 21:00 UTC, with 30min stagger
+    image: ghcr.io/abhi772-cmd/claims-api:latest
+    command: ['pnpm', '--filter', '@claims/api', 'audit:retention-sweep']
+    env:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_MIGRATOR: ${DATABASE_URL_MIGRATOR}
+      JWT_PRIVATE_KEY_BASE64: ${JWT_PRIVATE_KEY_BASE64}
+      JWT_PUBLIC_KEY_BASE64: ${JWT_PUBLIC_KEY_BASE64}
+      LOG_LEVEL: warn
+    timeoutSeconds: 600
+    successesRequired: 1
+    failureMaxRetries: 2
+    notes: |
+      Sweeps ALL retention classes in one run. The CLI prints
+      structured per-class delete counts; pipe stdout to your log
+      aggregator (this is how compliance reviewers verify cadence
+      years later).
+
+  # Breach detector scan — every 15 minutes during business
+  # hours, hourly otherwise. Detection is idempotent inside one
+  # minute window so over-running is harmless.
+  - name: breach-detector-scan
+    schedule: '*/15 * * * *' # every 15 min
+    image: ghcr.io/abhi772-cmd/claims-api:latest
+    command: ['pnpm', '--filter', '@claims/api', 'breach:scan']
+    env:
+      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL_MIGRATOR: ${DATABASE_URL_MIGRATOR}
+      JWT_PRIVATE_KEY_BASE64: ${JWT_PRIVATE_KEY_BASE64}
+      JWT_PUBLIC_KEY_BASE64: ${JWT_PUBLIC_KEY_BASE64}
+      LOG_LEVEL: warn
+    timeoutSeconds: 120
+    successesRequired: 1
+    failureMaxRetries: 2
+    notes: |
+      Default --window-minutes=60 lookback over data_access_event.
+      Override per-environment if your tenants need tighter
+      detection (--window-minutes=15 for paranoid setups).
