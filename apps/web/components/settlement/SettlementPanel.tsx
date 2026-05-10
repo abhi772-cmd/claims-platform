@@ -459,6 +459,15 @@ function DeductionRow({
 // Renders the extract response inline so the operator can verify the
 // auto-fill before clicking Record receipt. Each non-trivial field
 // gets a row; deduction lines stack below.
+//
+// Slice CH-demo additions:
+//   - payerCode badge (Slice CA + CE) so the operator sees which
+//     payer the OCR detected. 'generic' = no extractor matched —
+//     they should pick the payer manually before adjudicating.
+//   - per-field confidence dots (Slice CA introduced confidence
+//     on the wire; v1 OCR pipeline populates them) — green ≥ 0.8,
+//     amber 0.5–0.8, red < 0.5. Operators verify the red/amber
+//     ones before saving.
 function ExtractSummary({ result }: { result: EobExtractResponse }): JSX.Element {
   const tone =
     result.status === 'extracted'
@@ -467,38 +476,64 @@ function ExtractSummary({ result }: { result: EobExtractResponse }): JSX.Element
         ? 'border-warning-200 bg-warning-50 text-warning-700'
         : 'border-neutral-200 bg-neutral-0 text-neutral-700';
   const f = result.fields;
+  const conf = f?.confidence;
   return (
     <div className={`space-y-1 rounded-sm border px-2 py-1 text-[11px] ${tone}`}>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <span className="font-medium">
           {result.status.replace(/_/g, ' ')} ({result.engine})
         </span>
-        {result.error ? <span className="text-error-700">{result.error}</span> : null}
+        <div className="flex items-center gap-2">
+          {f?.payerCode ? (
+            <span className="rounded-sm border border-neutral-300 bg-neutral-0 px-2 py-0.5 font-mono text-[10px] text-neutral-700">
+              payer: {f.payerCode}
+            </span>
+          ) : null}
+          {result.error ? (
+            <span className="text-error-700">{result.error}</span>
+          ) : null}
+        </div>
       </div>
       {f ? (
-        <dl className="grid grid-cols-2 gap-x-4 text-[11px]">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
           {f.claimRefNum ? (
             <>
-              <dt className="text-neutral-500">claimRefNum</dt>
+              <dt className="text-neutral-500">
+                <ConfidenceDot value={conf?.claimRefNum} /> claimRefNum
+              </dt>
               <dd className="font-mono">{f.claimRefNum}</dd>
             </>
           ) : null}
           {f.receivedAmount !== undefined ? (
             <>
-              <dt className="text-neutral-500">receivedAmount</dt>
+              <dt className="text-neutral-500">
+                <ConfidenceDot value={conf?.receivedAmount} /> receivedAmount
+              </dt>
               <dd>{f.receivedAmount}</dd>
             </>
           ) : null}
           {f.deductionAmount !== undefined ? (
             <>
-              <dt className="text-neutral-500">deductionAmount</dt>
+              <dt className="text-neutral-500">
+                <ConfidenceDot value={conf?.deductionAmount} /> deductionAmount
+              </dt>
               <dd>{f.deductionAmount}</dd>
             </>
           ) : null}
           {f.bankTxnId ? (
             <>
-              <dt className="text-neutral-500">bankTxnId</dt>
+              <dt className="text-neutral-500">
+                <ConfidenceDot value={conf?.bankTxnId} /> bankTxnId
+              </dt>
               <dd className="font-mono">{f.bankTxnId}</dd>
+            </>
+          ) : null}
+          {f.receivedAt ? (
+            <>
+              <dt className="text-neutral-500">
+                <ConfidenceDot value={conf?.receivedAt} /> receivedAt
+              </dt>
+              <dd className="font-mono">{f.receivedAt}</dd>
             </>
           ) : null}
           {f.deductions.length > 0 ? (
@@ -517,5 +552,37 @@ function ExtractSummary({ result }: { result: EobExtractResponse }): JSX.Element
         </dl>
       ) : null}
     </div>
+  );
+}
+
+// Slice CH-demo — confidence indicator. Real OCR engines emit
+// per-field confidences in [0, 1]; the v1 PaddleOCR + regex
+// pipeline (eob-ocr-machine repo) computes confidence from label
+// specificity. The dot colour signals "trust this without
+// reviewing" (green) vs "verify before saving" (amber/red).
+//
+// Undefined confidence → neutral dot (older engines / fields the
+// OCR didn't surface a confidence for).
+function ConfidenceDot({ value }: { value: number | undefined }): JSX.Element {
+  let cls = 'bg-neutral-300';
+  let title = 'Confidence not reported';
+  if (value !== undefined) {
+    if (value >= 0.8) {
+      cls = 'bg-success-500';
+      title = `High confidence (${value.toFixed(2)})`;
+    } else if (value >= 0.5) {
+      cls = 'bg-warning-500';
+      title = `Medium confidence (${value.toFixed(2)}) — please verify`;
+    } else {
+      cls = 'bg-error-500';
+      title = `Low confidence (${value.toFixed(2)}) — verify before saving`;
+    }
+  }
+  return (
+    <span
+      className={`mr-1 inline-block h-2 w-2 rounded-full ${cls}`}
+      title={title}
+      aria-label={title}
+    />
   );
 }
