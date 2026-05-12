@@ -10,11 +10,6 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { CommsConfigApi } from '../../../../lib/api/comms-config.api';
 
-// Per-tenant SMTP + SMS configuration. The summary GET response
-// redacts secrets — `passwordSet`/`apiKeySet` flags drive the
-// "leave unchanged" vs. "type a new value" UX so admins don't have
-// to retype an existing password just to edit, say, the SMTP host.
-
 export default function CommsConfigPage(): JSX.Element {
   const { showApiError } = useErrorModal();
   const [summary, setSummary] = useState<TenantCommsConfigSummary | null>(null);
@@ -110,47 +105,56 @@ export default function CommsConfigPage(): JSX.Element {
   }
 
   if (loading) {
-    return <p className="text-sm text-neutral-500">Loading…</p>;
+    return (
+      <div className="glass max-w-md rounded-xl p-6">
+        <p className="text-body text-on-surface-variant">Loading…</p>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6 rounded-md bg-neutral-0 p-8 shadow-md">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-neutral-800">
-          Communication channels
-        </h1>
-        <p className="text-sm text-neutral-500">
-          Configure your tenant&apos;s SMTP relay and SMS provider. Leaving
-          a section disabled falls back to the platform defaults.
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+      <header className="glass rounded-xl p-6">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary">forum</span>
+          <h2 className="text-h2 font-h2 text-on-surface">Communication channels</h2>
+        </div>
+        <p className="mt-2 text-body text-on-surface-variant">
+          Configure your tenant&apos;s SMTP relay and SMS provider. Leaving a section disabled
+          falls back to the platform defaults.
         </p>
       </header>
 
-      <form onSubmit={onSubmit} className="space-y-8">
+      <form onSubmit={onSubmit} className="flex flex-col gap-6">
         {/* SMTP block */}
-        <section className="space-y-3 rounded-sm border border-neutral-200 p-4">
+        <section className="glass space-y-4 rounded-xl p-6">
           <header className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-neutral-700">SMTP</h2>
-            <span className="text-xs text-neutral-500">
-              Current source: {summary?.smtp?.source ?? '—'}
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary">mail</span>
+              <h3 className="text-h3 font-h3 text-on-surface">SMTP</h3>
+            </div>
+            <span className="rounded-full border border-outline-variant/50 bg-surface-container-low px-3 py-1 text-body-sm font-medium text-on-surface-variant">
+              source: {summary?.smtp?.source ?? '—'}
             </span>
           </header>
-          <label className="flex items-center gap-2 text-sm text-neutral-700">
+          <label className="flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-outline-variant/40 bg-surface-container-lowest/60 px-3 py-2 text-body-sm text-on-surface">
             <input
               type="checkbox"
               checked={smtpEnabled}
               onChange={(e) => setSmtpEnabled(e.target.checked)}
+              className="h-4 w-4 accent-primary"
             />
             Override platform defaults
           </label>
           {smtpEnabled ? (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Host">
                 <input
                   type="text"
                   value={smtpHost}
                   onChange={(e) => setSmtpHost(e.target.value)}
                   required
-                  className={inputCls}
+                  className="glass-input glass-input--sm"
                 />
               </Field>
               <Field label="Port">
@@ -159,7 +163,7 @@ export default function CommsConfigPage(): JSX.Element {
                   value={smtpPort}
                   onChange={(e) => setSmtpPort(e.target.value)}
                   required
-                  className={inputCls}
+                  className="glass-input glass-input--sm font-mono tabular-nums"
                 />
               </Field>
               <Field label="From address">
@@ -168,7 +172,7 @@ export default function CommsConfigPage(): JSX.Element {
                   value={smtpFrom}
                   onChange={(e) => setSmtpFrom(e.target.value)}
                   required
-                  className={inputCls}
+                  className="glass-input glass-input--sm"
                 />
               </Field>
               <Field label="Username (optional)">
@@ -176,7 +180,7 @@ export default function CommsConfigPage(): JSX.Element {
                   type="text"
                   value={smtpUsername}
                   onChange={(e) => setSmtpUsername(e.target.value)}
-                  className={inputCls}
+                  className="glass-input glass-input--sm"
                 />
               </Field>
               <Field
@@ -190,15 +194,16 @@ export default function CommsConfigPage(): JSX.Element {
                   type="password"
                   value={smtpPassword}
                   onChange={(e) => setSmtpPassword(e.target.value)}
-                  className={inputCls}
+                  className="glass-input glass-input--sm"
                 />
               </Field>
-              <div className="col-span-2 flex gap-4 text-sm text-neutral-700">
+              <div className="col-span-1 flex gap-4 text-body-sm text-on-surface sm:col-span-2">
                 <label className="flex items-center gap-2">
                   <input
                     type="checkbox"
                     checked={smtpSecure}
                     onChange={(e) => setSmtpSecure(e.target.checked)}
+                    className="h-4 w-4 accent-primary"
                   />
                   TLS (port 465)
                 </label>
@@ -207,6 +212,7 @@ export default function CommsConfigPage(): JSX.Element {
                     type="checkbox"
                     checked={smtpIgnoreTls}
                     onChange={(e) => setSmtpIgnoreTls(e.target.checked)}
+                    className="h-4 w-4 accent-primary"
                   />
                   Ignore TLS (dev relay only)
                 </label>
@@ -216,39 +222,48 @@ export default function CommsConfigPage(): JSX.Element {
         </section>
 
         {/* SMS block */}
-        <section className="space-y-3 rounded-sm border border-neutral-200 p-4">
+        <section className="glass space-y-4 rounded-xl p-6">
           <header className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-neutral-700">SMS</h2>
-            <span className="text-xs text-neutral-500">
-              Current source: {summary?.sms?.source ?? '—'}
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-primary">sms</span>
+              <h3 className="text-h3 font-h3 text-on-surface">SMS</h3>
+            </div>
+            <span className="rounded-full border border-outline-variant/50 bg-surface-container-low px-3 py-1 text-body-sm font-medium text-on-surface-variant">
+              source: {summary?.sms?.source ?? '—'}
             </span>
           </header>
-          <label className="flex items-center gap-2 text-sm text-neutral-700">
+          <label className="flex w-fit cursor-pointer items-center gap-2 rounded-lg border border-outline-variant/40 bg-surface-container-lowest/60 px-3 py-2 text-body-sm text-on-surface">
             <input
               type="checkbox"
               checked={smsEnabled}
               onChange={(e) => setSmsEnabled(e.target.checked)}
+              className="h-4 w-4 accent-primary"
             />
             Override platform defaults
           </label>
           {smsEnabled ? (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Provider">
-                <select
-                  value={smsProvider}
-                  onChange={(e) => setSmsProvider(e.target.value as TenantSmsProvider)}
-                  className={inputCls}
-                >
-                  <option value="console">Console (logs only)</option>
-                  <option value="textguru">TextGuru</option>
-                </select>
+                <div className="relative">
+                  <select
+                    value={smsProvider}
+                    onChange={(e) => setSmsProvider(e.target.value as TenantSmsProvider)}
+                    className="glass-input glass-input--sm appearance-none pr-10"
+                  >
+                    <option value="console">Console (logs only)</option>
+                    <option value="textguru">TextGuru</option>
+                  </select>
+                  <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant">
+                    expand_more
+                  </span>
+                </div>
               </Field>
               <Field label="Sender ID (6-character alpha)">
                 <input
                   type="text"
                   value={smsSenderId}
                   onChange={(e) => setSmsSenderId(e.target.value)}
-                  className={inputCls}
+                  className="glass-input glass-input--sm"
                 />
               </Field>
               <Field
@@ -262,7 +277,7 @@ export default function CommsConfigPage(): JSX.Element {
                   type="password"
                   value={smsApiKey}
                   onChange={(e) => setSmsApiKey(e.target.value)}
-                  className={inputCls}
+                  className="glass-input glass-input--sm"
                 />
               </Field>
             </div>
@@ -273,23 +288,23 @@ export default function CommsConfigPage(): JSX.Element {
           <button
             type="submit"
             disabled={saving}
-            className="rounded-sm bg-primary-600 px-3 py-2 text-sm font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+            className="btn-primary"
+            style={{ padding: '12px 24px', fontSize: '13px' }}
           >
-            {saving ? 'Saving…' : 'Save'}
+            <span className="material-symbols-outlined text-[18px]">save</span>
+            {saving ? 'Saving…' : 'Save changes'}
           </button>
           {savedAt ? (
-            <p className="text-xs text-success-700">
-              Saved at {savedAt.toLocaleTimeString()}.
-            </p>
+            <span className="flex items-center gap-1 text-body-sm font-medium text-green-700">
+              <span className="material-symbols-outlined text-[16px]">check_circle</span>
+              Saved at {savedAt.toLocaleTimeString()}
+            </span>
           ) : null}
         </div>
       </form>
     </div>
   );
 }
-
-const inputCls =
-  'w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none';
 
 function Field({
   label,
@@ -299,8 +314,10 @@ function Field({
   children: React.ReactNode;
 }): JSX.Element {
   return (
-    <label className="block space-y-1 text-sm text-neutral-700">
-      <span className="font-medium">{label}</span>
+    <label className="block space-y-1.5">
+      <span className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+        {label}
+      </span>
       {children}
     </label>
   );

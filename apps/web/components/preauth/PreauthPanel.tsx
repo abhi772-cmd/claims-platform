@@ -6,17 +6,13 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
 import { CaseApi } from '../../lib/api/case.api';
 
-// Statuses where the executive can edit the draft. Once submitted, the
-// draft is read-only and the panel just shows the snapshot.
 const EDITABLE_STATUSES: ReadonlySet<ClaimStatus> = new Set([
   'ELIGIBILITY_VERIFIED',
   'PREAUTH_DRAFTING',
   'PREAUTH_QUEUED',
 ]);
 
-const SUBMITTABLE_STATUSES: ReadonlySet<ClaimStatus> = new Set([
-  'PREAUTH_DRAFTING',
-]);
+const SUBMITTABLE_STATUSES: ReadonlySet<ClaimStatus> = new Set(['PREAUTH_DRAFTING']);
 
 interface Props {
   caseId: string;
@@ -50,7 +46,11 @@ export function PreauthPanel({ caseId, claimId, status, onChanged }: Props): JSX
   }, [caseId, claimId]);
 
   if (!loaded) return null;
-  if (!EDITABLE_STATUSES.has(status) && !status.startsWith('PREAUTH_') && status !== 'ENHANCEMENT_DRAFTING') {
+  if (
+    !EDITABLE_STATUSES.has(status) &&
+    !status.startsWith('PREAUTH_') &&
+    status !== 'ENHANCEMENT_DRAFTING'
+  ) {
     return null;
   }
 
@@ -84,10 +84,13 @@ export function PreauthPanel({ caseId, claimId, status, onChanged }: Props): JSX
   const canSubmit = SUBMITTABLE_STATUSES.has(status);
 
   return (
-    <section className="space-y-3 rounded-md bg-neutral-0 p-6 shadow-md">
-      <h2 className="text-sm font-semibold text-neutral-700">Pre-auth</h2>
-      <form onSubmit={save} className="space-y-3">
-        <div className="grid grid-cols-2 gap-3">
+    <section className="glass space-y-5 rounded-xl p-6">
+      <div className="flex items-center gap-2">
+        <span className="material-symbols-outlined text-primary">medical_services</span>
+        <h3 className="text-h3 font-h3 text-on-surface">Pre-auth</h3>
+      </div>
+      <form onSubmit={save} className="space-y-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field
             label="Diagnosis (description)"
             value={draft.diagnosisDescription ?? ''}
@@ -143,8 +146,10 @@ export function PreauthPanel({ caseId, claimId, status, onChanged }: Props): JSX
             disabled={!editable}
           />
         </div>
-        <div className="space-y-1">
-          <label className="text-xs text-neutral-500">Clinical justification</label>
+        <div className="space-y-1.5">
+          <label className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+            Clinical justification
+          </label>
           <textarea
             value={draft.clinicalJustification ?? ''}
             onChange={(e) =>
@@ -152,16 +157,18 @@ export function PreauthPanel({ caseId, claimId, status, onChanged }: Props): JSX
             }
             disabled={!editable}
             rows={4}
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-xs disabled:bg-neutral-50"
+            className="glass-input glass-input--sm resize-none"
           />
         </div>
         {editable ? (
-          <div className="flex gap-2">
+          <div className="flex gap-2 pt-2">
             <button
               type="submit"
               disabled={saving}
-              className="rounded-sm border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50 disabled:opacity-60"
+              className="btn-outline"
+              style={{ padding: '10px 20px', fontSize: '13px' }}
             >
+              <span className="material-symbols-outlined text-[18px]">save</span>
               {saving ? 'Saving…' : 'Save draft'}
             </button>
             {canSubmit ? (
@@ -169,9 +176,16 @@ export function PreauthPanel({ caseId, claimId, status, onChanged }: Props): JSX
                 type="button"
                 onClick={submit}
                 disabled={submitting}
-                className="rounded-sm bg-primary-600 px-3 py-2 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+                className="btn-cta group"
+                style={{ padding: '10px 22px', fontSize: '13px' }}
               >
                 {submitting ? 'Submitting…' : 'Submit pre-auth'}
+                <span
+                  className="material-symbols-outlined ml-1 text-[18px] transition-transform group-hover:translate-x-1"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  arrow_forward
+                </span>
               </button>
             ) : null}
           </div>
@@ -197,16 +211,16 @@ function Field({
   disabled?: boolean;
 }): JSX.Element {
   return (
-    <div className="space-y-1">
-      <label className="text-xs text-neutral-500">{label}</label>
+    <div className="space-y-1.5">
+      <label className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+        {label}
+      </label>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         disabled={disabled}
-        className={`w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-xs disabled:bg-neutral-50 ${
-          mono ? 'font-mono' : ''
-        }`}
+        className={`glass-input glass-input--sm ${mono ? 'font-mono tabular-nums' : ''}`}
       />
     </div>
   );

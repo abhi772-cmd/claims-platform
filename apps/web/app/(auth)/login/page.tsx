@@ -5,6 +5,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
+import { AuthCard } from '../../../components/auth/AuthCard';
+import { AuthField } from '../../../components/auth/AuthField';
+import { AuthSubmit } from '../../../components/auth/AuthSubmit';
 import { useErrorModal } from '../../../components/modals/ErrorModal/ErrorModalProvider';
 import { AuthApi } from '../../../lib/api/auth.api';
 
@@ -26,8 +29,6 @@ export default function LoginPage(): JSX.Element {
     try {
       const result = await AuthApi.login(parsed.data);
       if ('mfaRequired' in result && result.mfaRequired) {
-        // Hand off to the MFA challenge page; it will read the challengeId
-        // from the URL and submit the user's TOTP / backup code there.
         const params = new URLSearchParams({
           challenge: result.challengeId,
           expires: result.expiresAt,
@@ -44,56 +45,56 @@ export default function LoginPage(): JSX.Element {
   }
 
   return (
-    <div className="space-y-6 rounded-md bg-neutral-0 p-8 shadow-md">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-neutral-800">DigiSparsh Claims</h1>
-        <p className="text-sm text-neutral-500">Sign in to continue.</p>
-      </header>
+    <AuthCard
+      icon="login"
+      title="Welcome back"
+      subtitle="Sign in to manage hospital claims"
+    >
+      <form onSubmit={onSubmit} className="space-y-6" noValidate>
+        <AuthField
+          label="Work Email"
+          icon="mail"
+          id="email"
+          name="email"
+          type="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="dr.smith@hospital.com"
+        />
+        <AuthField
+          label="Password"
+          icon="lock"
+          password
+          id="password"
+          name="password"
+          autoComplete="current-password"
+          required
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="••••••••"
+          labelAside={
+            <Link
+              href="/forgot-password"
+              className="text-body-sm font-medium text-primary transition-colors hover:text-primary-container"
+            >
+              Forgot password?
+            </Link>
+          }
+        />
 
-      <form onSubmit={onSubmit} className="space-y-4" noValidate>
-        <div className="space-y-1">
-          <label htmlFor="email" className="text-sm font-medium text-neutral-700">
-            Email
-          </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
-          />
-        </div>
-        <div className="space-y-1">
-          <label htmlFor="password" className="text-sm font-medium text-neutral-700">
-            Password
-          </label>
-          <input
-            id="password"
-            name="password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
-          />
-        </div>
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-sm bg-primary-600 px-3 py-2 text-sm font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
-        >
-          {submitting ? 'Signing in…' : 'Sign in'}
-        </button>
-        <div className="text-right">
-          <Link href="/forgot-password" className="text-xs text-primary-600 hover:underline">
-            Forgot your password?
-          </Link>
+        <div className="pt-4">
+          <AuthSubmit label="Sign in" submitting={submitting} loadingLabel="Signing in…" />
         </div>
       </form>
-    </div>
+
+      <div className="mt-8 border-t border-surface-dim/30 pt-6 text-center">
+        <p className="flex items-center justify-center gap-1.5 text-body-sm text-on-surface-variant opacity-80">
+          <span className="material-symbols-outlined text-[16px]">admin_panel_settings</span>
+          Secured under DPDP Act compliance.
+        </p>
+      </div>
+    </AuthCard>
   );
 }

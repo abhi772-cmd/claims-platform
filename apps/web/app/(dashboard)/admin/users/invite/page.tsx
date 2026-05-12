@@ -17,6 +17,8 @@ const ROLE_OPTIONS = [
   'read_only',
 ] as const;
 
+const LABEL_CLS = 'text-eyebrow uppercase tracking-eyebrow text-on-surface-variant';
+
 export default function InviteUserPage(): JSX.Element {
   const router = useRouter();
   const { showApiError, showError } = useErrorModal();
@@ -30,7 +32,9 @@ export default function InviteUserPage(): JSX.Element {
   const [submitting, setSubmitting] = useState(false);
 
   function toggleRole(role: string): void {
-    setRoles((prev) => (prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]));
+    setRoles((prev) =>
+      prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role],
+    );
   }
 
   async function onSubmit(e: FormEvent<HTMLFormElement>): Promise<void> {
@@ -63,23 +67,26 @@ export default function InviteUserPage(): JSX.Element {
   }
 
   return (
-    <section className="max-w-2xl space-y-6">
-      <header className="space-y-1">
-        <h2 className="text-2xl font-semibold text-neutral-800">Invite a user</h2>
-        <p className="text-sm text-neutral-500">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+      <header className="glass rounded-xl p-6">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary">person_add</span>
+          <h2 className="text-h2 font-h2 text-on-surface">Invite a user</h2>
+        </div>
+        <p className="mt-2 text-body text-on-surface-variant">
           The user will receive an email and (if mobile is provided) an SMS to accept.
         </p>
       </header>
 
-      <form onSubmit={onSubmit} className="space-y-4 rounded-md bg-neutral-0 p-6 shadow-sm" noValidate>
-        <div className="grid grid-cols-2 gap-4">
+      <form onSubmit={onSubmit} className="glass space-y-5 rounded-xl p-6" noValidate>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="First name" id="firstName">
             <input
               id="firstName"
               required
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
-              className={inputClass}
+              className="glass-input glass-input--sm"
             />
           </Field>
           <Field label="Last name" id="lastName">
@@ -88,7 +95,7 @@ export default function InviteUserPage(): JSX.Element {
               required
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
-              className={inputClass}
+              className="glass-input glass-input--sm"
             />
           </Field>
         </div>
@@ -99,17 +106,18 @@ export default function InviteUserPage(): JSX.Element {
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className={inputClass}
+            className="glass-input glass-input--sm"
+            placeholder="dr.smith@hospital.com"
           />
         </Field>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Mobile (optional, +CC...)" id="mobile">
             <input
               id="mobile"
               type="tel"
               value={mobile}
               onChange={(e) => setMobile(e.target.value)}
-              className={inputClass}
+              className="glass-input glass-input--sm font-mono"
               placeholder="+919999999999"
             />
           </Field>
@@ -118,50 +126,66 @@ export default function InviteUserPage(): JSX.Element {
               id="designation"
               value={designation}
               onChange={(e) => setDesignation(e.target.value)}
-              className={inputClass}
+              className="glass-input glass-input--sm"
             />
           </Field>
         </div>
 
         <fieldset className="space-y-2">
-          <legend className="text-sm font-medium text-neutral-700">Roles</legend>
-          <div className="grid grid-cols-2 gap-2">
-            {ROLE_OPTIONS.map((role) => (
-              <label key={role} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={roles.includes(role)}
-                  onChange={() => toggleRole(role)}
-                />
-                {role}
-              </label>
-            ))}
+          <legend className={LABEL_CLS}>Roles</legend>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {ROLE_OPTIONS.map((role) => {
+              const checked = roles.includes(role);
+              return (
+                <label
+                  key={role}
+                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2.5 text-body-sm transition-all ${
+                    checked
+                      ? 'border-primary-container/40 bg-primary/5 text-on-primary-fixed-variant'
+                      : 'border-white/60 bg-surface-container-lowest/50 text-on-surface hover:bg-surface-container-lowest'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleRole(role)}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span className="font-mono">{role}</span>
+                </label>
+              );
+            })}
           </div>
         </fieldset>
 
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 pt-2">
           <button
             type="button"
             onClick={() => router.push('/admin/users')}
-            className="rounded-sm px-3 py-2 text-sm text-neutral-600 hover:bg-neutral-100"
+            className="btn-outline"
+            style={{ padding: '10px 22px', fontSize: '13px' }}
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={submitting}
-            className="rounded-sm bg-primary-600 px-3 py-2 text-sm font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+            className="btn-cta group"
+            style={{ padding: '10px 22px', fontSize: '13px' }}
           >
             {submitting ? 'Sending invite…' : 'Send invite'}
+            <span
+              className="material-symbols-outlined ml-1 text-[18px] transition-transform group-hover:translate-x-1"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              send
+            </span>
           </button>
         </div>
       </form>
-    </section>
+    </div>
   );
 }
-
-const inputClass =
-  'w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none';
 
 function Field({
   label,
@@ -173,8 +197,8 @@ function Field({
   children: React.ReactNode;
 }): JSX.Element {
   return (
-    <div className="space-y-1">
-      <label htmlFor={id} className="text-sm font-medium text-neutral-700">
+    <div className="space-y-1.5">
+      <label htmlFor={id} className={LABEL_CLS}>
         {label}
       </label>
       {children}

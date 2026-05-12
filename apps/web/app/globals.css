@@ -1,5 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
 @import '@claims/ui-tokens/tokens.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Material Symbols Outlined — default 400 weight, unfilled, 24px optical size.
+   Override per-instance with inline `font-variation-settings` if needed. */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+.material-symbols-outlined.filled {
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Tabular numerals for amounts, dates, and any column of numbers. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

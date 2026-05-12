@@ -1,6 +1,6 @@
 /* DigiSparsh Claims Platform — Design Tokens
- * Carries forward DigiSparsh's brand teal (#008F99) and amber (#FAA71A)
- * with a modernized scale, accessible contrast ratios, and semantic states.
+ * Aligned to the Stitch "DigiSparsh Healthcare Claims Platform" design system
+ * (Material 3 token vocabulary, primary teal #00666e, amber #FEAA1E).
  *
  * Import this file once in apps/web/app/globals.css.
  * Tailwind theme references these via CSS variables.
@@ -9,42 +9,48 @@
 :root {
   /* ============================================================ */
   /* BRAND — TEAL (primary)                                        */
+  /* Anchored to Stitch primary #00666e at 600.                    */
   /* ============================================================ */
-  --color-primary-50:  #E8F6F7;   /* surface tint, chips, hover backgrounds */
+  --color-primary-50:  #E0F7FA;   /* surface tint, chips, hover backgrounds */
   --color-primary-100: #C5E9EC;
-  --color-primary-200: #8FD3D8;
-  --color-primary-300: #5DBFC6;
-  --color-primary-400: #30A6AF;   /* the NHCX module's secondary teal — kept */
-  --color-primary-500: #009BA6;   /* slightly punchier mid-tone */
-  --color-primary-600: #008F99;   /* original brand teal — kept exactly */
-  --color-primary-700: #00767E;   /* hover / active for primary buttons */
-  --color-primary-800: #005A60;   /* heavy headings, dark surfaces */
-  --color-primary-900: #003E43;
+  --color-primary-200: #8AF2FD;   /* M3 primary-fixed (very light teal) */
+  --color-primary-300: #6CD6E0;   /* M3 inverse-primary / primary-fixed-dim */
+  --color-primary-400: #00818A;   /* M3 primary-container */
+  --color-primary-500: #006970;   /* M3 surface-tint (used for elevation tinting) */
+  --color-primary-600: #00666E;   /* BRAND — Stitch primary */
+  --color-primary-700: #004F55;   /* M3 on-primary-fixed-variant — hover state */
+  --color-primary-800: #003E43;
+  --color-primary-900: #002022;   /* M3 on-primary-fixed — near-black teal */
 
   /* ============================================================ */
   /* BRAND — AMBER (accent / CTA)                                  */
   /* ============================================================ */
-  --color-accent-50:   #FFF6E6;
-  --color-accent-100:  #FFE5B0;
+  --color-accent-50:   #FFDDB5;   /* M3 secondary-fixed */
+  --color-accent-100:  #FFB957;   /* M3 secondary-fixed-dim */
   --color-accent-300:  #FFC560;
-  --color-accent-500:  #FAA71A;   /* original CTA color — kept exactly */
+  --color-accent-500:  #FEAA1E;   /* CTA / M3 secondary-container */
   --color-accent-600:  #E89412;
-  --color-accent-700:  #C77A00;   /* hover for CTAs, AA on white */
+  --color-accent-700:  #835400;   /* M3 secondary — darker amber for text */
+  --color-accent-900:  #2A1800;   /* M3 on-secondary-fixed */
 
   /* ============================================================ */
   /* NEUTRALS                                                      */
   /* ============================================================ */
+  /* Cooled toward Stitch's teal-tinted surface family. */
   --color-neutral-0:   #FFFFFF;
-  --color-neutral-50:  #F8FAFC;   /* page background */
-  --color-neutral-100: #F1F4F8;   /* alternate surface, table stripe */
-  --color-neutral-200: #E4E8EE;   /* borders, dividers */
-  --color-neutral-300: #CDD3DC;
-  --color-neutral-400: #99A2AF;
-  --color-neutral-500: #6B7280;   /* muted text */
-  --color-neutral-600: #4A4D53;   /* secondary text — kept */
-  --color-neutral-700: #363A44;   /* body / label text — kept */
-  --color-neutral-800: #1F232B;
-  --color-neutral-900: #0F1116;   /* near-black, high-emphasis text */
+  --color-neutral-50:  #F6FAFA;   /* M3 surface — page background */
+  --color-neutral-100: #F0F4F5;   /* M3 surface-container-low — alt surface */
+  --color-neutral-150: #EAEFEF;   /* M3 surface-container */
+  --color-neutral-200: #E4E9E9;   /* M3 surface-container-high — borders */
+  --color-neutral-250: #DFE3E4;   /* M3 surface-container-highest */
+  --color-neutral-300: #D6DBDB;   /* M3 surface-dim */
+  --color-neutral-350: #BCC9CA;   /* M3 outline-variant */
+  --color-neutral-400: #6D797A;   /* M3 outline */
+  --color-neutral-500: #3D494A;   /* M3 on-surface-variant — secondary text */
+  --color-neutral-600: #2C3132;   /* M3 inverse-surface */
+  --color-neutral-700: #171C1D;   /* M3 on-surface / on-background — body text */
+  --color-neutral-800: #0F1518;
+  --color-neutral-900: #08090A;
 
   /* ============================================================ */
   /* SEMANTIC                                                      */
@@ -57,9 +63,9 @@
   --color-warning-500: #ED8B00;
   --color-warning-700: #B26500;
 
-  --color-danger-50:   #FDECEC;
-  --color-danger-500:  #D93B3B;
-  --color-danger-700:  #A12525;
+  --color-danger-50:   #FFDAD6;   /* M3 error-container */
+  --color-danger-500:  #BA1A1A;   /* M3 error */
+  --color-danger-700:  #93000A;   /* M3 on-error-container */
 
   --color-info-50:     #E6F2FB;
   --color-info-500:    #1976D2;
@@ -72,6 +78,43 @@
   --bg-surface:        var(--color-neutral-0);
   --bg-surface-alt:    var(--color-neutral-100);
   --bg-overlay:        rgba(15, 17, 22, 0.45);
+
+  /* Page-level mesh gradient — Stitch reference: 4-corner low-opacity
+     radials over a teal-cooled white base. Calmer than the previous
+     wash so glass panels read as the dominant elevation. */
+  --bg-app-gradient:
+    radial-gradient(at 0% 0%,   rgba(0, 102, 110, 0.05) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(254, 170, 30, 0.08) 0px, transparent 50%),
+    radial-gradient(at 100% 100%, rgba(0, 102, 110, 0.05) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(254, 170, 30, 0.08) 0px, transparent 50%);
+  --bg-app-base: #F6FAFA;   /* paired with --bg-app-gradient as background-color */
+
+  /* Sidebar — deep teal, carried from the legacy DigiSparsh shell */
+  --sidebar-bg:           linear-gradient(180deg, #0d7a82 0%, #075c63 100%);
+  --sidebar-bg-solid:     #0d7a82;
+  --sidebar-fg:           rgba(255, 255, 255, 0.92);
+  --sidebar-fg-muted:     rgba(255, 255, 255, 0.62);
+  --sidebar-fg-dim:       rgba(255, 255, 255, 0.42);
+  --sidebar-item-hover:   rgba(255, 255, 255, 0.10);
+  --sidebar-item-active:  #ffffff;
+  --sidebar-item-active-fg: var(--color-accent-500);
+  --sidebar-divider:      rgba(255, 255, 255, 0.12);
+
+  /* ============================================================ */
+  /* GLASSMORPHISM — Stitch "DigiSparsh Glass Interface" reference */
+  /* Light source upper-left: thicker lit edges on top + left,    */
+  /* thinner hairline on right + bottom.                          */
+  /* Level 1 (cards): rgba white .70 + 24px blur                  */
+  /* Level 2 (modals/overlays): rgba white .85 + 40px blur        */
+  /* ============================================================ */
+  --glass-bg:           rgba(255, 255, 255, 0.70);
+  --glass-bg-strong:    rgba(255, 255, 255, 0.85);
+  --glass-bg-tint:      rgba(224, 247, 250, 0.58);  /* teal-tinted glass */
+  --glass-border:       rgba(255, 255, 255, 0.40);  /* base hairline */
+  --glass-border-lit:   rgba(255, 255, 255, 0.80);  /* top + left lit edges */
+  --glass-stroke:       rgba(0, 105, 112, 0.08);
+  --glass-blur:         24px;
+  --glass-blur-strong:  40px;
 
   --border-default:    var(--color-neutral-200);
   --border-strong:     var(--color-neutral-300);
@@ -101,25 +144,90 @@
   --status-accent:      var(--color-accent-500);
 
   /* ============================================================ */
-  /* ELEVATION / SHADOWS                                           */
+  /* MATERIAL 3 ALIASES — Stitch HTML uses these class names     */
+  /* directly (bg-primary, text-on-surface, border-outline...).   */
+  /* Surfaced into Tailwind via tailwind.config.ts.              */
   /* ============================================================ */
-  --shadow-sm:  0 1px 2px rgba(15, 17, 22, 0.06);
-  --shadow-md:  0 4px 12px rgba(15, 17, 22, 0.08);
-  --shadow-lg:  0 12px 32px rgba(15, 17, 22, 0.10);
-  --shadow-xl:  0 24px 48px rgba(15, 17, 22, 0.14);
+  --m3-primary:                       #00666E;
+  --m3-on-primary:                    #FFFFFF;
+  --m3-primary-container:             #00818A;
+  --m3-on-primary-container:          #F5FEFF;
+  --m3-primary-fixed:                 #8AF2FD;
+  --m3-primary-fixed-dim:             #6CD6E0;
+  --m3-on-primary-fixed:              #002022;
+  --m3-on-primary-fixed-variant:      #004F55;
+  --m3-inverse-primary:               #6CD6E0;
+  --m3-surface-tint:                  #006970;
+
+  --m3-secondary:                     #835400;
+  --m3-on-secondary:                  #FFFFFF;
+  --m3-secondary-container:           #FEAA1E;
+  --m3-on-secondary-container:        #694300;
+  --m3-secondary-fixed:               #FFDDB5;
+  --m3-secondary-fixed-dim:           #FFB957;
+  --m3-on-secondary-fixed:            #2A1800;
+  --m3-on-secondary-fixed-variant:    #643F00;
+
+  --m3-tertiary:                      #8D4A17;
+  --m3-on-tertiary:                   #FFFFFF;
+  --m3-tertiary-container:            #AB622D;
+  --m3-on-tertiary-container:         #FFFBFF;
+  --m3-tertiary-fixed:                #FFDBC7;
+  --m3-tertiary-fixed-dim:            #FFB688;
+  --m3-on-tertiary-fixed:             #311300;
+  --m3-on-tertiary-fixed-variant:     #723601;
+
+  --m3-error:                         #BA1A1A;
+  --m3-on-error:                      #FFFFFF;
+  --m3-error-container:               #FFDAD6;
+  --m3-on-error-container:            #93000A;
+
+  --m3-background:                    #F6FAFA;
+  --m3-on-background:                 #171C1D;
+  --m3-surface:                       #F6FAFA;
+  --m3-on-surface:                    #171C1D;
+  --m3-surface-variant:               #DFE3E4;
+  --m3-on-surface-variant:            #3D494A;
+  --m3-surface-dim:                   #D6DBDB;
+  --m3-surface-bright:                #F6FAFA;
+  --m3-surface-container-lowest:      #FFFFFF;
+  --m3-surface-container-low:         #F0F4F5;
+  --m3-surface-container:             #EAEFEF;
+  --m3-surface-container-high:        #E4E9E9;
+  --m3-surface-container-highest:     #DFE3E4;
+  --m3-inverse-surface:               #2C3132;
+  --m3-inverse-on-surface:            #EDF2F2;
+
+  --m3-outline:                       #6D797A;
+  --m3-outline-variant:               #BCC9CA;
+
+  /* ============================================================ */
+  /* ELEVATION / SHADOWS                                           */
+  /* Ambient — low-opacity tints of Primary Teal (#006970), never  */
+  /* pure black, so glass surfaces feel lit rather than printed.   */
+  /* ============================================================ */
+  --shadow-sm:    0 1px 2px rgba(0, 105, 112, 0.07);
+  --shadow-md:    0 4px 14px rgba(0, 105, 112, 0.10);
+  --shadow-lg:    0 12px 32px rgba(0, 105, 112, 0.12);
+  --shadow-xl:    0 24px 48px rgba(0, 105, 112, 0.16);
+  --shadow-modal: 0 16px 44px rgba(0, 105, 112, 0.18);   /* diffused Level-2 overlay */
 
   --shadow-focus-primary: 0 0 0 3px rgba(0, 143, 153, 0.25);
   --shadow-focus-accent:  0 0 0 3px rgba(250, 167, 26, 0.30);
   --shadow-focus-danger:  0 0 0 3px rgba(217, 59, 59, 0.25);
 
   /* ============================================================ */
-  /* RADIUS                                                        */
+  /* RADIUS — Stitch "DigiSparsh Healthcare Claims" scale         */
+  /* Containers/cards: 12px. Inputs/sidebar items: 8px.           */
+  /* Action elements (CTAs, status pills): full pill.             */
   /* ============================================================ */
-  --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 10px;     /* matches existing card radius */
-  --radius-lg: 14px;
-  --radius-pill: 999px;
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-base: 4px;     /* Stitch DEFAULT */
+  --radius-md:   8px;     /* Stitch lg — inputs, sidebar items, inner panels */
+  --radius-lg:   12px;    /* Stitch xl — cards / glass surfaces */
+  --radius-xl:   16px;    /* deeper panels, modals */
+  --radius-pill: 9999px;  /* CTAs & status pills */
 
   /* ============================================================ */
   /* TYPOGRAPHY                                                    */
@@ -127,14 +235,15 @@
   --font-sans: 'Inter', 'DM Sans', 'Segoe UI', Roboto, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, 'Cascadia Code', monospace;
 
+  --font-size-eyebrow: 10.5px;  /* uppercase section labels / eyebrows */
   --font-size-xs:   11px;
   --font-size-sm:   13px;
   --font-size-base: 14px;
   --font-size-md:   16px;
   --font-size-lg:   18px;
-  --font-size-xl:   22px;
-  --font-size-2xl:  28px;
-  --font-size-3xl:  36px;
+  --font-size-xl:   22px;       /* h3 */
+  --font-size-2xl:  28px;       /* h2 */
+  --font-size-3xl:  36px;       /* h1 */
 
   --line-height-xs:   16px;
   --line-height-sm:   18px;
@@ -149,6 +258,11 @@
   --font-weight-medium:   500;
   --font-weight-semibold: 600;
   --font-weight-bold:     700;
+
+  /* Letter-spacing — tight headings, generous uppercase eyebrows. */
+  --tracking-h1:      -0.02em;
+  --tracking-h2:      -0.01em;
+  --tracking-eyebrow:  0.12em;
 
   /* ============================================================ */
   /* SPACING (4-pt scale)                                          */
@@ -209,9 +323,246 @@ html, body {
   font-size: var(--font-size-base);
   line-height: var(--line-height-base);
   color: var(--text-primary);
-  background-color: var(--bg-page);
+  background-color: var(--bg-app-base);
+  background-image: var(--bg-app-gradient);
+  background-attachment: fixed;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Headings carry a slight negative tracking for a tech-forward feel
+   (matches the "DigiSparsh Glass Interface" type scale). */
+h1 { letter-spacing: var(--tracking-h1); }
+h2 { letter-spacing: var(--tracking-h2); }
+
+/* ============================================================ */
+/* COMPONENT RECIPES — glass surfaces, bento, sidebar items      */
+/* ============================================================ */
+
+/* Frosted surface used for stat cards, panel chrome, modals.
+   `backdrop-filter` falls back gracefully on browsers that
+   don't support it — the underlying rgba() white still reads. */
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border: 1px solid var(--glass-border);
+  border-top: 1.5px solid var(--glass-border-lit);
+  border-left: 1.5px solid var(--glass-border-lit);
+  box-shadow: var(--shadow-md);
+}
+.glass-strong {
+  background: var(--glass-bg-strong);
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-top: 1.5px solid var(--glass-border-lit);
+  border-left: 1.5px solid var(--glass-border-lit);
+  box-shadow: var(--shadow-lg);
+}
+.glass-tint {
+  background: var(--glass-bg-tint);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  border: 1px solid rgba(0, 102, 110, 0.18);
+  border-top: 1.5px solid var(--glass-border-lit);
+  border-left: 1.5px solid var(--glass-border-lit);
+  box-shadow: var(--shadow-md);
+}
+.glass-card {
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+
+/* Bento grid — autoflow dense so feature tiles can claim
+   `bento-wide` / `bento-tall` without leaving gaps. */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: minmax(120px, auto);
+  grid-auto-flow: dense;
+  gap: var(--space-4);
+}
+.bento-wide  { grid-column: span 2; }
+.bento-tall  { grid-row: span 2; }
+.bento-hero  { grid-column: span 2; grid-row: span 2; }
+@media (max-width: 900px) {
+  .bento-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bento-hero { grid-column: span 2; grid-row: span 1; }
+}
+
+/* Sidebar items — used by DashboardChrome. */
+.sidebar-shell {
+  background: var(--sidebar-bg);
+  color: var(--sidebar-fg);
+}
+.sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  color: var(--sidebar-fg);
+  font-weight: var(--font-weight-medium);
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  transition: background-color var(--motion-duration-fast) var(--motion-easing-standard),
+              color var(--motion-duration-fast) var(--motion-easing-standard);
+}
+.sidebar-item:hover {
+  background-color: var(--sidebar-item-hover);
+  color: var(--sidebar-item-active);
+  text-decoration: none;
+}
+.sidebar-item--active {
+  background-color: var(--sidebar-item-active);
+  color: var(--color-primary-700);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12);
+}
+.sidebar-item--active:hover {
+  background-color: var(--sidebar-item-active);
+  color: var(--color-primary-700);
+}
+.sidebar-item__accent {
+  width: 4px;
+  align-self: stretch;
+  border-radius: 4px;
+  background: var(--color-accent-500);
+  margin-right: 6px;
+}
+.sidebar-group-label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--sidebar-fg-dim);
+  padding: 0 14px;
+  margin: 18px 0 6px;
+}
+
+/* Accent-amber CTA pill used across the app. Pill-shaped — the radius
+   contrast with the 14px cards signals "interactive trigger" vs "container". */
+.btn-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: linear-gradient(180deg, #FAB23A 0%, var(--color-accent-500) 100%);
+  color: var(--color-neutral-900);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+  padding: 10px 20px;
+  border-radius: var(--radius-pill);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 4px 15px rgba(250, 167, 26, 0.30);
+  transition: transform var(--motion-duration-fast) var(--motion-easing-standard),
+              box-shadow var(--motion-duration-fast) var(--motion-easing-standard);
+}
+.btn-cta:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.5) inset,
+    0 8px 22px rgba(250, 167, 26, 0.36);
+}
+.btn-cta:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Teal primary gradient — used for inline "Update", "Save", "Submit" actions
+   inside the dashboard chrome (the amber CTA is reserved for top-level moves
+   like Sign in / New case). Stitch reference: primary → primary-container. */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: linear-gradient(180deg, var(--m3-primary-container) 0%, var(--m3-primary) 100%);
+  color: var(--m3-on-primary);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+  padding: 10px 20px;
+  border-radius: var(--radius-pill);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18) inset,
+    0 4px 15px rgba(0, 102, 110, 0.20);
+  transition: transform var(--motion-duration-fast) var(--motion-easing-standard),
+              box-shadow var(--motion-duration-fast) var(--motion-easing-standard);
+}
+.btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.18) inset,
+    0 8px 22px rgba(0, 102, 110, 0.28);
+}
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Stitch glass-tinted input used inside dashboard cards & auth panels.
+   Pairs the surface-container-lowest fill with a 1px white hairline; on
+   focus, dials up the fill and ring to primary-container. Compose with
+   utility classes for size — this recipe only sets fill/border/ring/text. */
+.glass-input {
+  width: 100%;
+  background-color: rgba(255, 255, 255, 0.50);
+  border: 1px solid #ffffff;
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  font-size: var(--font-size-base);
+  color: var(--m3-on-surface);
+  outline: none;
+  box-shadow: var(--shadow-sm);
+  transition: background-color var(--motion-duration-fast) var(--motion-easing-standard),
+              border-color var(--motion-duration-fast) var(--motion-easing-standard),
+              box-shadow var(--motion-duration-fast) var(--motion-easing-standard);
+}
+.glass-input::placeholder {
+  color: var(--m3-outline-variant);
+}
+.glass-input:focus {
+  background-color: var(--m3-surface-container-lowest);
+  border-color: var(--m3-primary-container);
+  box-shadow: 0 0 0 1px var(--m3-primary-container);
+}
+.glass-input:disabled {
+  opacity: 0.60;
+  cursor: not-allowed;
+}
+.glass-input--sm {
+  padding: 8px 12px;
+  font-size: var(--font-size-sm);
+}
+
+/* Secondary outlined button — used next to a btn-primary or btn-cta for
+   "Cancel", "Back", etc. inside the dashboard chrome. */
+.btn-outline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  background: rgba(255, 255, 255, 0.50);
+  color: var(--m3-on-surface-variant);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-sm);
+  padding: 10px 20px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--m3-outline-variant);
+  transition: background-color var(--motion-duration-fast) var(--motion-easing-standard),
+              color var(--motion-duration-fast) var(--motion-easing-standard);
+}
+.btn-outline:hover {
+  background: var(--m3-surface-container-lowest);
+  color: var(--m3-primary);
+}
+.btn-outline:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 a {
@@ -237,11 +588,11 @@ button {
   color: var(--color-primary-900);
 }
 
-/* Scrollbar polish (webkit) */
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: var(--bg-surface-alt); }
-::-webkit-scrollbar-thumb { background: var(--color-neutral-300); border-radius: var(--radius-sm); }
-::-webkit-scrollbar-thumb:hover { background: var(--color-neutral-400); }
+/* Scrollbar polish (webkit) — Stitch thin/transparent treatment. */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--m3-outline-variant); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: var(--m3-outline); }
 
 /* ============================================================ */
 /* PRINT                                                         */

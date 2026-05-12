@@ -32,6 +32,8 @@ interface Props {
   onChanged: () => void;
 }
 
+const LABEL_CLS = 'text-eyebrow uppercase tracking-eyebrow text-on-surface-variant';
+
 export function SettlementPanel({
   caseId,
   claimId,
@@ -42,25 +44,13 @@ export function SettlementPanel({
   const [settlement, setSettlement] = useState<Settlement | null>(null);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('cashless_tpa');
   const [receivedAmount, setReceivedAmount] = useState('');
-  // Slice BA — pre-fillable from EOB extraction; passed through on
-  // recordReceipt so finance can reconcile back to the bank line.
   const [bankTxnId, setBankTxnId] = useState('');
-  // Comma-separated for the input; split on submit.
   const [shortPaymentReasons, setShortPaymentReasons] = useState('');
-  // Slice BB — structured deductions captured at reconcile time.
-  // Pre-filled from the AY extraction when the operator runs Extract
-  // on a SHORT_PAID claim's EOB; otherwise the operator adds rows by
-  // hand. Empty rows are dropped at submit so the API call stays
-  // tidy.
   const [deductions, setDeductions] = useState<DeductionLine[]>([]);
   const [writeOffReason, setWriteOffReason] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
-  // Slice AY — EOB OCR extraction. We list the claim's EOB-typed
-  // documents and let the operator pick one to extract from. The
-  // API returns receivedAmount + deduction info that pre-fills the
-  // receipt form below, so the operator can verify + submit instead
-  // of typing fields off the EOB by hand.
+  // Slice AY — EOB OCR extraction inputs.
   const [eobDocs, setEobDocs] = useState<Document[]>([]);
   const [selectedEobDocId, setSelectedEobDocId] = useState<string>('');
   const [extractResult, setExtractResult] = useState<EobExtractResponse | null>(null);
@@ -100,17 +90,10 @@ export function SettlementPanel({
     try {
       const r = await CaseApi.eobExtract(caseId, claimId, selectedEobDocId, {});
       setExtractResult(r);
-      // Pre-fill receipt-form fields when the OCR found values. We
-      // don't pre-fill on `failed` / `skipped` — operator sees the
-      // status banner and can extract again or type by hand.
       if (r.status === 'extracted' || r.status === 'low_confidence') {
         const f = r.fields;
-        if (f?.receivedAmount !== undefined) {
-          setReceivedAmount(String(f.receivedAmount));
-        }
-        if (f?.bankTxnId !== undefined) {
-          setBankTxnId(f.bankTxnId);
-        }
+        if (f?.receivedAmount !== undefined) setReceivedAmount(String(f.receivedAmount));
+        if (f?.bankTxnId !== undefined) setBankTxnId(f.bankTxnId);
         if (f?.shortPaymentReasons !== undefined && f.shortPaymentReasons.length > 0) {
           setShortPaymentReasons(f.shortPaymentReasons.join(', '));
         }
@@ -125,9 +108,6 @@ export function SettlementPanel({
     }
   }
 
-  // Slice BA — open the EOB in a new tab via a presigned download URL.
-  // The URL expires after the configured TTL, so we fetch on-click
-  // rather than caching anything in component state.
   async function viewDoc(documentId: string, filename: string): Promise<void> {
     setBusy(`view:${documentId}`);
     try {
@@ -155,77 +135,100 @@ export function SettlementPanel({
   }
 
   return (
-    <section className="space-y-4 rounded-md bg-neutral-0 p-6 shadow-md">
-      <h2 className="text-sm font-semibold text-neutral-700">Settlement</h2>
+    <section className="glass space-y-5 rounded-xl p-6">
+      <div className="flex items-center gap-2">
+        <span className="material-symbols-outlined text-primary">account_balance_wallet</span>
+        <h3 className="text-h3 font-h3 text-on-surface">Settlement</h3>
+      </div>
 
       {settlement === null ? (
-        <div className="space-y-2">
-          <p className="text-xs text-neutral-500">
+        <div className="space-y-3">
+          <p className="text-body-sm text-on-surface-variant">
             No settlement open yet. Call expect-payment with the payment mode to begin.
           </p>
           <div className="flex flex-wrap items-end gap-2">
-            <select
-              value={paymentMode}
-              onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
-              className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
-            >
-              <option value="cashless_tpa">cashless_tpa</option>
-              <option value="reimbursement">reimbursement</option>
-              <option value="patient_oop">patient_oop</option>
-              <option value="pmjay_disbursement">pmjay_disbursement</option>
-            </select>
+            <div className="relative">
+              <select
+                value={paymentMode}
+                onChange={(e) => setPaymentMode(e.target.value as PaymentMode)}
+                className="glass-input glass-input--sm appearance-none pr-10"
+              >
+                <option value="cashless_tpa">cashless_tpa</option>
+                <option value="reimbursement">reimbursement</option>
+                <option value="patient_oop">patient_oop</option>
+                <option value="pmjay_disbursement">pmjay_disbursement</option>
+              </select>
+              <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant">
+                expand_more
+              </span>
+            </div>
             <button
               onClick={() =>
-                action('expect', () => CaseApi.expectPayment(caseId, claimId, { paymentMode }))
+                action('expect', () =>
+                  CaseApi.expectPayment(caseId, claimId, { paymentMode }),
+                )
               }
               disabled={busy === 'expect'}
-              className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+              className="btn-primary"
+              style={{ padding: '8px 18px', fontSize: '13px' }}
             >
+              <span className="material-symbols-outlined text-[18px]">hourglass_top</span>
               {busy === 'expect' ? '…' : 'Expect payment'}
             </button>
           </div>
         </div>
       ) : (
         <>
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-            <dt className="text-neutral-500">Mode</dt>
-            <dd className="text-neutral-700">{settlement.paymentMode}</dd>
-            <dt className="text-neutral-500">Expected (₹)</dt>
-            <dd className="text-neutral-700">{settlement.expectedAmount}</dd>
-            <dt className="text-neutral-500">Received (₹)</dt>
-            <dd className="text-neutral-700">{settlement.receivedAmount ?? '—'}</dd>
-            <dt className="text-neutral-500">Deduction (₹)</dt>
-            <dd className="text-neutral-700">{settlement.deductionAmount ?? '—'}</dd>
-            <dt className="text-neutral-500">Status</dt>
-            <dd className="text-neutral-700">{settlement.reconciliationStatus}</dd>
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-body-sm md:grid-cols-2">
+            <KvField label="Mode" value={settlement.paymentMode} mono />
+            <KvField
+              label="Expected (₹)"
+              value={fmtAmount(settlement.expectedAmount)}
+              mono
+            />
+            <KvField
+              label="Received (₹)"
+              value={fmtAmount(settlement.receivedAmount)}
+              mono
+            />
+            <KvField
+              label="Deduction (₹)"
+              value={fmtAmount(settlement.deductionAmount)}
+              mono
+            />
+            <KvField label="Status" value={settlement.reconciliationStatus} />
             {settlement.shortPaymentReasons.length > 0 ? (
-              <>
-                <dt className="text-neutral-500">Short reasons</dt>
-                <dd className="text-neutral-700">
-                  {settlement.shortPaymentReasons.join('; ')}
-                </dd>
-              </>
+              <KvField
+                label="Short reasons"
+                value={settlement.shortPaymentReasons.join('; ')}
+              />
             ) : null}
           </dl>
 
+          {/* PAYMENT_PENDING — record receipt with optional EOB extraction */}
           {status === 'PAYMENT_PENDING' ? (
-            <div className="space-y-3 border-t border-neutral-100 pt-3">
+            <div className="space-y-4 border-t border-surface-variant/50 pt-4">
               {eobDocs.length > 0 ? (
-                <div className="space-y-2 rounded-sm bg-neutral-50 p-2">
+                <div className="space-y-3 rounded-lg border border-white/40 bg-surface-container-lowest/50 p-4">
                   <div className="flex flex-wrap items-end gap-2">
-                    <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-neutral-500">
-                      Extract from EOB
-                      <select
-                        value={selectedEobDocId}
-                        onChange={(e) => setSelectedEobDocId(e.target.value)}
-                        className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
-                      >
-                        {eobDocs.map((d) => (
-                          <option key={d.id} value={d.id}>
-                            {d.originalFilename}
-                          </option>
-                        ))}
-                      </select>
+                    <label className="flex flex-col gap-1">
+                      <span className={LABEL_CLS}>Extract from EOB</span>
+                      <div className="relative">
+                        <select
+                          value={selectedEobDocId}
+                          onChange={(e) => setSelectedEobDocId(e.target.value)}
+                          className="glass-input glass-input--sm appearance-none pr-10"
+                        >
+                          {eobDocs.map((d) => (
+                            <option key={d.id} value={d.id}>
+                              {d.originalFilename}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant">
+                          expand_more
+                        </span>
+                      </div>
                     </label>
                     <button
                       onClick={() => {
@@ -233,52 +236,58 @@ export function SettlementPanel({
                         if (doc) void viewDoc(doc.id, doc.originalFilename);
                       }}
                       disabled={busy?.startsWith('view:') === true || !selectedEobDocId}
-                      className="rounded-sm border border-neutral-300 bg-neutral-0 px-2 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-60"
+                      className="btn-outline"
+                      style={{ padding: '8px 14px', fontSize: '13px' }}
                     >
-                      {busy?.startsWith('view:') === true ? '…' : 'View'}
+                      <span className="material-symbols-outlined text-[18px]">
+                        open_in_new
+                      </span>
+                      View
                     </button>
                     <button
                       onClick={() => void runExtract()}
                       disabled={busy === 'extract' || !selectedEobDocId}
-                      className="rounded-sm border border-neutral-300 bg-neutral-0 px-2 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-100 disabled:opacity-60"
+                      className="btn-outline"
+                      style={{ padding: '8px 14px', fontSize: '13px' }}
                     >
+                      <span className="material-symbols-outlined text-[18px]">
+                        document_scanner
+                      </span>
                       {busy === 'extract' ? '…' : 'Extract'}
                     </button>
                   </div>
-                  {extractResult ? (
-                    <ExtractSummary result={extractResult} />
-                  ) : null}
+                  {extractResult ? <ExtractSummary result={extractResult} /> : null}
                 </div>
               ) : null}
 
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-neutral-500">
-                  Received amount (₹)
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5">
+                  <span className={LABEL_CLS}>Received amount (₹)</span>
                   <input
                     type="number"
                     value={receivedAmount}
                     onChange={(e) => setReceivedAmount(e.target.value)}
-                    className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+                    className="glass-input glass-input--sm font-mono tabular-nums"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-neutral-500">
-                  Bank txn id
+                <label className="flex flex-col gap-1.5">
+                  <span className={LABEL_CLS}>Bank txn id</span>
                   <input
                     type="text"
                     value={bankTxnId}
                     onChange={(e) => setBankTxnId(e.target.value)}
                     placeholder="(optional)"
-                    className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 font-mono text-xs"
+                    className="glass-input glass-input--sm font-mono"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-[10px] uppercase tracking-wide text-neutral-500 sm:col-span-2">
-                  Short-payment reasons
+                <label className="flex flex-col gap-1.5 sm:col-span-2">
+                  <span className={LABEL_CLS}>Short-payment reasons</span>
                   <input
                     type="text"
                     value={shortPaymentReasons}
                     onChange={(e) => setShortPaymentReasons(e.target.value)}
                     placeholder="comma-separated, e.g. Cap exceeded, Co-pay"
-                    className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+                    className="glass-input glass-input--sm"
                   />
                 </label>
               </div>
@@ -298,37 +307,43 @@ export function SettlementPanel({
                     })
                   }
                   disabled={busy === 'receipt' || !receivedAmount}
-                  className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+                  className="btn-primary"
+                  style={{ padding: '10px 22px', fontSize: '13px' }}
                 >
+                  <span
+                    className="material-symbols-outlined text-[18px]"
+                    style={{ fontVariationSettings: "'FILL' 1" }}
+                  >
+                    check_circle
+                  </span>
                   {busy === 'receipt' ? '…' : 'Record receipt'}
                 </button>
               </div>
             </div>
           ) : null}
 
+          {/* PAYMENT_RECEIVED — reconcile with optional deduction lines */}
           {status === 'PAYMENT_RECEIVED' ? (
-            <div className="space-y-2 border-t border-neutral-100 pt-3">
+            <div className="space-y-3 border-t border-surface-variant/50 pt-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-semibold text-neutral-700">Deductions</h3>
+                <h4 className={LABEL_CLS}>Deductions</h4>
                 <button
                   onClick={() =>
-                    setDeductions((d) => [
-                      ...d,
-                      { category: '', amount: 0 },
-                    ])
+                    setDeductions((d) => [...d, { category: '', amount: 0 }])
                   }
-                  className="text-[10px] uppercase tracking-wide text-primary-600 hover:underline"
+                  className="flex items-center gap-1 text-eyebrow uppercase tracking-eyebrow text-primary transition-colors hover:text-primary-container"
                 >
-                  + Add line
+                  <span className="material-symbols-outlined text-[16px]">add</span>
+                  Add line
                 </button>
               </div>
               {deductions.length === 0 ? (
-                <p className="text-[11px] text-neutral-500">
-                  No deductions — reconcile records the payment as fully received.
-                  Add lines if the EOB shows category-level reductions.
+                <p className="text-body-sm text-on-surface-variant">
+                  No deductions — reconcile records the payment as fully received. Add lines
+                  if the EOB shows category-level reductions.
                 </p>
               ) : (
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   {deductions.map((d, i) => (
                     <DeductionRow
                       key={i}
@@ -349,9 +364,6 @@ export function SettlementPanel({
                 <button
                   onClick={() =>
                     action('reconcile', () => {
-                      // Drop empty rows so an over-eager Add doesn't
-                      // tag a meaningless `{ category: '', amount: 0 }`
-                      // onto the request.
                       const cleaned = deductions.filter(
                         (d) => d.category.trim().length > 0 || d.amount > 0,
                       );
@@ -361,22 +373,25 @@ export function SettlementPanel({
                     })
                   }
                   disabled={busy === 'reconcile'}
-                  className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+                  className="btn-primary"
+                  style={{ padding: '10px 22px', fontSize: '13px' }}
                 >
+                  <span className="material-symbols-outlined text-[18px]">balance</span>
                   {busy === 'reconcile' ? '…' : 'Reconcile'}
                 </button>
               </div>
             </div>
           ) : null}
 
+          {/* SHORT_PAID — write off */}
           {status === 'SHORT_PAID' ? (
-            <div className="flex flex-wrap items-end gap-2 border-t border-neutral-100 pt-3">
+            <div className="flex flex-wrap items-end gap-2 border-t border-surface-variant/50 pt-4">
               <input
                 type="text"
                 placeholder="Write-off reason"
                 value={writeOffReason}
                 onChange={(e) => setWriteOffReason(e.target.value)}
-                className="flex-1 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+                className="glass-input glass-input--sm flex-1"
               />
               <button
                 onClick={() =>
@@ -385,20 +400,23 @@ export function SettlementPanel({
                   )
                 }
                 disabled={busy === 'writeoff' || !writeOffReason}
-                className="rounded-sm bg-error-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-error-700 disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-full bg-error px-5 py-2.5 text-body-sm font-semibold text-on-error shadow-[0_4px_14px_rgba(186,26,26,0.25)] transition hover:bg-[#93000a] disabled:opacity-60"
               >
+                <span className="material-symbols-outlined text-[18px]">remove_circle</span>
                 {busy === 'writeoff' ? '…' : 'Write off'}
               </button>
             </div>
           ) : null}
 
-          {(status === 'PAYMENT_RECONCILED' || status === 'WRITTEN_OFF') ? (
-            <div className="border-t border-neutral-100 pt-3">
+          {status === 'PAYMENT_RECONCILED' || status === 'WRITTEN_OFF' ? (
+            <div className="flex justify-end border-t border-surface-variant/50 pt-4">
               <button
                 onClick={() => action('close', () => CaseApi.closeSettlement(caseId, claimId))}
                 disabled={busy === 'close'}
-                className="rounded-sm border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50 disabled:opacity-60"
+                className="btn-outline"
+                style={{ padding: '8px 18px', fontSize: '13px' }}
               >
+                <span className="material-symbols-outlined text-[18px]">lock</span>
                 {busy === 'close' ? '…' : 'Close claim'}
               </button>
             </div>
@@ -409,9 +427,32 @@ export function SettlementPanel({
   );
 }
 
-// Slice BB — single deduction line in the reconcile form. We split
-// this out so Add line can stamp empty rows the operator fills in,
-// and pre-filled rows from EOB extraction render the same way.
+function fmtAmount(v: number | string | null | undefined): string {
+  if (v === null || v === undefined || v === '') return '—';
+  const n = typeof v === 'string' ? Number(v) : v;
+  if (!Number.isFinite(n)) return String(v);
+  return `₹${n.toLocaleString('en-IN')}`;
+}
+
+function KvField({
+  label,
+  value,
+  mono = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}): JSX.Element {
+  return (
+    <div className="flex flex-col">
+      <dt className={LABEL_CLS}>{label}</dt>
+      <dd className={`text-on-surface ${mono ? 'font-mono tabular-nums text-body-sm' : ''}`}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
 function DeductionRow({
   value,
   onChange,
@@ -422,13 +463,13 @@ function DeductionRow({
   onRemove: () => void;
 }): JSX.Element {
   return (
-    <div className="grid grid-cols-12 items-center gap-1">
+    <div className="grid grid-cols-12 items-center gap-2">
       <input
         type="text"
         value={value.category}
         onChange={(e) => onChange({ ...value, category: e.target.value })}
         placeholder="category"
-        className="col-span-3 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+        className="glass-input glass-input--sm col-span-3"
       />
       <input
         type="number"
@@ -437,68 +478,55 @@ function DeductionRow({
           onChange({ ...value, amount: Number.parseInt(e.target.value, 10) || 0 })
         }
         placeholder="₹"
-        className="col-span-2 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-right text-xs"
+        className="glass-input glass-input--sm col-span-2 text-right font-mono tabular-nums"
       />
       <input
         type="text"
         value={value.reason ?? ''}
         onChange={(e) => onChange({ ...value, reason: e.target.value })}
         placeholder="reason (optional)"
-        className="col-span-6 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+        className="glass-input glass-input--sm col-span-6"
       />
       <button
         onClick={onRemove}
-        className="col-span-1 rounded-sm text-[10px] uppercase tracking-wide text-error-700 hover:underline"
+        aria-label="Remove deduction"
+        className="col-span-1 inline-flex items-center justify-center text-error transition-colors hover:text-[#93000a]"
       >
-        Remove
+        <span className="material-symbols-outlined">delete</span>
       </button>
     </div>
   );
 }
 
-// Renders the extract response inline so the operator can verify the
-// auto-fill before clicking Record receipt. Each non-trivial field
-// gets a row; deduction lines stack below.
-//
-// Slice CH-demo additions:
-//   - payerCode badge (Slice CA + CE) so the operator sees which
-//     payer the OCR detected. 'generic' = no extractor matched —
-//     they should pick the payer manually before adjudicating.
-//   - per-field confidence dots (Slice CA introduced confidence
-//     on the wire; v1 OCR pipeline populates them) — green ≥ 0.8,
-//     amber 0.5–0.8, red < 0.5. Operators verify the red/amber
-//     ones before saving.
 function ExtractSummary({ result }: { result: EobExtractResponse }): JSX.Element {
   const tone =
     result.status === 'extracted'
-      ? 'border-success-200 bg-success-50 text-success-700'
+      ? 'border-green-200 bg-green-50 text-green-700'
       : result.status === 'low_confidence'
-        ? 'border-warning-200 bg-warning-50 text-warning-700'
-        : 'border-neutral-200 bg-neutral-0 text-neutral-700';
+        ? 'border-amber-200 bg-amber-50 text-amber-700'
+        : 'border-outline-variant/40 bg-surface-container-lowest text-on-surface-variant';
   const f = result.fields;
   const conf = f?.confidence;
   return (
-    <div className={`space-y-1 rounded-sm border px-2 py-1 text-[11px] ${tone}`}>
+    <div className={`space-y-2 rounded-lg border px-3 py-2 text-body-sm ${tone}`}>
       <div className="flex items-center justify-between gap-2">
         <span className="font-medium">
           {result.status.replace(/_/g, ' ')} ({result.engine})
         </span>
         <div className="flex items-center gap-2">
           {f?.payerCode ? (
-            <span className="rounded-sm border border-neutral-300 bg-neutral-0 px-2 py-0.5 font-mono text-[10px] text-neutral-700">
+            <span className="rounded-md border border-outline-variant/40 bg-white/80 px-2 py-0.5 font-mono text-[10px] text-on-surface-variant">
               payer: {f.payerCode}
             </span>
           ) : null}
-          {result.error ? (
-            <span className="text-error-700">{result.error}</span>
-          ) : null}
+          {result.error ? <span className="text-error">{result.error}</span> : null}
         </div>
       </div>
       {f ? (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-body-sm">
           {f.claimRefNum ? (
             <>
-              <dt className="text-neutral-500">
+              <dt className="text-on-surface-variant">
                 <ConfidenceDot value={conf?.claimRefNum} /> claimRefNum
               </dt>
               <dd className="font-mono">{f.claimRefNum}</dd>
@@ -506,23 +534,23 @@ function ExtractSummary({ result }: { result: EobExtractResponse }): JSX.Element
           ) : null}
           {f.receivedAmount !== undefined ? (
             <>
-              <dt className="text-neutral-500">
+              <dt className="text-on-surface-variant">
                 <ConfidenceDot value={conf?.receivedAmount} /> receivedAmount
               </dt>
-              <dd>{f.receivedAmount}</dd>
+              <dd className="font-mono tabular-nums">{f.receivedAmount}</dd>
             </>
           ) : null}
           {f.deductionAmount !== undefined ? (
             <>
-              <dt className="text-neutral-500">
+              <dt className="text-on-surface-variant">
                 <ConfidenceDot value={conf?.deductionAmount} /> deductionAmount
               </dt>
-              <dd>{f.deductionAmount}</dd>
+              <dd className="font-mono tabular-nums">{f.deductionAmount}</dd>
             </>
           ) : null}
           {f.bankTxnId ? (
             <>
-              <dt className="text-neutral-500">
+              <dt className="text-on-surface-variant">
                 <ConfidenceDot value={conf?.bankTxnId} /> bankTxnId
               </dt>
               <dd className="font-mono">{f.bankTxnId}</dd>
@@ -530,7 +558,7 @@ function ExtractSummary({ result }: { result: EobExtractResponse }): JSX.Element
           ) : null}
           {f.receivedAt ? (
             <>
-              <dt className="text-neutral-500">
+              <dt className="text-on-surface-variant">
                 <ConfidenceDot value={conf?.receivedAt} /> receivedAt
               </dt>
               <dd className="font-mono">{f.receivedAt}</dd>
@@ -538,7 +566,7 @@ function ExtractSummary({ result }: { result: EobExtractResponse }): JSX.Element
           ) : null}
           {f.deductions.length > 0 ? (
             <>
-              <dt className="text-neutral-500">deductions</dt>
+              <dt className="text-on-surface-variant">deductions</dt>
               <dd>
                 {f.deductions.map((d, i) => (
                   <div key={i}>
@@ -555,26 +583,18 @@ function ExtractSummary({ result }: { result: EobExtractResponse }): JSX.Element
   );
 }
 
-// Slice CH-demo — confidence indicator. Real OCR engines emit
-// per-field confidences in [0, 1]; the v1 PaddleOCR + regex
-// pipeline (eob-ocr-machine repo) computes confidence from label
-// specificity. The dot colour signals "trust this without
-// reviewing" (green) vs "verify before saving" (amber/red).
-//
-// Undefined confidence → neutral dot (older engines / fields the
-// OCR didn't surface a confidence for).
 function ConfidenceDot({ value }: { value: number | undefined }): JSX.Element {
-  let cls = 'bg-neutral-300';
+  let cls = 'bg-outline-variant';
   let title = 'Confidence not reported';
   if (value !== undefined) {
     if (value >= 0.8) {
-      cls = 'bg-success-500';
+      cls = 'bg-green-500';
       title = `High confidence (${value.toFixed(2)})`;
     } else if (value >= 0.5) {
-      cls = 'bg-warning-500';
+      cls = 'bg-amber-500';
       title = `Medium confidence (${value.toFixed(2)}) — please verify`;
     } else {
-      cls = 'bg-error-500';
+      cls = 'bg-error';
       title = `Low confidence (${value.toFixed(2)}) — verify before saving`;
     }
   }

@@ -48,43 +48,56 @@ export default function IpAllowlistPage(): JSX.Element {
   }
 
   return (
-    <div className="space-y-4 rounded-md bg-neutral-0 p-8 shadow-md">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-neutral-800">IP allowlist</h1>
-        <p className="text-sm text-neutral-500">
-          Restrict sign-in to specific networks. Empty list = no restriction. Platform admins always
-          bypass this.
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+      <header className="glass rounded-xl p-6">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary">shield_lock</span>
+          <h2 className="text-h2 font-h2 text-on-surface">IP allowlist</h2>
+        </div>
+        <p className="mt-2 text-body text-on-surface-variant">
+          Restrict sign-in to specific networks. Empty list = no restriction. Platform admins
+          always bypass this.
         </p>
       </header>
-      {loading ? (
-        <p className="text-sm text-neutral-500">Loading…</p>
-      ) : (
-        <form onSubmit={onSubmit} className="space-y-3">
-          <label htmlFor="cidrs" className="text-sm font-medium text-neutral-700">
-            CIDR ranges (one per line — IPv4 or IPv6)
-          </label>
-          <textarea
-            id="cidrs"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            rows={8}
-            placeholder="203.0.113.0/24&#10;2001:db8::/32"
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 font-mono text-xs focus:border-primary-500 focus:outline-none"
-          />
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-sm bg-primary-600 px-3 py-2 text-sm font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          {savedAt ? (
-            <p className="text-xs text-success-700">
-              Saved at {savedAt.toLocaleTimeString()}.
-            </p>
-          ) : null}
-        </form>
-      )}
+
+      <section className="glass rounded-xl p-6">
+        {loading ? (
+          <p className="text-body text-on-surface-variant">Loading…</p>
+        ) : (
+          <form onSubmit={onSubmit} className="space-y-4">
+            <label htmlFor="cidrs" className="block">
+              <span className="mb-2 block text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                CIDR ranges — one per line, IPv4 or IPv6
+              </span>
+              <textarea
+                id="cidrs"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                rows={8}
+                placeholder="203.0.113.0/24&#10;2001:db8::/32"
+                className="glass-input glass-input--sm resize-none font-mono"
+              />
+            </label>
+            <div className="flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={saving}
+                className="btn-primary"
+                style={{ padding: '10px 22px', fontSize: '13px' }}
+              >
+                <span className="material-symbols-outlined text-[18px]">save</span>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+              {savedAt ? (
+                <span className="flex items-center gap-1 text-body-sm font-medium text-green-700">
+                  <span className="material-symbols-outlined text-[16px]">check_circle</span>
+                  Saved at {savedAt.toLocaleTimeString()}
+                </span>
+              ) : null}
+            </div>
+          </form>
+        )}
+      </section>
     </div>
   );
 }

@@ -1,21 +1,26 @@
 'use client';
 
-// Dashboard chrome — sidebar nav + top bar with user/tenant context
-// + sign-out. Lives in the (dashboard) route group so it wraps every
-// authenticated screen.
+// Dashboard chrome — Stitch-canonical layout.
+//   ┌──────────────────┬──────────────────────────────────────────┐
+//   │  [DIGI SPARSH]   │  [glass topbar: breadcrumb · status · +] │
+//   │  Operations      ├──────────────────────────────────────────┤
+//   │   ● Dashboard    │                                          │
+//   │   · Claims       │     <main /> page content                │
+//   │   · ...          │                                          │
+//   │  Compliance      │                                          │
+//   │   ...            │                                          │
+//   │  ────────────    │                                          │
+//   │  user pill ▸     │                                          │
+//   └──────────────────┴──────────────────────────────────────────┘
 //
-// Nav is grouped semantically so demos and operators can follow
-// the workflow without remembering URLs:
-//   1. Operations — daily work (cases, eligibility, settlement)
-//   2. Compliance — DPDP / IRDAI / RBI surface (audit, consents,
-//      breaches, compliance dashboard)
-//   3. Tenant admin — onboarding, lifecycle, users, security,
-//      master data, comms
-//   4. Account — current user / sign out
+// The deep-teal sidebar uses Material Symbols icons + primary-fixed-dim
+// muted text for inactive items and a white/secondary-container border-l
+// accent on the active row. Topbar is glass with the active page's title
+// and tenant chip + primary-gradient "New case" CTA.
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { type ReactNode, useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
 
 import { AuthApi } from '../../lib/api/auth.api';
 import { ApiError } from '../../lib/api/client';
@@ -24,9 +29,8 @@ import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
 interface NavItem {
   href: string;
   label: string;
-  description?: string;
+  icon: string; // Material Symbols name
 }
-
 interface NavGroup {
   title: string;
   items: NavItem[];
@@ -36,36 +40,34 @@ const NAV: NavGroup[] = [
   {
     title: 'Operations',
     items: [
-      { href: '/dashboard', label: 'Home' },
-      { href: '/cases', label: 'Cases', description: 'Claim aggregate' },
-      { href: '/cases/new', label: 'New case', description: 'Admission + consent' },
-      { href: '/admin/remittance', label: 'Settlement / EOB', description: 'Upload + extract' },
+      { href: '/dashboard', label: 'Dashboard', icon: 'dashboard' },
+      { href: '/cases', label: 'Cases', icon: 'clinical_notes' },
+      { href: '/cases/new', label: 'New case', icon: 'note_add' },
+      { href: '/admin/remittance', label: 'Settlement / EOB', icon: 'payments' },
     ],
   },
   {
     title: 'Compliance',
     items: [
-      { href: '/admin/compliance', label: 'Compliance dashboard', description: 'DPDP rollup' },
-      { href: '/admin/consents', label: 'Consents', description: 'DPDP §6 records' },
-      { href: '/admin/audit', label: 'Audit log', description: 'Tenant-scoped' },
+      { href: '/admin/compliance', label: 'Compliance', icon: 'verified_user' },
+      { href: '/admin/consents', label: 'Consents', icon: 'task_alt' },
+      { href: '/admin/audit', label: 'Audit log', icon: 'manage_search' },
     ],
   },
   {
     title: 'Tenant admin',
     items: [
-      { href: '/admin/onboarding', label: 'Onboarding', description: 'Tenant setup wizard' },
-      { href: '/admin/lifecycle', label: 'Lifecycle', description: 'Tenant state' },
-      { href: '/admin/users', label: 'Users', description: 'Invite / manage' },
-      { href: '/admin/security', label: 'Security', description: 'IP / sessions / MFA' },
-      { href: '/admin/comms-config', label: 'Comms config', description: 'SMTP / SMS' },
+      { href: '/admin/onboarding', label: 'Onboarding', icon: 'domain_add' },
+      { href: '/admin/lifecycle', label: 'Lifecycle', icon: 'orbit' },
+      { href: '/admin/users', label: 'Users', icon: 'group' },
+      { href: '/admin/security', label: 'Security', icon: 'shield_lock' },
+      { href: '/admin/comms-config', label: 'Comms', icon: 'forum' },
     ],
   },
-  {
-    title: 'Account',
-    items: [
-      { href: '/me', label: 'My profile' },
-    ],
-  },
+];
+
+const SUPPORT_ITEMS: NavItem[] = [
+  { href: '/me', label: 'My profile', icon: 'account_circle' },
 ];
 
 interface MeMinimal {
@@ -99,8 +101,6 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
           router.replace('/login');
           return;
         }
-        // Don't bombard the user with auth errors on every nav re-render;
-        // only surface non-auth failures.
         showApiError(err);
       });
     return () => {
@@ -108,31 +108,47 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
     };
   }, [router, showApiError]);
 
+  const pageTitle = useMemo(() => deriveTitle(pathname ?? '/dashboard'), [pathname]);
+
   const onSignOut = async (): Promise<void> => {
     try {
       await AuthApi.logout();
     } catch {
-      // Best-effort. The cookie is httpOnly so even if the network
-      // call fails the next /auth/me will 401 and bounce to login.
+      // Cookie is httpOnly; the next /auth/me will 401 and bounce.
     }
     router.replace('/login');
   };
 
   return (
-    <div className="flex min-h-screen bg-neutral-50">
-      <aside className="flex w-60 flex-col border-r border-neutral-200 bg-neutral-0">
-        <div className="flex h-16 items-center border-b border-neutral-200 px-5">
-          <Link href="/dashboard" className="text-base font-semibold text-neutral-800">
-            DigiSparsh Claims
-          </Link>
+    <div className="flex min-h-screen">
+      {/* Sidebar */}
+      <aside className="sticky top-0 z-50 flex h-screen w-64 shrink-0 flex-col bg-gradient-to-b from-[#0d7a82] to-[#075c63] px-4 py-8 text-on-primary shadow-xl">
+        {/* Brand pill */}
+        <div className="mb-10 px-2">
+          <div className="inline-flex items-center gap-2 rounded-full bg-surface-container-lowest px-4 py-2 shadow-sm">
+            <span
+              className="material-symbols-outlined text-primary"
+              style={{ fontSize: 22, fontVariationSettings: "'FILL' 1" }}
+            >
+              health_and_safety
+            </span>
+            <span className="text-h3 font-black uppercase tracking-tighter text-primary">
+              DIGI SPARSH
+            </span>
+          </div>
+          <p className="mt-3 px-1 text-eyebrow uppercase tracking-eyebrow text-primary-fixed/70">
+            Healthcare Claims
+          </p>
         </div>
-        <nav className="flex-1 overflow-y-auto px-3 py-4 text-sm">
+
+        {/* Nav groups */}
+        <nav className="flex flex-1 flex-col gap-6 overflow-y-auto">
           {NAV.map((group) => (
-            <div key={group.title} className="mb-5">
-              <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+            <div key={group.title}>
+              <span className="mb-3 block px-3 text-eyebrow uppercase tracking-eyebrow text-white/40">
                 {group.title}
-              </div>
-              <ul className="space-y-0.5">
+              </span>
+              <ul className="space-y-1">
                 {group.items.map((item) => {
                   const active =
                     pathname === item.href || pathname?.startsWith(`${item.href}/`);
@@ -142,14 +158,19 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
                         href={item.href}
                         className={
                           active
-                            ? 'block rounded-sm bg-primary-50 px-2 py-1.5 text-primary-700'
-                            : 'block rounded-sm px-2 py-1.5 text-neutral-700 hover:bg-neutral-100'
+                            ? 'flex items-center gap-3 rounded-lg border-l-4 border-secondary-container bg-white/10 p-3 font-bold text-on-primary transition-all'
+                            : 'flex items-center gap-3 rounded-lg p-3 text-primary-fixed-dim/70 transition-all hover:bg-white/5 hover:text-on-primary'
                         }
                       >
-                        <div className="font-medium">{item.label}</div>
-                        {item.description ? (
-                          <div className="text-[10.5px] text-neutral-500">{item.description}</div>
-                        ) : null}
+                        <span
+                          className="material-symbols-outlined"
+                          style={
+                            active ? { fontVariationSettings: "'FILL' 1" } : undefined
+                          }
+                        >
+                          {item.icon}
+                        </span>
+                        <span className="text-body">{item.label}</span>
                       </Link>
                     </li>
                   );
@@ -157,33 +178,178 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
               </ul>
             </div>
           ))}
+
+          <div>
+            <span className="mb-3 block px-3 text-eyebrow uppercase tracking-eyebrow text-white/40">
+              Account
+            </span>
+            <ul className="space-y-1">
+              {SUPPORT_ITEMS.map((item) => {
+                const active =
+                  pathname === item.href || pathname?.startsWith(`${item.href}/`);
+                return (
+                  <li key={item.href}>
+                    <Link
+                      href={item.href}
+                      className={
+                        active
+                          ? 'flex items-center gap-3 rounded-lg border-l-4 border-secondary-container bg-white/10 p-3 font-bold text-on-primary transition-all'
+                          : 'flex items-center gap-3 rounded-lg p-3 text-primary-fixed-dim/70 transition-all hover:bg-white/5 hover:text-on-primary'
+                      }
+                    >
+                      <span className="material-symbols-outlined">{item.icon}</span>
+                      <span className="text-body">{item.label}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
         </nav>
-        <div className="border-t border-neutral-200 px-3 py-3 text-xs">
+
+        {/* Sidebar footer — user chip + sign out */}
+        <div className="mt-auto flex flex-col gap-2 border-t border-white/10 pt-6">
           {me ? (
-            <div className="space-y-1">
-              <div className="font-medium text-neutral-800">
-                {me.firstName} {me.lastName}
-              </div>
-              <div className="text-neutral-500">{me.tenantDisplayName}</div>
-              <div className="font-mono text-[10px] text-neutral-400">
-                {me.roles.join(', ')}
+            <div className="rounded-lg bg-white/5 p-3">
+              <div className="flex items-center gap-2">
+                <div className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-secondary-container text-body-sm font-bold text-on-secondary-container">
+                  {(me.firstName[0] ?? '').toUpperCase()}
+                  {(me.lastName[0] ?? '').toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-body-sm font-semibold text-on-primary">
+                    {me.firstName} {me.lastName}
+                  </div>
+                  <div className="truncate text-eyebrow uppercase tracking-eyebrow text-primary-fixed-dim/70">
+                    {me.tenantDisplayName}
+                  </div>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={() => {
                   void onSignOut();
                 }}
-                className="mt-2 w-full rounded-sm border border-neutral-200 px-2 py-1 text-neutral-700 hover:bg-neutral-50"
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-white/20 py-1.5 text-eyebrow uppercase tracking-eyebrow text-on-primary/90 transition hover:bg-white/10"
               >
+                <span className="material-symbols-outlined text-[16px]">logout</span>
                 Sign out
               </button>
             </div>
           ) : (
-            <div className="text-neutral-400">Loading session…</div>
+            <div className="text-body-sm text-primary-fixed-dim/70">
+              Loading session…
+            </div>
           )}
         </div>
       </aside>
-      <main className="flex-1 overflow-y-auto px-6 py-6">{children}</main>
+
+      {/* Main column */}
+      <div className="flex min-h-screen flex-1 flex-col">
+        {/* Topbar — glass strip with breadcrumb + tenant chip + New case CTA */}
+        <header className="sticky top-0 z-40 flex h-16 items-center justify-between border-b border-white/20 bg-surface/70 px-6 backdrop-blur-md">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="text-body-sm text-on-surface-variant">{pageTitle.crumb}</span>
+            <span className="text-on-surface-variant/40">/</span>
+            <h1 className="truncate text-h3 font-h3 font-bold text-primary">
+              {pageTitle.title}
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {me ? (
+              <div className="hidden items-center gap-2 rounded-full border border-primary/10 bg-primary/5 px-3 py-1.5 md:flex">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-primary" />
+                <span className="text-body-sm font-semibold text-primary">
+                  {me.tenantDisplayName}
+                </span>
+                <span className="text-on-surface-variant/40">·</span>
+                <span className="font-mono text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                  {me.roles[0] ?? '—'}
+                </span>
+              </div>
+            ) : null}
+
+            <Link
+              href="/cases/new"
+              className="btn-primary"
+              style={{ padding: '8px 16px', fontSize: '13px' }}
+            >
+              <span
+                className="material-symbols-outlined"
+                style={{ fontSize: 18, fontVariationSettings: "'FILL' 1" }}
+              >
+                add
+              </span>
+              New case
+            </Link>
+
+            <div className="flex items-center gap-3 border-l border-outline-variant/30 pl-4">
+              <button
+                type="button"
+                aria-label="Notifications"
+                className="text-on-surface-variant transition-colors hover:text-primary"
+              >
+                <span className="material-symbols-outlined">notifications</span>
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <main className="flex-1 px-6 pb-10 pt-6">{children}</main>
+      </div>
     </div>
   );
+}
+
+// ---- helpers ----
+
+function deriveTitle(pathname: string): { crumb: string; title: string } {
+  const segments = pathname.split('/').filter(Boolean);
+  const head = segments[0];
+  if (!head) return { crumb: 'Operations', title: 'Dashboard' };
+
+  const map: Record<string, { crumb: string; title: string }> = {
+    dashboard: { crumb: 'Operations', title: 'Dashboard' },
+    cases: { crumb: 'Operations', title: 'Cases' },
+    me: { crumb: 'Account', title: 'My profile' },
+  };
+  if (head === 'admin') {
+    const sub = segments[1] ?? '';
+    const adminMap: Record<string, string> = {
+      compliance: 'Compliance',
+      consents: 'Consents',
+      audit: 'Audit log',
+      onboarding: 'Tenant onboarding',
+      lifecycle: 'Tenant lifecycle',
+      users: 'Users',
+      security: 'Security',
+      'comms-config': 'Comms config',
+      remittance: 'Settlement / EOB',
+    };
+    return {
+      crumb: 'Admin',
+      title: adminMap[sub] ?? humanize(sub),
+    };
+  }
+  if (head === 'cases' && segments[1] === 'new') {
+    return { crumb: 'Operations', title: 'New case' };
+  }
+  if (head === 'cases' && segments[1]) {
+    return { crumb: 'Operations', title: `Case ${segments[1].slice(0, 8)}…` };
+  }
+  if (head === 'me' && segments[1] === 'change-password') {
+    return { crumb: 'Account', title: 'Change password' };
+  }
+  if (head === 'me' && segments[1] === 'mfa') {
+    return { crumb: 'Account', title: 'Two-factor authentication' };
+  }
+  return map[head] ?? { crumb: humanize(head), title: humanize(segments.at(-1) ?? head) };
+}
+
+function humanize(slug: string): string {
+  return slug
+    .split('-')
+    .map((s) => (s ? s[0]!.toUpperCase() + s.slice(1) : s))
+    .join(' ');
 }

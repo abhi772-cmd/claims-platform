@@ -8,6 +8,7 @@ const config: Config = {
     extend: {
       colors: {
         primary: {
+          DEFAULT: 'var(--m3-primary)',
           50: 'var(--color-primary-50)',
           100: 'var(--color-primary-100)',
           200: 'var(--color-primary-200)',
@@ -20,6 +21,7 @@ const config: Config = {
           900: 'var(--color-primary-900)',
         },
         accent: {
+          DEFAULT: 'var(--color-accent-500)',
           50: 'var(--color-accent-50)',
           100: 'var(--color-accent-100)',
           300: 'var(--color-accent-300)',
@@ -60,16 +62,104 @@ const config: Config = {
           500: 'var(--color-info-500)',
           700: 'var(--color-info-700)',
         },
+
+        /* ============================================================ */
+        /* Material 3 token names (Stitch-generated screens reference   */
+        /* these directly: bg-primary, text-on-surface, etc.).          */
+        /* Resolves to --m3-* CSS variables in tokens.css.              */
+        /* ============================================================ */
+        'on-primary': 'var(--m3-on-primary)',
+        'primary-container': 'var(--m3-primary-container)',
+        'on-primary-container': 'var(--m3-on-primary-container)',
+        'primary-fixed': 'var(--m3-primary-fixed)',
+        'primary-fixed-dim': 'var(--m3-primary-fixed-dim)',
+        'on-primary-fixed': 'var(--m3-on-primary-fixed)',
+        'on-primary-fixed-variant': 'var(--m3-on-primary-fixed-variant)',
+        'inverse-primary': 'var(--m3-inverse-primary)',
+        'surface-tint': 'var(--m3-surface-tint)',
+
+        secondary: {
+          DEFAULT: 'var(--m3-secondary)',
+          container: 'var(--m3-secondary-container)',
+          fixed: 'var(--m3-secondary-fixed)',
+          'fixed-dim': 'var(--m3-secondary-fixed-dim)',
+        },
+        'on-secondary': 'var(--m3-on-secondary)',
+        'secondary-container': 'var(--m3-secondary-container)',
+        'on-secondary-container': 'var(--m3-on-secondary-container)',
+        'secondary-fixed': 'var(--m3-secondary-fixed)',
+        'secondary-fixed-dim': 'var(--m3-secondary-fixed-dim)',
+        'on-secondary-fixed': 'var(--m3-on-secondary-fixed)',
+        'on-secondary-fixed-variant': 'var(--m3-on-secondary-fixed-variant)',
+
+        tertiary: 'var(--m3-tertiary)',
+        'on-tertiary': 'var(--m3-on-tertiary)',
+        'tertiary-container': 'var(--m3-tertiary-container)',
+        'on-tertiary-container': 'var(--m3-on-tertiary-container)',
+        'tertiary-fixed': 'var(--m3-tertiary-fixed)',
+        'tertiary-fixed-dim': 'var(--m3-tertiary-fixed-dim)',
+        'on-tertiary-fixed': 'var(--m3-on-tertiary-fixed)',
+        'on-tertiary-fixed-variant': 'var(--m3-on-tertiary-fixed-variant)',
+
+        error: {
+          DEFAULT: 'var(--m3-error)',
+          container: 'var(--m3-error-container)',
+        },
+        'on-error': 'var(--m3-on-error)',
+        'error-container': 'var(--m3-error-container)',
+        'on-error-container': 'var(--m3-on-error-container)',
+
+        background: 'var(--m3-background)',
+        'on-background': 'var(--m3-on-background)',
+        surface: 'var(--m3-surface)',
+        'on-surface': 'var(--m3-on-surface)',
+        'surface-variant': 'var(--m3-surface-variant)',
+        'on-surface-variant': 'var(--m3-on-surface-variant)',
+        'surface-dim': 'var(--m3-surface-dim)',
+        'surface-bright': 'var(--m3-surface-bright)',
+        'surface-container-lowest': 'var(--m3-surface-container-lowest)',
+        'surface-container-low': 'var(--m3-surface-container-low)',
+        'surface-container': 'var(--m3-surface-container)',
+        'surface-container-high': 'var(--m3-surface-container-high)',
+        'surface-container-highest': 'var(--m3-surface-container-highest)',
+        'inverse-surface': 'var(--m3-inverse-surface)',
+        'inverse-on-surface': 'var(--m3-inverse-on-surface)',
+
+        outline: 'var(--m3-outline)',
+        'outline-variant': 'var(--m3-outline-variant)',
       },
       fontFamily: {
         sans: ['var(--font-sans)'],
         mono: ['var(--font-mono)'],
+        h1: ['var(--font-sans)'],
+        h2: ['var(--font-sans)'],
+        h3: ['var(--font-sans)'],
+        body: ['var(--font-sans)'],
+        eyebrow: ['var(--font-sans)'],
+      },
+      fontSize: {
+        eyebrow: ['10.5px', { letterSpacing: '0.12em', fontWeight: '600' }],
+        'body-sm': ['12px', { lineHeight: '1.5', fontWeight: '400' }],
+        body: ['14px', { lineHeight: '1.6', fontWeight: '400' }],
+        h3: ['22px', { lineHeight: '1.4', fontWeight: '600' }],
+        h2: ['28px', { lineHeight: '1.3', letterSpacing: '-0.01em', fontWeight: '600' }],
+        h1: ['36px', { lineHeight: '1.2', letterSpacing: '-0.02em', fontWeight: '700' }],
+        'h1-mobile': ['28px', { lineHeight: '1.2', fontWeight: '700' }],
+      },
+      spacing: {
+        unit: '4px',
+        gutter: '24px',
+        'margin-mobile': '16px',
+        'margin-desktop': '40px',
+        'container-max': '1440px',
       },
       borderRadius: {
         xs: 'var(--radius-xs)',
         sm: 'var(--radius-sm)',
+        base: 'var(--radius-base)',
         md: 'var(--radius-md)',
         lg: 'var(--radius-lg)',
+        xl: 'var(--radius-xl)',
         pill: 'var(--radius-pill)',
       },
       boxShadow: {
@@ -77,6 +167,12 @@ const config: Config = {
         md: 'var(--shadow-md)',
         lg: 'var(--shadow-lg)',
         xl: 'var(--shadow-xl)',
+        modal: 'var(--shadow-modal)',
+      },
+      letterSpacing: {
+        h1: 'var(--tracking-h1)',
+        h2: 'var(--tracking-h2)',
+        eyebrow: 'var(--tracking-eyebrow)',
       },
     },
   },

@@ -4,6 +4,9 @@ import { type InvitePreview, type PasswordPolicyDescriptor } from '@claims/contr
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
+import { AuthCard } from '../../../../components/auth/AuthCard';
+import { AuthField } from '../../../../components/auth/AuthField';
+import { AuthSubmit } from '../../../../components/auth/AuthSubmit';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { PasswordStrengthMeter } from '../../../../components/password/PasswordStrengthMeter';
 import { AuthApi } from '../../../../lib/api/auth.api';
@@ -71,42 +74,59 @@ export default function AcceptInvitePage({ params }: PageProps): JSX.Element {
   }
 
   if (loading) {
-    return <p className="text-sm text-neutral-500">Loading invite…</p>;
+    return (
+      <AuthCard icon="hourglass_top" eyebrow="You're invited" title="Loading your invite…">
+        <p className="text-center text-body text-on-surface-variant">One moment.</p>
+      </AuthCard>
+    );
   }
   if (!preview) {
     return (
-      <div className="space-y-2">
-        <p className="text-sm text-danger-700">This invite is not valid.</p>
-        <p className="text-sm text-neutral-500">Ask your admin to send a new one.</p>
-      </div>
+      <AuthCard
+        icon="link_off"
+        tone="danger"
+        eyebrow="You're invited"
+        title="This invite is not valid"
+      >
+        <p className="text-center text-body text-on-surface">
+          Invite links expire after a short window. Ask your admin to send a new one.
+        </p>
+      </AuthCard>
     );
   }
 
   return (
-    <div className="space-y-6 rounded-md bg-neutral-0 p-8 shadow-md">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-neutral-800">Accept your invite</h1>
-        <p className="text-sm text-neutral-500">
-          {preview.firstName}, you&apos;ve been invited to {preview.tenantDisplayName}.
-        </p>
-        <p className="text-xs text-neutral-400">
-          Expires {new Date(preview.expiresAt).toLocaleString()}
-        </p>
-      </header>
-      <form onSubmit={onSubmit} className="space-y-4" noValidate>
-        <div className="space-y-1">
-          <label htmlFor="password" className="text-sm font-medium text-neutral-700">
-            Choose a password
-          </label>
-          <input
+    <AuthCard
+      icon="person_add"
+      eyebrow="You're invited"
+      title="Set up your account"
+      subtitle={`${preview.firstName}, you've been invited to join ${preview.tenantDisplayName}.`}
+    >
+      <div className="-mt-4 mb-6 flex flex-wrap items-center justify-center gap-2">
+        <span className="rounded-full bg-surface-container-low px-3 py-1 text-body-sm font-medium text-on-surface-variant ring-1 ring-outline-variant">
+          {preview.email}
+        </span>
+        <span className="rounded-full bg-primary-container/10 px-3 py-1 text-body-sm font-medium text-primary-container ring-1 ring-primary-container/30">
+          {preview.tenantDisplayName}
+        </span>
+      </div>
+      <p className="-mt-2 mb-6 text-center text-body-sm text-on-surface-variant opacity-80">
+        Expires {new Date(preview.expiresAt).toLocaleString()}.
+      </p>
+
+      <form onSubmit={onSubmit} className="space-y-6" noValidate>
+        <div className="space-y-2">
+          <AuthField
+            label="Create a password"
+            icon="lock"
+            password
             id="password"
-            type="password"
             autoComplete="new-password"
             required
             minLength={12}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+            placeholder="••••••••••••"
           />
           <PasswordStrengthMeter
             password={password}
@@ -118,29 +138,26 @@ export default function AcceptInvitePage({ params }: PageProps): JSX.Element {
             }}
           />
         </div>
-        <div className="space-y-1">
-          <label htmlFor="confirm" className="text-sm font-medium text-neutral-700">
-            Confirm password
-          </label>
-          <input
-            id="confirm"
-            type="password"
-            autoComplete="new-password"
-            required
-            minLength={12}
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+        <AuthField
+          label="Confirm password"
+          icon="lock"
+          password
+          id="confirm"
+          autoComplete="new-password"
+          required
+          minLength={12}
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          placeholder="••••••••••••"
+        />
+        <div className="pt-2">
+          <AuthSubmit
+            label="Activate account"
+            submitting={submitting}
+            loadingLabel="Setting up…"
           />
         </div>
-        <button
-          type="submit"
-          disabled={submitting}
-          className="w-full rounded-sm bg-primary-600 px-3 py-2 text-sm font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
-        >
-          {submitting ? 'Setting up…' : 'Accept invite'}
-        </button>
       </form>
-    </div>
+    </AuthCard>
   );
 }
