@@ -84,6 +84,31 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
   const { showApiError } = useErrorModal();
   const [me, setMe] = useState<MeMinimal | null>(null);
 
+  // Which group is the current path in? That group opens by default;
+  // the others stay collapsed so the sidebar is calmer at rest. Users
+  // can click any group header to toggle it.
+  const activeGroupTitle = useMemo(() => {
+    for (const group of NAV) {
+      const has = group.items.some(
+        (i) => pathname === i.href || pathname?.startsWith(`${i.href}/`),
+      );
+      if (has) return group.title;
+    }
+    return NAV[0]?.title ?? null;
+  }, [pathname]);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(NAV.map((g) => [g.title, g.title === activeGroupTitle])),
+  );
+  // Keep the active group open as the user navigates between sections.
+  useEffect(() => {
+    if (activeGroupTitle) {
+      setOpenGroups((cur) =>
+        cur[activeGroupTitle] ? cur : { ...cur, [activeGroupTitle]: true },
+      );
+    }
+  }, [activeGroupTitle]);
+  const [accountOpen, setAccountOpen] = useState(false);
+
   useEffect(() => {
     const ctrl = new AbortController();
     AuthApi.me(ctrl.signal)
@@ -122,7 +147,7 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
   return (
     <div className="flex min-h-screen">
       {/* Sidebar */}
-      <aside className="sticky top-0 z-50 flex h-screen w-64 shrink-0 flex-col bg-gradient-to-b from-[#0d7a82] to-[#075c63] px-4 py-8 text-on-primary shadow-xl">
+      <aside className="font-nav sticky top-0 z-50 flex h-screen w-64 shrink-0 flex-col bg-gradient-to-b from-[#0d7a82] to-[#075c63] px-4 py-8 text-on-primary shadow-xl">
         {/* Brand pill */}
         <div className="mb-10 px-2">
           <div className="inline-flex items-center gap-2 rounded-full bg-surface-container-lowest px-4 py-2 shadow-sm">
@@ -141,49 +166,89 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
           </p>
         </div>
 
-        {/* Nav groups */}
-        <nav className="flex flex-1 flex-col gap-6 overflow-y-auto">
-          {NAV.map((group) => (
-            <div key={group.title}>
-              <span className="mb-3 block px-3 text-eyebrow uppercase tracking-eyebrow text-white/40">
-                {group.title}
-              </span>
-              <ul className="space-y-1">
-                {group.items.map((item) => {
-                  const active =
-                    pathname === item.href || pathname?.startsWith(`${item.href}/`);
-                  return (
-                    <li key={item.href}>
-                      <Link
-                        href={item.href}
-                        className={
-                          active
-                            ? 'flex items-center gap-3 rounded-lg border-l-4 border-secondary-container bg-white/10 p-3 font-bold text-on-primary transition-all'
-                            : 'flex items-center gap-3 rounded-lg p-3 text-primary-fixed-dim/70 transition-all hover:bg-white/5 hover:text-on-primary'
-                        }
-                      >
-                        <span
-                          className="material-symbols-outlined"
-                          style={
-                            active ? { fontVariationSettings: "'FILL' 1" } : undefined
-                          }
-                        >
-                          {item.icon}
-                        </span>
-                        <span className="text-body">{item.label}</span>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
+        {/* Nav groups — clubbed dropdowns. Group header is a button;
+            click to toggle. Active group auto-opens on navigate. */}
+        <nav className="font-nav flex flex-1 flex-col gap-2 overflow-y-auto">
+          {NAV.map((group) => {
+            const isOpen = openGroups[group.title] ?? false;
+            const groupHasActive = group.items.some(
+              (i) => pathname === i.href || pathname?.startsWith(`${i.href}/`),
+            );
+            return (
+              <div key={group.title} className="rounded-lg">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenGroups((cur) => ({ ...cur, [group.title]: !cur[group.title] }))
+                  }
+                  aria-expanded={isOpen}
+                  className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left transition-colors hover:bg-white/5 ${
+                    groupHasActive ? 'text-white' : 'text-white/80'
+                  }`}
+                >
+                  <span className="text-[11px] font-bold uppercase tracking-[0.14em]">
+                    {group.title}
+                  </span>
+                  <span
+                    className="material-symbols-outlined text-[18px] transition-transform"
+                    style={{ transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+                  >
+                    expand_more
+                  </span>
+                </button>
+                {isOpen && (
+                  <ul className="ml-1 mt-1 space-y-0.5 border-l border-white/10 pl-2">
+                    {group.items.map((item) => {
+                      const active =
+                        pathname === item.href || pathname?.startsWith(`${item.href}/`);
+                      return (
+                        <li key={item.href}>
+                          <Link
+                            href={item.href}
+                            className={
+                              active
+                                ? 'flex items-center gap-3 rounded-lg border-l-2 border-secondary-container bg-white/10 px-3 py-2 font-semibold text-white transition-all'
+                                : 'flex items-center gap-3 rounded-lg px-3 py-2 font-medium text-white/85 transition-all hover:bg-white/5 hover:text-white'
+                            }
+                          >
+                            <span
+                              className="material-symbols-outlined text-[20px]"
+                              style={
+                                active ? { fontVariationSettings: "'FILL' 1" } : undefined
+                              }
+                            >
+                              {item.icon}
+                            </span>
+                            <span className="text-[14px]">{item.label}</span>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
 
-          <div>
-            <span className="mb-3 block px-3 text-eyebrow uppercase tracking-eyebrow text-white/40">
-              Account
-            </span>
-            <ul className="space-y-1">
+          <div className="rounded-lg">
+            <button
+              type="button"
+              onClick={() => setAccountOpen((v) => !v)}
+              aria-expanded={accountOpen}
+              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-white/80 transition-colors hover:bg-white/5"
+            >
+              <span className="text-[11px] font-bold uppercase tracking-[0.14em]">
+                Account
+              </span>
+              <span
+                className="material-symbols-outlined text-[18px] transition-transform"
+                style={{ transform: accountOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}
+              >
+                expand_more
+              </span>
+            </button>
+            {accountOpen && (
+              <ul className="ml-1 mt-1 space-y-0.5 border-l border-white/10 pl-2">
               {SUPPORT_ITEMS.map((item) => {
                 const active =
                   pathname === item.href || pathname?.startsWith(`${item.href}/`);
@@ -193,17 +258,25 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
                       href={item.href}
                       className={
                         active
-                          ? 'flex items-center gap-3 rounded-lg border-l-4 border-secondary-container bg-white/10 p-3 font-bold text-on-primary transition-all'
-                          : 'flex items-center gap-3 rounded-lg p-3 text-primary-fixed-dim/70 transition-all hover:bg-white/5 hover:text-on-primary'
+                          ? 'flex items-center gap-3 rounded-lg border-l-2 border-secondary-container bg-white/10 px-3 py-2 font-semibold text-white transition-all'
+                          : 'flex items-center gap-3 rounded-lg px-3 py-2 font-medium text-white/85 transition-all hover:bg-white/5 hover:text-white'
                       }
                     >
-                      <span className="material-symbols-outlined">{item.icon}</span>
-                      <span className="text-body">{item.label}</span>
+                      <span
+                        className="material-symbols-outlined text-[20px]"
+                        style={
+                          active ? { fontVariationSettings: "'FILL' 1" } : undefined
+                        }
+                      >
+                        {item.icon}
+                      </span>
+                      <span className="text-[14px]">{item.label}</span>
                     </Link>
                   </li>
                 );
               })}
-            </ul>
+              </ul>
+            )}
           </div>
         </nav>
 
@@ -220,7 +293,7 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
                   <div className="truncate text-body-sm font-semibold text-on-primary">
                     {me.firstName} {me.lastName}
                   </div>
-                  <div className="truncate text-eyebrow uppercase tracking-eyebrow text-primary-fixed-dim/70">
+                  <div className="truncate text-eyebrow uppercase tracking-eyebrow text-white/70">
                     {me.tenantDisplayName}
                   </div>
                 </div>
@@ -237,7 +310,7 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
               </button>
             </div>
           ) : (
-            <div className="text-body-sm text-primary-fixed-dim/70">
+            <div className="text-body-sm text-white/70">
               Loading session…
             </div>
           )}

@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
 @import '@claims/ui-tokens/tokens.css';
 
@@ -18,4 +19,12 @@
 /* Tabular numerals for amounts, dates, and any column of numbers. */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* Sidebar / navigation typography — Plus Jakarta Sans gives the nav a
+   distinct typographic voice from the Inter-set body, and reads
+   sharply against the deep-teal sidebar background. */
+.font-nav {
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  letter-spacing: -0.005em;
 }
