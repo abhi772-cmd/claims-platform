@@ -90,8 +90,14 @@ function prettyKey(key: OnboardingStepKey): string {
       return 'Tenant profile';
     case 'roles_assigned':
       return 'Role assignment';
+    case 'hfr_facility':
+      return 'HFR facility registered';
+    case 'nhcx_participant_code':
+      return 'NHCX participant code';
     case 'nhcx_cert':
       return 'NHCX certificate';
+    case 'nhcx_callback_url':
+      return 'NHCX callback URL';
     case 'pmjay_state':
       return 'PMJAY state';
     case 'payer_master':
