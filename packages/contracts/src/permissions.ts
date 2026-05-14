@@ -19,6 +19,16 @@ export const Permissions = {
   TENANT_ONBOARDING_UPDATE: 'tenant.onboarding.update',
   TENANT_COMMS_CONFIG_UPDATE: 'tenant.comms_config.update',
 
+  // Slice ON-3 — KYC ops review queue (cross-tenant). Platform-admin-
+  // only by design: ops reviewers verify identity documents against
+  // legal records, so the role is held only by DigiSparsh staff.
+  KYC_REVIEW: 'kyc.review',
+
+  // Slice ON-4 — NHCX participant registration on behalf of a hospital.
+  // Platform_admin only — registration calls NHA's participant API
+  // with the hospital's HFR ID + bridge URL.
+  NHCX_PARTICIPANT_MANAGE: 'nhcx.participant.manage',
+
   // Master data
   PAYER_MASTER_VIEW: 'payer.master.view',
   PAYER_MASTER_EDIT: 'payer.master.edit',

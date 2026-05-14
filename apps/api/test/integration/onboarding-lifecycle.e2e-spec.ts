@@ -153,13 +153,13 @@ describe('Slice G — onboarding wizard + readiness + lifecycle', () => {
     expect(res.status).toBe(403);
   });
 
-  it('admin lists 8 pending steps', async () => {
+  it('admin lists 11 pending steps', async () => {
     const cookies = await loginAs(ADMIN_EMAIL);
     const res = await request(app.getHttpServer())
       .get('/tenant/onboarding/steps')
       .set('Cookie', cookies);
     expect(res.status).toBe(200);
-    expect(res.body.steps).toHaveLength(8);
+    expect(res.body.steps).toHaveLength(11);
     expect(res.body.steps.every((s: { status: string }) => s.status === 'pending')).toBe(true);
   });
 
@@ -223,6 +223,11 @@ describe('Slice G — onboarding wizard + readiness + lifecycle', () => {
       'payer_master',
       'package_master',
       'notification_test',
+      // ON-3 swapped kyc_documents_uploaded out for the verified-by-ops
+      // gate. The e2e marks it complete manually via the step-complete
+      // endpoint to exercise readiness; the real flow runs through the
+      // KycService recompute path covered separately in tenant-kyc-review.e2e-spec.
+      'kyc_verified_by_ops',
       'legal_acceptance',
     ];
     for (const key of required) {

@@ -47,6 +47,10 @@ const ROLE_SEEDS: RoleSeed[] = [
       'consent.view',
       'consent.manage',
       'tenant.comms_config.update',
+      // Slice ON-3 — KYC review queue (cross-tenant).
+      'kyc.review',
+      // Slice ON-4 — NHCX participant registration on behalf.
+      'nhcx.participant.manage',
     ],
   },
   {
@@ -59,6 +63,9 @@ const ROLE_SEEDS: RoleSeed[] = [
       'tenant.update',
       'tenant.lifecycle.transition',
       'tenant.comms_config.update',
+      // Slice ON-1 / ON-2 — wizard mutations: profile fields,
+      // KYC uploads, step-complete actions all gate on this.
+      'tenant.onboarding.update',
       'payer.master.view',
       'payer.master.edit',
       'package.master.sync',

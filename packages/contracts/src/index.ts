@@ -7,6 +7,8 @@ export * from './mfa.schema';
 export * from './security.schema';
 export * from './doctor.schema';
 export * from './onboarding.schema';
+export * from './kyc.schema';
+export * from './nhcx-participant.schema';
 export * from './claim.schema';
 export * from './case.schema';
 export * from './integration.schema';

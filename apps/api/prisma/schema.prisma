@@ -21,6 +21,53 @@ enum TenantLifecycleState {
   CHURNED
 }
 
+// Profile classification fields. Captured in Stage 1 of the onboarding
+// flow (docs/15) by ops on tenant provisioning.
+enum HospitalType {
+  private
+  trust
+  government
+  psu
+}
+
+// Self-declared volume band, used for capacity planning + tiering.
+// Bucket labels match docs/15 stage 1 wording.
+enum ExpectedMonthlyClaimsBand {
+  lt_100      // <100
+  band_100_500    // 100-500
+  band_500_2000   // 500-2000
+  gt_2000     // 2000+
+}
+
+// Slice ON-2 — Stage-3 KYC document types. The first six are the
+// KYC artefacts NHA + IRDAI evidence; dpa_signed + msa_signed are
+// the platform-side legal agreements (slice ON-3 wires the signed-PDF
+// re-upload flow).
+enum KycDocumentType {
+  hospital_registration
+  rohini_registration
+  gst_certificate
+  pan
+  signatory_id
+  cancelled_cheque
+  dpa_signed
+  msa_signed
+}
+
+// Lifecycle:
+//   uploading       — init created the row; client is PUT-ing bytes
+//   pending_review  — finalize observed the bytes; awaiting ops
+//   approved        — ops accepted (slice ON-3)
+//   rejected        — ops rejected outright (slice ON-3)
+//   resubmission_requested — ops asked the tenant to redo (slice ON-3)
+enum KycDocumentStatus {
+  uploading
+  pending_review
+  approved
+  rejected
+  resubmission_requested
+}
+
 enum UserStatus {
   invited
   active
@@ -214,6 +261,17 @@ model Tenant {
   // Per-tenant flip means the rollout doesn't break tenants
   // that haven't backfilled grants.
   requireConsent  Boolean              @default(false)
+  // Stage-1 onboarding profile (docs/15). Captured by ops on tenant
+  // provisioning. All nullable — pre-existing tenants pre-date the
+  // slice and fill these in via the wizard when next touched. The
+  // application enforces "required for NHCX cutover" higher up in
+  // the readiness check, not at the column level.
+  legalName                 String?
+  rohiniId                  String?
+  hospitalType              HospitalType?
+  bedCount                  Int?
+  hmisVendor                String?
+  expectedMonthlyClaimsBand ExpectedMonthlyClaimsBand?
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 
@@ -221,8 +279,68 @@ model Tenant {
   roles            Role[]
   onboardingSteps  OnboardingStep[]
   biometricVerifications BiometricVerification[]
+  kycDocuments     KycDocument[]
+  nhcxConfig       TenantNhcxConfig?
 
   @@map("tenant")
+}
+
+// Slice ON-4 — NHCX participant onboarding state. One row per tenant,
+// written by ops via /admin/tenants/:id/nhcx/register-participant.
+// `participantCode` is null until the NHA call succeeds; `lastError`
+// captures the most recent failure for the ops UI.
+model TenantNhcxConfig {
+  id                  String   @id @default(uuid()) @db.Uuid
+  tenantId            String   @unique @db.Uuid
+  hfrFacilityId       String
+  participantCode     String?
+  role                String   @default("provider")
+  callbackUrl         String
+  sandboxMode         Boolean  @default(true)
+  registeredAt        DateTime?
+  registeredByUserId  String?  @db.Uuid
+  lastError           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("tenant_nhcx_config")
+}
+
+// Slice ON-2 — KYC document upload row. Two-stage lifecycle: init
+// allocates the row in `uploading`, client PUTs to the presigned URL,
+// finalize flips to `pending_review`. Bytes never flow through the
+// API server. Review status fields populate in slice ON-3.
+model KycDocument {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @db.Uuid
+  documentType         KycDocumentType
+  status               KycDocumentStatus @default(uploading)
+  storageBucket        String?
+  storageKey           String?
+  originalFilename     String
+  contentType          String
+  declaredSizeBytes    Int
+  actualSizeBytes      Int?
+  sha256               String?  @db.Char(64)
+  etag                 String?
+  uploadedByUserId     String   @db.Uuid
+  uploadedAt           DateTime @default(now())
+  finalizedAt          DateTime?
+  reviewedByUserId     String?  @db.Uuid
+  reviewedAt           DateTime?
+  reviewNotes          String?
+  rejectionReasonCode  String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, documentType])
+  @@index([tenantId, status])
+  @@index([status, uploadedAt])
+  @@map("kyc_document")
 }
 
 // Slice BG — PMJAY biometric verification ledger. Written when a

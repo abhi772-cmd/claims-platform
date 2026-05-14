@@ -10,6 +10,9 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
+import { KycDocumentsForm } from '../../../../components/onboarding/KycDocumentsForm';
+import { LegalAgreementsForm } from '../../../../components/onboarding/LegalAgreementsForm';
+import { TenantProfileForm } from '../../../../components/onboarding/TenantProfileForm';
 import { TenantApi } from '../../../../lib/api/tenant.api';
 
 // --- Step grouping --------------------------------------------------
@@ -57,6 +60,9 @@ const STEP_TO_GROUP: Record<OnboardingStepKey, StepGroupKey> = {
   payer_master: 'masters',
   package_master: 'masters',
   notification_test: 'governance',
+  kyc_documents_uploaded: 'governance',
+  legal_agreements_signed: 'governance',
+  kyc_verified_by_ops: 'governance',
   legal_acceptance: 'governance',
 };
 
@@ -476,23 +482,55 @@ function StepRow({
               </pre>
             </div>
           )}
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={onMarkComplete}
-              disabled={busy || step.status === 'completed'}
-              className="btn-primary"
-              style={{ padding: '8px 18px', fontSize: '13px' }}
-            >
-              <span
-                className="material-symbols-outlined text-[18px]"
-                style={{ fontVariationSettings: "'FILL' 1" }}
+          {step.key === 'tenant_profile' && (
+            <div>
+              <p className="mb-2 text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                Profile fields
+              </p>
+              <TenantProfileForm onSavedComplete={onMarkComplete} />
+            </div>
+          )}
+          {step.key === 'kyc_documents_uploaded' && (
+            <div>
+              <p className="mb-2 text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                KYC documents
+              </p>
+              <KycDocumentsForm onCoverageComplete={onMarkComplete} />
+            </div>
+          )}
+          {step.key === 'legal_agreements_signed' && (
+            <div>
+              <p className="mb-2 text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                Legal agreements
+              </p>
+              <LegalAgreementsForm />
+            </div>
+          )}
+          {descriptor?.derivedByServer && step.status !== 'completed' && (
+            <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-body-sm text-amber-800">
+              This step is set automatically once every required KYC + legal upload is
+              approved by DigiSparsh ops. You can&apos;t mark it complete from here.
+            </div>
+          )}
+          {!descriptor?.derivedByServer && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onMarkComplete}
+                disabled={busy || step.status === 'completed'}
+                className="btn-primary"
+                style={{ padding: '8px 18px', fontSize: '13px' }}
               >
-                check_circle
-              </span>
-              {step.status === 'completed' ? 'Completed' : busy ? 'Saving…' : 'Mark complete'}
-            </button>
-          </div>
+                <span
+                  className="material-symbols-outlined text-[18px]"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  check_circle
+                </span>
+                {step.status === 'completed' ? 'Completed' : busy ? 'Saving…' : 'Mark complete'}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </li>

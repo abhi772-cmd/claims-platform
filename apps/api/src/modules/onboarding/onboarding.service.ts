@@ -16,6 +16,9 @@ const ALL_STEP_KEYS: readonly OnboardingStepKey[] = [
   'payer_master',
   'package_master',
   'notification_test',
+  'kyc_documents_uploaded',
+  'legal_agreements_signed',
+  'kyc_verified_by_ops',
   'legal_acceptance',
 ];
 

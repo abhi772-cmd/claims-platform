@@ -4,6 +4,186 @@ Notable changes to the DigiSparsh Claims Platform. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) but oriented around
 sprint slices rather than calendar releases.
 
+## Sprint 11 — TBD (May 2026)
+
+Theme: **onboarding spec realignment (docs/15).** Closing the gap
+between the Stage 1–7 ops-assisted onboarding spec and the wizard
+that's currently in the product. Slice 1 is the safest, smallest
+chunk: extend the tenant profile so Stage 1 has somewhere to land.
+
+### ON-4 — NHCX participant registration on behalf (docs/15 Stage 4)
+
+- New `tenant_nhcx_config` table — one row per tenant holds the HFR
+  facility ID, NHA-issued participant code (`<id>@hcx`), role
+  (default `provider`), callback URL, sandbox/prod flag, and the
+  most recent error. UNIQUE on `tenantId`. RLS lets the tenant SELECT
+  its own row (so the wizard can surface the participant code); only
+  platform_admin can INSERT/UPDATE/DELETE — registration is
+  ops-on-behalf by design.
+- New `NhcxParticipantClient` interface + `StubNhcxParticipantClient`.
+  Stub synthesises a deterministic `<slug>@hcx` token, mirrors the
+  shape NHA's docs commit to so `integration_message` rows are
+  representative even in dev. The real HTTP adapter lands when NHA
+  sandbox creds are available (docs/15 open question #5).
+- New `NhcxParticipantService.register` orchestrates: writes an
+  outbound `integration_message` row, calls the client, then in one
+  platform-admin tx upserts `tenant_nhcx_config`, flips the outbound
+  message to `succeeded`, writes the paired inbound row, records a
+  `TENANT_UPDATED` audit entry (governance retention) with
+  `resourceType=tenant_nhcx_config`, and runs
+  `recomputeNhcxOnboardingSteps` to auto-complete the
+  `hfr_facility` / `nhcx_participant_code` / `nhcx_callback_url`
+  step rows. Failures bubble back through `integration_message`
+  (status=failed, failureClass=unknown) and stamp `lastError` on
+  the config row so ops sees the failure in the listing without
+  opening the message log.
+- New admin endpoints (gated on the new `nhcx.participant.manage`
+  permission — platform_admin only):
+  `GET /admin/nhcx-participants` (cross-tenant listing with
+  status), `GET /admin/tenants/:tenantId/nhcx/participant-status`
+  (single tenant), `POST /admin/tenants/:tenantId/nhcx/register-participant`
+  (ops-on-behalf call). All run via `runAsPlatformAdmin` —
+  `$transaction` + `app.role = 'platform_admin'`, no tenant GUC —
+  same pattern as the KYC review queue from ON-3.
+- New Zod contracts in `@claims/contracts/nhcx-participant.schema`:
+  `RegisterNhcxParticipantRequestSchema` (HFR + callback URL +
+  optional role / sandbox flag, validates https on callback);
+  `NhcxParticipantConfigSchema`, `NhcxParticipantStatusResponseSchema`,
+  `NhcxParticipantListItemSchema`, `NhcxParticipantListResponseSchema`.
+- Web: new `KycReviewApi`-style `NhcxParticipantApi` client + a new
+  `/admin/nhcx-participants` page. Lists every tenant with a status
+  pill (not registered / awaiting / failed / `<code>@hcx`) and
+  expands inline to a Register / Re-register form. Status link
+  added to the platform-ops sidebar group from ON-3.
+- Seed: `platform_admin` gains `nhcx.participant.manage`.
+
+### ON-3 — KYC ops review queue + lifecycle gate (docs/15 Stage 3 close-out)
+
+- New cross-tenant `/admin/kyc/*` endpoints, all gated on the new
+  `kyc.review` permission (platform_admin only):
+  `GET /admin/kyc/queue` (filter by status / tenant, paginated, default
+  `pending_review`); `GET /admin/kyc/:id` (single doc + presigned
+  download URL); `POST /admin/kyc/:id/review` (apply approve /
+  reject / request_resubmission with rejection-reason code + notes).
+- Queue + detail enforced via `runAsPlatformAdmin` — opens a tx with
+  `app.role = 'platform_admin'` (no tenant GUC), so RLS lets the
+  reviewer SELECT across every tenant. Mirrors the audit-retention
+  sweeper pattern in `AuditRetentionSweeperService`.
+- Every review action writes a `TENANT_UPDATED` audit row scoped to
+  the document's tenant (governance retention class) — the
+  reviewer's userId lands in `actorUserId` regardless of tenant
+  scope.
+- New `KycSlaState` enum + `computeKycSlaState()` pure function
+  living in `@claims/contracts`. 48h target, amber at 36h, red at
+  48h; server + UI compute identically off the same fn. Window
+  closes the moment ops acts on the row.
+- Two new derived onboarding steps:
+  `legal_agreements_signed` (auto-complete when both `dpa_signed`
+  + `msa_signed` types have non-rejected uploads) and
+  `kyc_verified_by_ops` (auto-complete when every required KYC +
+  both legal types are in `approved`). Both flagged
+  `derivedByServer: true` on their descriptor so the wizard
+  surfaces them as read-only.
+- `KycService.recomputeDerivedSteps()` runs inside every mutation
+  tx (finalize, delete, review) and upserts the three derived
+  step rows. Idempotent — skips the write when the target status
+  matches what's already there, so the audit log stays clean.
+- `REQUIRED_STEPS` in `readiness.service` swaps
+  `kyc_documents_uploaded` for `kyc_verified_by_ops`. The new gate
+  subsumes the old one (ops can't approve until docs uploaded), so
+  PILOT readiness now genuinely depends on ops approval.
+- New `KycReviewRequestSchema` enforces conditional required-ness
+  via Zod superRefine: `rejectionReasonCode` is required for
+  `reject` + `request_resubmission`; `notes` is required for
+  `request_resubmission` (so the tenant knows what to redo).
+- Web: new `/admin/kyc-review` queue page + `/admin/kyc-review/:id`
+  detail page. Queue shows SLA badges (on_track / warning /
+  breached). Detail page renders metadata + presigned-download
+  open button + the three-action review form with reason-code
+  autocomplete from `KYC_REJECTION_REASON_HINTS`.
+- Web: new `LegalAgreementsForm` component renders inside the
+  `legal_agreements_signed` step — two upload rows (DPA, MSA),
+  same init → direct-PUT → finalize pipeline as KYC.
+- Web: wizard `StepRow` hides the Mark complete button when
+  `descriptor.derivedByServer` is true and surfaces an explanatory
+  banner instead. Prevents hospitals from manually marking
+  `kyc_verified_by_ops`.
+- Seed: `platform_admin` gets `kyc.review`; `tenant_admin` gets
+  `tenant.onboarding.update` (the latter was missing from slice 1
+  / ON-1 but only surfaced now that the seeded dev admin needs it
+  for KYC mutations too).
+- KycService constructor lost the unused `ConfigService` injection
+  (carried over from a copy-paste in ON-2). Slice-2 unit spec
+  updated to match.
+
+### ON-2 — KYC document uploads (docs/15 Stage 3)
+
+- New `kyc_document` table + `KycDocumentType` / `KycDocumentStatus`
+  Postgres enums. Lifecycle: `uploading` → `pending_review` → (slice
+  ON-3) `approved` / `rejected` / `resubmission_requested`. The
+  six required types are hospital_registration, rohini_registration,
+  gst_certificate, pan, signatory_id, cancelled_cheque; dpa_signed
+  + msa_signed are reserved for slice ON-3's legal-agreement flow.
+- RLS: tenant SELECT/INSERT/UPDATE/DELETE own rows; platform_admin
+  sees all (used by slice ON-3 ops review queue). Field-level
+  authz (tenant can't change `reviewStatus`) is enforced at the
+  service layer rather than RLS.
+- New tenant-facing endpoints under `/tenant/kyc`, all gated on
+  `tenant.onboarding.update`: `GET /` (list + per-type coverage),
+  `POST /upload-init` (presigned PUT), `POST /:id/finalize` (HEAD
+  the object, flip to pending_review), `DELETE /:id` (only while
+  uploading or pending_review), `GET /:id/download-url` (tenant-side
+  preview before ops reviews). Mirrors the existing
+  `document.controller` two-step init+finalize pattern; bytes
+  never flow through the API server.
+- New Zod contracts in `@claims/contracts/kyc.schema`:
+  `KycDocumentTypeSchema`, `KycDocumentStatusSchema`,
+  `KycDocumentSchema`, `KycListResponseSchema` (with
+  `requiredCoverage` map + `requiredCoverageComplete` flag for the
+  UI checklist), `KycUploadInit*` and `KycUploadFinalize*` shapes,
+  plus `REQUIRED_KYC_DOCUMENT_TYPES`, `KYC_ALLOWED_CONTENT_TYPES`
+  (PDF/JPEG/PNG), and `KYC_MAX_UPLOAD_BYTES` (25 MiB).
+- New onboarding step `kyc_documents_uploaded` (blocks NHCX
+  cutover). The wizard now lists 9 steps (was 8). The step
+  auto-marks completed via the new `KycDocumentsForm` once every
+  required type has a non-rejected row. Added to
+  `REQUIRED_STEPS` in `readiness.service`, so PILOT transitions
+  fail until KYC coverage is satisfied.
+- Web: new `KycDocumentsForm` component renders the 6-row checklist
+  inside the `kyc_documents_uploaded` step. Per row: filename +
+  status badge + Upload / Replace / Remove actions. Upload runs
+  init → direct-to-storage PUT → finalize. Removal allowed only
+  while status is uploading or pending_review.
+- Every state change writes a `TENANT_UPDATED` audit row with
+  `resourceType=kyc_document` (governance retention class).
+
+### ON-1 — Tenant profile fields (docs/15 Stage 1)
+
+- New nullable columns on `tenant`: `legalName`, `rohiniId`,
+  `hospitalType` (enum `private`/`trust`/`government`/`psu`),
+  `bedCount`, `hmisVendor`, `expectedMonthlyClaimsBand` (enum
+  `lt_100`/`band_100_500`/`band_500_2000`/`gt_2000`). All
+  additive + nullable so existing tenants don't need a backfill —
+  they fill these in via the onboarding wizard when next touched.
+- DB-level CHECK constraints: `rohiniId` must match `^[0-9]{9}$`
+  (9-digit IRDAI format) when non-null; `bedCount > 0` when
+  non-null. Application validates the same shapes via Zod ahead
+  of the round-trip for a friendlier error.
+- New endpoints `GET /tenant/profile` and `PATCH /tenant/profile`,
+  both gated on `tenant.onboarding.update`. PATCH is sparse —
+  omitting a key leaves it untouched, `null` clears it. Every
+  PATCH writes a `TENANT_UPDATED` audit row with before/after.
+- New `TenantProfileSchema` + `TenantProfileUpdateSchema` +
+  `HospitalTypeSchema` + `ExpectedMonthlyClaimsBandSchema` in
+  `@claims/contracts`.
+- `tenant_profile` step descriptor's `captures[]` extended to list
+  every Stage-1 field, so the wizard's expanded "What this step
+  captures" panel reflects the new scope.
+- New `TenantProfileForm` component renders inline in the
+  `tenant_profile` step's expanded panel. Auto-marks the step
+  complete on save when every field is non-null; partial saves
+  leave the step pending.
+
 ## Sprint 10 — TBD (May 2026)
 
 Theme: **v1 launch readiness.** OCR v1 (Python repo, parallel),

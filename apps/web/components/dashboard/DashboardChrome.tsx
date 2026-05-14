@@ -64,6 +64,13 @@ const NAV: NavGroup[] = [
       { href: '/admin/comms-config', label: 'Comms', icon: 'forum' },
     ],
   },
+  {
+    title: 'Platform ops',
+    items: [
+      { href: '/admin/kyc-review', label: 'KYC review', icon: 'fact_check' },
+      { href: '/admin/nhcx-participants', label: 'NHCX participants', icon: 'hub' },
+    ],
+  },
 ];
 
 const SUPPORT_ITEMS: NavItem[] = [

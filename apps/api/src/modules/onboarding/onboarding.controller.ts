@@ -10,14 +10,18 @@ import {
   type OnboardingStepsResponse,
   Permissions,
   type ReadinessReport,
+  type TenantProfile,
+  type TenantProfileUpdate,
+  TenantProfileUpdateSchema,
 } from '@claims/contracts';
-import { Body, Controller, Get, HttpCode, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { type Request } from 'express';
 
 import { OnboardingService } from './onboarding.service';
 import { ReadinessService } from './readiness.service';
 import { TenantLifecycleService } from './tenant-lifecycle.service';
+import { TenantProfileService } from './tenant-profile.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
@@ -33,7 +37,34 @@ export class OnboardingController {
     private readonly onboarding: OnboardingService,
     private readonly readiness: ReadinessService,
     private readonly lifecycle: TenantLifecycleService,
+    private readonly profile: TenantProfileService,
   ) {}
+
+  // -- Tenant profile (Stage-1 onboarding fields) --
+
+  @Get('profile')
+  @RequirePermission(Permissions.TENANT_ONBOARDING_UPDATE)
+  async getProfile(
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<TenantProfile> {
+    return this.profile.get(user.tenantId);
+  }
+
+  @Patch('profile')
+  @RequirePermission(Permissions.TENANT_ONBOARDING_UPDATE)
+  async patchProfile(
+    @Body(new ZodValidationPipe(TenantProfileUpdateSchema)) body: TenantProfileUpdate,
+    @CurrentUser() user: Express.AuthenticatedUser,
+    @Req() req: Request,
+  ): Promise<TenantProfile> {
+    return this.profile.update({
+      tenantId: user.tenantId,
+      actorUserId: user.userId,
+      patch: body,
+      ip: req.ip ?? null,
+      userAgent: req.get('user-agent') ?? null,
+    });
+  }
 
   // -- Onboarding wizard --
 

@@ -32,6 +32,8 @@ import { MfaModule } from './modules/mfa';
 import { NhcxModule } from './modules/nhcx';
 import { NhcxInboundModule } from './modules/nhcx/inbound/nhcx-inbound.module';
 import { NotificationModule } from './modules/notification';
+import { KycModule } from './modules/kyc';
+import { NhcxParticipantModule } from './modules/nhcx-participant';
 import { OnboardingModule } from './modules/onboarding';
 import { PasswordModule } from './modules/password';
 import { PatientModule } from './modules/patient';
@@ -95,6 +97,8 @@ import { UserModule } from './modules/user/user.module';
     HprModule,
     DoctorModule,
     OnboardingModule,
+    KycModule,
+    NhcxParticipantModule,
     IntegrationModule,
     NhcxModule,
     NhcxInboundModule,
