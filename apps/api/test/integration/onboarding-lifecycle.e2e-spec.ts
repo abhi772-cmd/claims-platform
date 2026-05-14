@@ -153,13 +153,15 @@ describe('Slice G — onboarding wizard + readiness + lifecycle', () => {
     expect(res.status).toBe(403);
   });
 
-  it('admin lists 8 pending steps', async () => {
+  it('admin lists 11 pending steps', async () => {
+    // 11 = original 8 + 3 NHCX-axis steps added with descriptor restore
+    // (hfr_facility, nhcx_participant_code, nhcx_callback_url).
     const cookies = await loginAs(ADMIN_EMAIL);
     const res = await request(app.getHttpServer())
       .get('/tenant/onboarding/steps')
       .set('Cookie', cookies);
     expect(res.status).toBe(200);
-    expect(res.body.steps).toHaveLength(8);
+    expect(res.body.steps).toHaveLength(11);
     expect(res.body.steps.every((s: { status: string }) => s.status === 'pending')).toBe(true);
   });
 
