@@ -1,6 +1,6 @@
 'use client';
 
-import { type ButtonHTMLAttributes, type ReactNode } from 'react';
+import { type ButtonHTMLAttributes } from 'react';
 
 // Stitch-canonical CTA used at the bottom of every auth form.
 // Amber gradient pill with a trailing arrow icon that slides on hover.

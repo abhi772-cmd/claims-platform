@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react';
 
 import { AppealPanel } from '../../../../components/appeal/AppealPanel';
 import { ClaimPhasePanel } from '../../../../components/claim-phase/ClaimPhasePanel';
+import { CommunicationsPanel } from '../../../../components/communication/CommunicationsPanel';
 import { PlanPreviewCard } from '../../../../components/insurance-plan/PlanPreviewCard';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { PreauthPanel } from '../../../../components/preauth/PreauthPanel';
@@ -221,6 +222,11 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
         />
       ) : null}
 
+      {/* Stage 5 — case-level communications timeline. Sits ABOVE
+          the bottom-row timeline so the conversation is visible
+          without scrolling past the entire case audit. */}
+      <CommunicationsPanel caseId={detail.id} claimId={claim?.id ?? null} />
+
       {/* Bottom row: timeline + integration logs */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Timeline */}
@@ -273,7 +279,7 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
           </div>
           <div className="flex-1 space-y-2 overflow-y-auto bg-[#1A1D1E] p-4">
             {messages.length === 0 ? (
-              <p className="font-mono text-[11px] text-[#A0AAB0]">// no integration messages yet</p>
+              <p className="font-mono text-[11px] text-[#A0AAB0]">{'// no integration messages yet'}</p>
             ) : (
               messages.map((m) => {
                 const statusColor =

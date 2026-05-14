@@ -16,7 +16,10 @@ import {
 // Forwards refs so native form behaviour (autofocus, autocomplete, validity)
 // remains unchanged versus the previous inline <input>s.
 
-type BaseInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>;
+// Allow `type` through the public interface (email/text/etc.); password
+// mode still overrides it internally. Earlier iterations Omit-ed type
+// here, but multiple auth pages need to pass type="email" etc.
+type BaseInputProps = InputHTMLAttributes<HTMLInputElement>;
 
 interface AuthFieldProps extends BaseInputProps {
   /** Field label rendered as an eyebrow above the input. */
@@ -32,11 +35,11 @@ interface AuthFieldProps extends BaseInputProps {
 }
 
 export const AuthField = forwardRef<HTMLInputElement, AuthFieldProps>(function AuthField(
-  { label, icon, password, labelAside, centered, className, id, ...rest },
+  { label, icon, password, labelAside, centered, className, id, type: typeProp, ...rest },
   ref,
 ) {
   const [reveal, setReveal] = useState(false);
-  const inputType = password ? (reveal ? 'text' : 'password') : (rest as { type?: string }).type ?? 'text';
+  const inputType = password ? (reveal ? 'text' : 'password') : (typeProp ?? 'text');
   const inputId = id ?? rest.name;
 
   return (

@@ -14,6 +14,7 @@ import { BreachModule } from './modules/breach/breach.module';
 import { CaseModule } from './modules/case';
 import { ClaimModule } from './modules/claim';
 import { ClaimSubmitModule } from './modules/claim-submit';
+import { CommunicationModule } from './modules/communication';
 import { ComplianceModule } from './modules/compliance/compliance.module';
 import { ConsentModule } from './modules/consent/consent.module';
 import { DataAccessModule } from './modules/data-access/data-access.module';
@@ -111,6 +112,7 @@ import { UserModule } from './modules/user/user.module';
     DocumentModule,
     DischargeModule,
     ClaimSubmitModule,
+    CommunicationModule,
     SettlementModule,
     AppealModule,
     MasterDataModule,
