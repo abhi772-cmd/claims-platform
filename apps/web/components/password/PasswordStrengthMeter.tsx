@@ -50,7 +50,7 @@ const SCORE_LABEL: Record<number, string> = {
 };
 
 const SCORE_COLOR: Record<number, string> = {
-  0: 'bg-error-500',
+  0: 'bg-danger-500',
   1: 'bg-warning-500',
   2: 'bg-warning-300',
   3: 'bg-success-500',
@@ -74,7 +74,7 @@ export function PasswordStrengthMeter({
         {[0, 1, 2, 3, 4].map((i) => (
           <div
             key={i}
-            className={`h-1 flex-1 rounded-sm ${i <= score ? SCORE_COLOR[score] : 'bg-neutral-200'}`}
+            className={`h-1 flex-1 rounded-md ${i <= score ? SCORE_COLOR[score] : 'bg-neutral-200'}`}
           />
         ))}
       </div>
