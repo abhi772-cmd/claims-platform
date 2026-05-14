@@ -199,6 +199,17 @@ export class EligibilityService {
       input.tenantId,
       'tenant',
       async (tx) => {
+        // HCX correlation chain (doc 07 lines 99–117): eligibility/
+        // check is the second stage. We stamp the correlation id on
+        // `coverageCorrelationId` so the next stage (preauth/submit)
+        // reads it back and reuses it on the wire. The first stage
+        // (insuranceplan/request) is deferred per GAP_ANALYSIS row
+        // 1.13 — when it lands, it'll fill `insuranceCorrelationId`
+        // here instead.
+        await tx.claim.update({
+          where: { id: input.claimId },
+          data: { coverageCorrelationId: correlationId },
+        });
         const row = await this.integration.recordOutboundWithTx(tx, {
           tenantId: input.tenantId,
           claimId: input.claimId,

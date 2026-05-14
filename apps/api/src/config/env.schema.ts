@@ -134,6 +134,51 @@ export const EnvSchema = z.object({
   // Outcome knobs for the stub mode.
   NHCX_STUB_VERIFY_DEFAULT: BooleanLike.default(true),
   NHCX_STUB_MRN_FAIL_LIST: z.preprocess(trim, z.string().default('')),
+  // Comma-separated list of policy numbers the stub should treat as
+  // "policy not found" on insuranceplan/request. Empty = all policies
+  // succeed; dev fixtures use this to force the failure branch in
+  // integration tests.
+  NHCX_STUB_INSURANCEPLAN_FAIL: z.preprocess(trim, z.string().default('')),
+  // --- Architectural-decision runtime flags --------------------
+  // These three flags exist because the authoritative NHCX spec
+  // content was not captured in the platform's offline corpus
+  // (the relevant pages on nhcx.abdm.gov.in are SPA shells). Each
+  // flag has a documented default that matches the most-likely
+  // value per doc 07 / HCX 0.7.1 lineage; flip at sandbox-test
+  // time when NHA's gateway rejects with a specific error class.
+  // See docs/decisions/NHCX_INTEGRATION_FLAGS.md for the full
+  // decision record.
+  //
+  // NHCX_HEADER_STYLE: 'hyphenated' matches what our inbound guard
+  // accepts from NHA (and presumably what NHA expects on outbound
+  // too). 'underscored' matches doc 07's literal text. NHA's
+  // sandbox will reject with "invalid header" if we picked wrong.
+  NHCX_HEADER_STYLE: z.enum(['hyphenated', 'underscored']).default('hyphenated'),
+  // NHCX_WIRE_FORMAT: the body NHA's gateway expects on POST.
+  //   'bare'    = compact JWE string + content-type application/jose
+  //   'envelope' = JSON body {"payload": "<jwe>", "type": "JWEPayload"}
+  //                 + content-type application/json
+  //   'envelope-omit-type-insurance-coverage' = like 'envelope' but
+  //                 omit the `type` field for insurance + coverage
+  //                 operations (the DigiNode quirk per doc 07 line
+  //                 55–66; insurance/coverage services historically
+  //                 reject the type field). This is the most likely
+  //                 production setting today.
+  NHCX_WIRE_FORMAT: z
+    .enum(['bare', 'envelope', 'envelope-omit-type-insurance-coverage'])
+    .default('envelope-omit-type-insurance-coverage'),
+  // NHCX_MTLS_*: optional mutual-TLS for outbound calls. Doc 08
+  // line 152 marks mTLS as "if/when NHA mandates" — it's not
+  // currently required on the sandbox but production cutover may
+  // demand it. Setting NHCX_MTLS_ENABLED=true requires the cert +
+  // key env vars; otherwise outbound falls through to plain HTTPS.
+  NHCX_MTLS_ENABLED: BooleanLike.default(false),
+  NHCX_MTLS_CLIENT_CERT_BASE64: OptionalString,
+  NHCX_MTLS_CLIENT_KEY_BASE64: OptionalString,
+  // Optional NHA CA bundle for verifying NHA's server cert. When
+  // omitted Node's system trust store is used. Pin this in
+  // production to defend against intermediate-CA mis-issuance.
+  NHCX_MTLS_CA_BASE64: OptionalString,
   // Real-mode connection. Required when NHCX_MODE=real; optional in stub.
   // The participant code identifies us on the gateway. The keys are
   // PEM-encoded in base64 — same handling pattern as JWT_PRIVATE_KEY_BASE64.

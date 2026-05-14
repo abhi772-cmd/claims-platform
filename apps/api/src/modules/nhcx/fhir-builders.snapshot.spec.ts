@@ -5,6 +5,7 @@ import {
   buildClaimSubmitBundle,
   buildCommunicationBundle,
   buildEligibilityRequestBundle,
+  buildInsurancePlanRequestBundle,
   buildPreauthSubmitBundle,
   type FhirBundle,
 } from './fhir-builders';
@@ -101,6 +102,19 @@ describe('FHIR R4 bundle builders — locked shape', () => {
       now: FIXED_NOW,
     });
     assertOrUpdate('claim-submit', bundle);
+  });
+
+  it('insurance-plan request TaskBundle matches reference', () => {
+    const bundle = buildInsurancePlanRequestBundle({
+      actors,
+      policyNumber: 'POL-12345',
+      providerId: '1234567890',
+      payerDisplayName: 'Medi Assist',
+      hospitalDisplayName: 'Asha Hospital',
+      uuid: makeDeterministicUuid(),
+      now: FIXED_NOW,
+    });
+    assertOrUpdate('insurance-plan-request', bundle);
   });
 
   it('communication bundle matches reference', () => {

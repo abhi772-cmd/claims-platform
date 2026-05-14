@@ -179,10 +179,30 @@ export class PreauthService {
       actorType: 'user',
       purpose: 'preauth.submit',
     });
+    // HCX correlation chain (doc 07 lines 99–117): preauth/submit
+    // reuses the eligibility correlation id when one exists so NHA-
+    // side reporting groups insurance → coverage → preauth in one
+    // bucket. We fall back to insuranceCorrelationId, then null
+    // (fresh chain root) when neither eligibility step ran.
+    const claimRow = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      (tx) =>
+        tx.claim.findUniqueOrThrow({
+          where: { id: input.claimId },
+          select: {
+            coverageCorrelationId: true,
+            insuranceCorrelationId: true,
+          },
+        }),
+    );
+    const parentCorrelationId =
+      claimRow.coverageCorrelationId ?? claimRow.insuranceCorrelationId ?? undefined;
     const adapterResult = await this.nhcx.submitPreauth({
       tenantId: input.tenantId,
       claimId: input.claimId,
       requestedAmount: draft.requestedAmount,
+      ...(parentCorrelationId ? { parentCorrelationId } : {}),
       ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
       ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
       ...(draft.diagnosisIcdCode !== null ? { diagnosisIcdCode: draft.diagnosisIcdCode } : {}),
@@ -212,6 +232,15 @@ export class PreauthService {
             submittedAt: new Date(),
             submittedSnapshot: pickDraft(draft) as never,
           },
+        });
+        // Stamp the preauth correlation id on the claim row so
+        // (a) the inbound preauth/on_submit dispatcher can look up
+        // the matching claim by correlation id, and (b) the next
+        // chained stage (enhancement / discharge / claim/submit)
+        // reads it back as its parentCorrelationId.
+        await tx.claim.update({
+          where: { id: input.claimId },
+          data: { preauthCorrelationId: adapterResult.correlationId },
         });
         const row = await this.integration.recordOutboundWithTx(tx, {
           tenantId: input.tenantId,
@@ -465,11 +494,18 @@ export class PreauthService {
       actorType: 'user',
       purpose: 'preauth.respond_query',
     });
+    // HCX correlation chain (doc 07 lines 99–117). A preauth-query
+    // response is the "enhancement" stage and chains off the original
+    // preauth. We inherit `preauthCorrelationId` so NHA-side
+    // reporting groups the query+response under the same lifecycle
+    // bucket as the preauth itself.
+    const parentCorrelationId = claim.preauthCorrelationId ?? undefined;
     const adapterResult = await this.nhcx.respondPreauthQuery({
       tenantId: input.tenantId,
       claimId: input.claimId,
       queryId: input.queryId,
       responseText: input.responseText,
+      ...(parentCorrelationId ? { parentCorrelationId } : {}),
       ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
       ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
       ...(claim.preauthRefNum !== null ? { inReplyToRefNum: claim.preauthRefNum } : {}),
@@ -479,6 +515,14 @@ export class PreauthService {
       input.tenantId,
       'tenant',
       async (tx) => {
+        // Stamp enhancementCorrelationId on the claim row so the
+        // next stage (discharge / claim/submit) reads it back as its
+        // parent. When no enhancement runs, discharge/claim collapse
+        // one hop and chain directly off preauth instead.
+        await tx.claim.update({
+          where: { id: input.claimId },
+          data: { enhancementCorrelationId: adapterResult.correlationId },
+        });
         const row = await this.integration.recordOutboundWithTx(tx, {
           tenantId: input.tenantId,
           claimId: input.claimId,

@@ -8,6 +8,7 @@ import { NhcxSenderAllowlistService } from './nhcx-sender-allowlist.service';
 import { ClaimSubmitModule } from '../../claim-submit/claim-submit.module';
 import { DischargeModule } from '../../discharge/discharge.module';
 import { EligibilityModule } from '../../eligibility/eligibility.module';
+import { InsurancePlanModule } from '../../insurance-plan/insurance-plan.module';
 import { PreauthModule } from '../../preauth/preauth.module';
 import { SettlementModule } from '../../settlement/settlement.module';
 import { TenantModule } from '../../tenant/tenant.module';
@@ -27,6 +28,7 @@ import { TenantModule } from '../../tenant/tenant.module';
     DischargeModule,
     SettlementModule,
     TenantModule,
+    InsurancePlanModule,
   ],
   controllers: [NhcxInboundController],
   providers: [

@@ -51,13 +51,61 @@ export interface FhirCoverageFields {
   // Member id on the policy. May be the policy number for private
   // rails, the PMJAY beneficiary id for the gov rail.
   memberId: string;
+  // Optional NDHM coverage-type code (e.g. 'PUBLICPOL', 'EHCPOL') from
+  // `https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-coverage-type`. When
+  // present we stamp Coverage.type per the NRCES profile.
+  coverageTypeCode?: string;
+  coverageTypeDisplay?: string;
+  // Optional policy validity window for Coverage.period.
+  periodStart?: string; // YYYY-MM-DD
+  periodEnd?: string; // YYYY-MM-DD
+}
+
+// Treating doctor — projected into a Practitioner resource and
+// referenced from Claim.careTeam. Per NRCES ClaimBundle profile, every
+// preauth/claim must carry the doctor of record under careTeam[].
+export interface FhirPractitionerFields {
+  // HPR (Healthcare Professional Registry) ID — preferred when present.
+  hprId?: string;
+  // Fallback identifier: MCI / state council registration number.
+  registrationNumber?: string;
+  registrationSystem?: string; // e.g. council URL
+  fullName: string;
+  qualification?: string; // free-text MBBS/MD/MS/...
+  role?: 'attender' | 'admitting' | 'referring' | 'consulting' | 'primary';
+}
+
+// One billable line on Claim.item[] — package items for PMJAY, line-
+// itemised final bill for private. NRCES profile mandates item[] with
+// productOrService coding + unitPrice + net.
+export interface FhirClaimLineItem {
+  // 1-based sequence number; if omitted we assign by array index.
+  sequence?: number;
+  // Service / package / drug code. PMJAY rail uses HBP package codes;
+  // private rail typically uses ndhm-billing-codes or SNOMED.
+  code: string;
+  codeSystem?: string; // defaults to NDHM billing-codes system
+  display?: string;
+  // Quantity (defaults to 1).
+  quantity?: number;
+  // Unit price in paise. We convert to FHIR Money (rupees) on emit.
+  unitPricePaise: number;
+  // Optional override; when absent we compute quantity * unitPrice.
+  netPricePaise?: number;
+  servicedDate?: string; // YYYY-MM-DD; date the service was rendered
 }
 
 // Slice BK — PMJAY runs eligibility with a single-purpose array per
-// scenario (validation / benefits / auth-requirements). When
-// `purpose` is omitted we keep the legacy private-rail combined value
-// `['benefits','validation']` to preserve existing callers.
-export type FhirEligibilityPurpose = 'validation' | 'benefits' | 'auth-requirements';
+// scenario (validation / benefits / auth-requirements / discovery).
+// When `purpose` is omitted we keep the legacy private-rail combined
+// value `['benefits','validation']` to preserve existing callers.
+// The 'discovery' value is required by NRCES NHCX for the initial
+// policy-lookup variant of CoverageEligibilityRequest.
+export type FhirEligibilityPurpose =
+  | 'validation'
+  | 'benefits'
+  | 'auth-requirements'
+  | 'discovery';
 
 export interface FhirEligibilityRequestInput extends FhirDeterminismDeps {
   actors: FhirActorIds;
@@ -76,12 +124,36 @@ export interface FhirPreauthSubmitInput extends FhirDeterminismDeps {
   // own claimRefNum.
   localClaimId: string;
   diagnosisIcdCode?: string;
+  // Optional SNOMED CT code for the same diagnosis. NRCES examples
+  // ride SNOMED alongside ICD-10; when present we emit both codings
+  // under diagnosis[].diagnosisCodeableConcept.coding[].
+  diagnosisSnomedCode?: string;
   diagnosisDescription?: string;
   plannedProcedure?: string;
+  // Procedure coded value. When `procedureSystem` is omitted we default
+  // to SNOMED CT (NRCES NHCX preference). The legacy private-rail
+  // `urn:digisparsh:procedure:code` is allowed only when callers
+  // explicitly set it.
   procedureCode?: string;
+  procedureSystem?: string;
+  // Optional NHA HBP package code for PMJAY rail; emitted as a
+  // second `coding` entry on the same procedure CodeableConcept.
+  hbpPackageCode?: string;
   estimatedLengthOfStayDays?: number | null;
   requestedAmount?: number | null; // paise; converted to FHIR Money
   clinicalJustification?: string;
+  // Optional admission window — projected to Claim.billablePeriod
+  // (NRCES profile mandate). Use ISO 8601 datetime when including a
+  // clock; date-only is acceptable for planned admissions.
+  admissionStart?: string;
+  admissionEnd?: string;
+  // Treating doctor for the case — referenced from Claim.careTeam[0].
+  // Optional only because legacy callers may not yet have HPR data
+  // wired, but every production preauth bundle SHOULD carry one.
+  practitioner?: FhirPractitionerFields;
+  // Optional line-itemised bill. PMJAY: HBP package items; private:
+  // estimated procedure components. Projects to Claim.item[].
+  lineItems?: FhirClaimLineItem[];
 }
 
 export interface FhirClaimSubmitInput extends FhirPreauthSubmitInput {
@@ -114,6 +186,35 @@ export interface FhirTaskCancelInput extends FhirDeterminismDeps {
   reason?: string;
 }
 
+// `insuranceplan/request` outbound TaskBundle. Per the NRCES IG
+// example `Bundle-TaskBundleForInsurancePlanRequest-example-01.json`
+// (corpus path: md/nrces.in/ndhm/fhir/r4/), the lookup-by-policy-
+// number flow ships a Task with `code: financialtaskcode/poll`,
+// description "Give the details of Insurance plan linked with the
+// given policy number", and two `input[]` entries keyed on the
+// NDHM task-input-type-code system: `policyNumber` + `providerId`.
+//
+// This sits at the head of the HCX correlation chain — the
+// returned correlation id is the one we stamp into Claim.
+// insuranceCorrelationId so every later stage (coverage, preauth,
+// claim, payment) can reuse it on the wire.
+export interface FhirInsurancePlanRequestInput extends FhirDeterminismDeps {
+  actors: FhirActorIds;
+  // The policy number the hospital wants the payer to look up. Goes
+  // onto `Task.input[0].valueString` under code 'policyNumber'.
+  policyNumber: string;
+  // Provider identifier the payer uses to authenticate the lookup
+  // (typically the HFR ID or the payer-specific provider code).
+  // Goes onto `Task.input[1].valueString` under code 'providerId'.
+  providerId: string;
+  // Optional human-friendly insurer name for the recipient
+  // Organization resource. Defaults to the payer code itself.
+  payerDisplayName?: string;
+  // Optional human-friendly hospital name for the requester
+  // Organization resource.
+  hospitalDisplayName?: string;
+}
+
 // Slice BI — outbound `task/submit` bundle for PMJAY claim
 // reprocess (CRC). Task.status = 'requested' (we're asking the
 // payer to act), Task.code carries 'reprocess', Task.input[] has
@@ -142,20 +243,75 @@ interface FhirBundle {
   meta: {
     lastUpdated: string;
     profile: string[];
+    // v3-Confidentiality coding ("V" — very restricted) per NRCES
+    // examples; mandatory on PII-bearing bundles.
+    security?: Array<{ system: string; code: string; display?: string }>;
   };
-  identifier: { system: string; value: string };
+  identifier?: { system?: string; value: string };
   type: 'collection';
   timestamp: string;
   entry: BundleEntry[];
 }
 
-const HCX_PROFILE_ELIGIBILITY = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-CoverageEligibilityRequestBundle.html';
-const HCX_PROFILE_PREAUTH = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-ClaimRequestBundle.html';
-const HCX_PROFILE_CLAIM = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-ClaimRequestBundle.html';
-const HCX_PROFILE_COMMUNICATION = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-CommunicationBundle.html';
-const HCX_PROFILE_TASK = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-TaskBundle.html';
-// PMJAY-specific code system for the Task.code coding. Mirrors the
-// `code` enum in the PMJAY supporting docs (cancel, reprocess).
+// --- NRCES NHCX (ABDM v6.5.0) profile URLs --------------------
+// Source: md/nrces.in/ndhm/fhir/r4/hcx-profile.html.md (lines 36–43).
+// Authoritative validator base is `https://nrces.in/ndhm/fhir/r4/...`.
+// Previously this module stamped `https://ig.hcxprotocol.io/v0.7.1/...`
+// URLs which trace to the legacy HCX 0.7.1 reference and are rejected
+// by current NHCX validators.
+const NRCES_BASE = 'https://nrces.in/ndhm/fhir/r4';
+const NRCES_SD = `${NRCES_BASE}/StructureDefinition`;
+const NRCES_CS = `${NRCES_BASE}/CodeSystem`;
+
+const PROFILE_ELIGIBILITY_BUNDLE = `${NRCES_SD}/CoverageEligibilityRequestBundle`;
+const PROFILE_CLAIM_BUNDLE = `${NRCES_SD}/ClaimBundle`;
+const PROFILE_COMMUNICATION_BUNDLE = `${NRCES_SD}/CommunicationBundle`;
+const PROFILE_TASK_BUNDLE = `${NRCES_SD}/TaskBundle`;
+
+// Profiles for contained resources — NRCES IG declares per-resource
+// profiles which all must be stamped via `meta.profile` for validator
+// pass. Where the IG profile name is unconfirmed in the corpus we
+// default to the NRCES StructureDefinition URN convention.
+const PROFILE_PATIENT = `${NRCES_SD}/Patient`;
+const PROFILE_ORGANIZATION = `${NRCES_SD}/Organization`;
+const PROFILE_COVERAGE = `${NRCES_SD}/Coverage`;
+const PROFILE_CLAIM = `${NRCES_SD}/Claim`;
+const PROFILE_PRACTITIONER = `${NRCES_SD}/Practitioner`;
+const PROFILE_COVERAGE_ELIGIBILITY_REQUEST = `${NRCES_SD}/CoverageEligibilityRequest`;
+const PROFILE_COMMUNICATION = `${NRCES_SD}/Communication`;
+const PROFILE_TASK = `${NRCES_SD}/Task`;
+
+// --- Code systems used inside bundles -------------------------
+const SYS_NDHM_ORGANIZATION = `${NRCES_CS}/ndhm-organization`;
+const SYS_NDHM_COVERAGE_TYPE = `${NRCES_CS}/ndhm-coverage-type`;
+const SYS_NDHM_BILLING_CODES = `${NRCES_CS}/ndhm-billing-codes`;
+const SYS_NDHM_SUPPORTINGINFO_CATEGORY = `${NRCES_CS}/ndhm-supportinginfo-category`;
+const SYS_NDHM_TASK_CODES = `${NRCES_CS}/ndhm-task-codes`;
+const SYS_NDHM_TASK_INPUT_TYPE = `${NRCES_CS}/ndhm-task-input-type-code`;
+const SYS_NDHM_REASON_CODE = `${NRCES_CS}/ndhm-reason-code`;
+const SYS_SNOMED = 'http://snomed.info/sct';
+const SYS_ICD10 = 'http://hl7.org/fhir/sid/icd-10';
+const SYS_HPR = 'https://hpr.abdm.gov.in';
+const SYS_V3_CONFIDENTIALITY = 'http://terminology.hl7.org/CodeSystem/v3-Confidentiality';
+// HL7 `financialtaskcode` system — used by NRCES InsurancePlanRequest
+// TaskBundles to mark the Task as a 'poll' (gateway-side lookup).
+const SYS_FINANCIAL_TASK_CODE = 'http://terminology.hl7.org/CodeSystem/financialtaskcode';
+
+// SNOMED CT codes referenced from NRCES bundle examples.
+const SNOMED_INPATIENT_CARE = '737481003'; // "Inpatient care management (procedure)"
+const SNOMED_DISCHARGE_DIAGNOSIS = '89100005'; // "Final diagnosis (discharge)"
+const SNOMED_HOSPITALISATION = '32485007'; // supportingInfo hospitalisation marker
+
+// Confidentiality coding mandated on PII-bearing bundles (NRCES
+// ClaimBundle / CoverageEligibilityRequestBundle examples).
+const META_SECURITY_V_RESTRICTED = [
+  { system: SYS_V3_CONFIDENTIALITY, code: 'V', display: 'very restricted' },
+];
+
+// PMJAY-specific legacy task code system (retained for back-compat
+// with older payer integrations). New code paths emit
+// `SYS_NDHM_TASK_CODES` per NRCES; PMJAY adapters that require the
+// payer-specific URI can pass `taskCodeSystem` overrides.
 const PMJAY_TASK_CODE_SYSTEM = 'https://payer.pmjay.nha.gov.in/CodeSystem/task-operation';
 // Identifier system that PMJAY uses to reference the original
 // claim/preauth on the Task.input[].value lookup.
@@ -164,8 +320,6 @@ const PMJAY_CLAIM_NUMBER_SYSTEM = 'https://hcx.pmjay.gov.in/v1/preauthorization'
 // ('claimrejected' / 'partialpayment') — appears as the
 // Task.input[].type coding when the input carries a reason.
 const PMJAY_TASK_REASON_SYSTEM = 'https://payer.pmjay.nha.gov.in/CodeSystem/task-reason';
-
-const DEFAULT_BUNDLE_SYSTEM = 'https://ig.hcxprotocol.io';
 
 const makeUrn = (uuid: () => string) => (resource: string): string =>
   `urn:uuid:${uuid()}-${resource}`;
@@ -189,6 +343,7 @@ function patientResource(p: FhirPatientFields, urn: string): Record<string, unkn
   const resource: Record<string, unknown> = {
     resourceType: 'Patient',
     id: urn,
+    meta: { profile: [PROFILE_PATIENT] },
     identifier,
     name: [
       {
@@ -207,7 +362,8 @@ function organizationResource(code: string, displayName: string | undefined): Re
   return {
     resourceType: 'Organization',
     id: `urn:digisparsh:org:${code}`,
-    identifier: [{ system: 'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-organization', value: code }],
+    meta: { profile: [PROFILE_ORGANIZATION] },
+    identifier: [{ system: SYS_NDHM_ORGANIZATION, value: code }],
     name: displayName ?? code,
   };
 }
@@ -218,14 +374,69 @@ function coverageResource(
   payerUrn: string,
   urn: string,
 ): Record<string, unknown> {
-  return {
+  const resource: Record<string, unknown> = {
     resourceType: 'Coverage',
     id: urn,
+    meta: { profile: [PROFILE_COVERAGE] },
     status: 'active',
     subscriberId: c.memberId,
     beneficiary: { reference: patientUrn },
     payor: [{ reference: payerUrn }],
   };
+  if (c.coverageTypeCode) {
+    resource['type'] = {
+      coding: [
+        {
+          system: SYS_NDHM_COVERAGE_TYPE,
+          code: c.coverageTypeCode,
+          ...(c.coverageTypeDisplay ? { display: c.coverageTypeDisplay } : {}),
+        },
+      ],
+    };
+  }
+  if (c.periodStart || c.periodEnd) {
+    resource['period'] = {
+      ...(c.periodStart ? { start: c.periodStart } : {}),
+      ...(c.periodEnd ? { end: c.periodEnd } : {}),
+    };
+  }
+  return resource;
+}
+
+function practitionerResource(
+  pr: FhirPractitionerFields,
+  urn: string,
+): Record<string, unknown> {
+  const identifier: Array<Record<string, unknown>> = [];
+  if (pr.hprId) {
+    identifier.push({ system: SYS_HPR, value: pr.hprId });
+  }
+  if (pr.registrationNumber) {
+    identifier.push({
+      system: pr.registrationSystem ?? 'urn:digisparsh:doctor:registration',
+      value: pr.registrationNumber,
+    });
+  }
+  const nameParts = pr.fullName.trim().split(/\s+/);
+  const family = nameParts.length > 1 ? (nameParts[nameParts.length - 1] ?? '') : '';
+  const given = nameParts.length > 1 ? nameParts.slice(0, -1) : nameParts;
+  const resource: Record<string, unknown> = {
+    resourceType: 'Practitioner',
+    id: urn,
+    meta: { profile: [PROFILE_PRACTITIONER] },
+    ...(identifier.length > 0 ? { identifier } : {}),
+    name: [
+      {
+        text: pr.fullName,
+        ...(family ? { family } : {}),
+        ...(given.length > 0 ? { given } : {}),
+      },
+    ],
+  };
+  if (pr.qualification) {
+    resource['qualification'] = [{ code: { text: pr.qualification } }];
+  }
+  return resource;
 }
 
 // ---- Public builders ----------------------------------------
@@ -248,6 +459,7 @@ export function buildEligibilityRequestBundle(input: FhirEligibilityRequestInput
   const eligibilityRequest: Record<string, unknown> = {
     resourceType: 'CoverageEligibilityRequest',
     id: requestUrn,
+    meta: { profile: [PROFILE_COVERAGE_ELIGIBILITY_REQUEST] },
     status: 'active',
     purpose,
     patient: { reference: patientUrn },
@@ -263,9 +475,10 @@ export function buildEligibilityRequestBundle(input: FhirEligibilityRequestInput
     id: bundleId,
     meta: {
       lastUpdated: ts,
-      profile: [HCX_PROFILE_ELIGIBILITY],
+      profile: [PROFILE_ELIGIBILITY_BUNDLE],
+      security: META_SECURITY_V_RESTRICTED,
     },
-    identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
+    identifier: { value: bundleId },
     type: 'collection',
     timestamp: ts,
     entry: [
@@ -291,6 +504,7 @@ function claimResource(
   insurerUrn: string,
   providerUrn: string,
   coverageUrn: string,
+  practitionerUrn: string | undefined,
   urn: string,
   ts: string,
   finalAmountPaise?: number,
@@ -300,6 +514,7 @@ function claimResource(
   const claim: Record<string, unknown> = {
     resourceType: 'Claim',
     id: urn,
+    meta: { profile: [PROFILE_CLAIM] },
     identifier: [
       {
         system: 'urn:digisparsh:claim:id',
@@ -307,11 +522,15 @@ function claimResource(
       },
     ],
     status: 'active',
+    // NRCES NHCX preauth examples carry SNOMED "Inpatient care
+    // management" as Claim.type — not the HL7 v3 institutional code.
+    // See `md/nrces.in/ndhm/fhir/r4/Bundle-ClaimBundle-preauthorization-example-01.json.md:55–61`.
     type: {
       coding: [
         {
-          system: 'http://terminology.hl7.org/CodeSystem/claim-type',
-          code: 'institutional',
+          system: SYS_SNOMED,
+          code: SNOMED_INPATIENT_CARE,
+          display: 'Inpatient care management (procedure)',
         },
       ],
     },
@@ -330,71 +549,177 @@ function claimResource(
     ],
     total: { value: amount / 100, currency: 'INR' },
   };
-  if (input.diagnosisIcdCode || input.diagnosisDescription) {
-    claim['diagnosis'] = [
+
+  // Claim.billablePeriod — NRCES profile requires admission window
+  // when available. We populate from `admissionStart`/`admissionEnd`
+  // when callers provide them.
+  if (input.admissionStart || input.admissionEnd) {
+    claim['billablePeriod'] = {
+      ...(input.admissionStart ? { start: input.admissionStart } : {}),
+      ...(input.admissionEnd ? { end: input.admissionEnd } : {}),
+    };
+  }
+
+  // Claim.careTeam — required by NRCES profile when a treating
+  // doctor exists. We emit a single-entry team referencing the
+  // Practitioner resource the bundle carries.
+  if (practitionerUrn) {
+    claim['careTeam'] = [
       {
         sequence: 1,
-        diagnosisCodeableConcept: {
-          ...(input.diagnosisIcdCode
-            ? {
-                coding: [
-                  {
-                    system: 'http://hl7.org/fhir/sid/icd-10',
-                    code: input.diagnosisIcdCode,
-                    ...(input.diagnosisDescription
-                      ? { display: input.diagnosisDescription }
-                      : {}),
-                  },
-                ],
-              }
-            : {}),
-          ...(input.diagnosisDescription ? { text: input.diagnosisDescription } : {}),
+        provider: { reference: practitionerUrn },
+        role: {
+          coding: [
+            {
+              system: 'http://terminology.hl7.org/CodeSystem/claimcareteamrole',
+              code: 'primary',
+            },
+          ],
         },
       },
     ];
   }
-  if (input.plannedProcedure || input.procedureCode) {
+
+  if (input.diagnosisIcdCode || input.diagnosisSnomedCode || input.diagnosisDescription) {
+    const codings: Array<Record<string, unknown>> = [];
+    if (input.diagnosisIcdCode) {
+      codings.push({
+        system: SYS_ICD10,
+        code: input.diagnosisIcdCode,
+        ...(input.diagnosisDescription ? { display: input.diagnosisDescription } : {}),
+      });
+    }
+    if (input.diagnosisSnomedCode) {
+      codings.push({
+        system: SYS_SNOMED,
+        code: input.diagnosisSnomedCode,
+        ...(input.diagnosisDescription ? { display: input.diagnosisDescription } : {}),
+      });
+    }
+    claim['diagnosis'] = [
+      {
+        sequence: 1,
+        diagnosisCodeableConcept: {
+          ...(codings.length > 0 ? { coding: codings } : {}),
+          ...(input.diagnosisDescription ? { text: input.diagnosisDescription } : {}),
+        },
+        // SNOMED "Final diagnosis (discharge)" per NRCES example
+        // (Bundle-ClaimBundle-preauthorization-example-01.json:128–138).
+        type: [
+          {
+            coding: [
+              { system: SYS_SNOMED, code: SNOMED_DISCHARGE_DIAGNOSIS, display: 'Final diagnosis (discharge)' },
+            ],
+          },
+        ],
+      },
+    ];
+  }
+
+  if (input.plannedProcedure || input.procedureCode || input.hbpPackageCode) {
+    const procedureCodings: Array<Record<string, unknown>> = [];
+    if (input.procedureCode) {
+      procedureCodings.push({
+        // SNOMED CT is the NRCES default; callers can override the
+        // system explicitly via `procedureSystem` when emitting from
+        // PMJAY HBP or other code lists.
+        system: input.procedureSystem ?? SYS_SNOMED,
+        code: input.procedureCode,
+        ...(input.plannedProcedure ? { display: input.plannedProcedure } : {}),
+      });
+    }
+    if (input.hbpPackageCode) {
+      procedureCodings.push({
+        system: SYS_NDHM_BILLING_CODES,
+        code: input.hbpPackageCode,
+        ...(input.plannedProcedure ? { display: input.plannedProcedure } : {}),
+      });
+    }
     claim['procedure'] = [
       {
         sequence: 1,
         procedureCodeableConcept: {
-          ...(input.procedureCode
-            ? {
-                coding: [
-                  {
-                    system: 'urn:digisparsh:procedure:code',
-                    code: input.procedureCode,
-                    ...(input.plannedProcedure ? { display: input.plannedProcedure } : {}),
-                  },
-                ],
-              }
-            : {}),
+          ...(procedureCodings.length > 0 ? { coding: procedureCodings } : {}),
           ...(input.plannedProcedure ? { text: input.plannedProcedure } : {}),
         },
       },
     ];
   }
-  if (input.estimatedLengthOfStayDays && input.estimatedLengthOfStayDays > 0) {
-    claim['supportingInfo'] = [
-      {
-        sequence: 1,
-        category: { coding: [{ code: 'hospitalized' }] },
-        valueQuantity: { value: input.estimatedLengthOfStayDays, unit: 'days' },
-      },
-    ];
+
+  // Claim.item[] line-level pricing. NRCES preauth example carries
+  // an item array with productOrService + unitPrice + net per line;
+  // the settlement variant extends each item with adjudication. We
+  // emit the request side here.
+  if (input.lineItems && input.lineItems.length > 0) {
+    claim['item'] = input.lineItems.map((li, idx) => {
+      const sequence = li.sequence ?? idx + 1;
+      const quantity = li.quantity ?? 1;
+      const unitRupees = li.unitPricePaise / 100;
+      const netRupees = (li.netPricePaise ?? li.unitPricePaise * quantity) / 100;
+      return {
+        sequence,
+        productOrService: {
+          coding: [
+            {
+              system: li.codeSystem ?? SYS_NDHM_BILLING_CODES,
+              code: li.code,
+              ...(li.display ? { display: li.display } : {}),
+            },
+          ],
+          ...(li.display ? { text: li.display } : {}),
+        },
+        ...(li.servicedDate ? { servicedDate: li.servicedDate } : {}),
+        ...(quantity !== 1 ? { quantity: { value: quantity } } : {}),
+        unitPrice: { value: unitRupees, currency: 'INR' },
+        net: { value: netRupees, currency: 'INR' },
+      };
+    });
   }
-  if (input.clinicalJustification) {
-    claim['note'] = [{ text: input.clinicalJustification }];
+
+  // supportingInfo — now system-coded per NRCES
+  // `ndhm-supportinginfo-category` rather than the bare-code form.
+  const supportingInfo: Array<Record<string, unknown>> = [];
+  if (input.estimatedLengthOfStayDays && input.estimatedLengthOfStayDays > 0) {
+    supportingInfo.push({
+      sequence: 1,
+      category: {
+        coding: [
+          {
+            system: SYS_NDHM_SUPPORTINGINFO_CATEGORY,
+            code: 'hospitalized',
+            display: 'Hospitalization',
+          },
+        ],
+      },
+      // SNOMED hospitalisation code as the value coding per IG
+      // examples; quantity stays as days for backwards compat.
+      valueQuantity: { value: input.estimatedLengthOfStayDays, unit: 'days' },
+      code: { coding: [{ system: SYS_SNOMED, code: SNOMED_HOSPITALISATION, display: 'Hospital admission' }] },
+    });
   }
   if (documentIds && documentIds.length > 0) {
-    claim['supportingInfo'] = [
-      ...(Array.isArray(claim['supportingInfo']) ? (claim['supportingInfo'] as unknown[]) : []),
-      ...documentIds.map((docId, idx) => ({
+    documentIds.forEach((docId, idx) => {
+      supportingInfo.push({
         sequence: idx + 100,
-        category: { coding: [{ code: 'attachment' }] },
+        category: {
+          coding: [
+            {
+              system: SYS_NDHM_SUPPORTINGINFO_CATEGORY,
+              code: 'attachment',
+              display: 'Document attachment',
+            },
+          ],
+        },
         valueReference: { reference: `Binary/${docId}` },
-      })),
-    ];
+      });
+    });
+  }
+  if (supportingInfo.length > 0) {
+    claim['supportingInfo'] = supportingInfo;
+  }
+
+  if (input.clinicalJustification) {
+    claim['note'] = [{ text: input.clinicalJustification }];
   }
   return claim;
 }
@@ -409,53 +734,68 @@ export function buildPreauthSubmitBundle(input: FhirPreauthSubmitInput): FhirBun
   const providerUrn = URN('provider');
   const coverageUrn = URN('coverage');
   const claimUrn = URN('claim');
+  const practitionerUrn = input.practitioner ? URN('practitioner') : undefined;
+
+  const entries: BundleEntry[] = [
+    {
+      fullUrl: claimUrn,
+      resource: claimResource(
+        input,
+        'preauthorization',
+        patientUrn,
+        insurerUrn,
+        providerUrn,
+        coverageUrn,
+        practitionerUrn,
+        claimUrn,
+        ts,
+      ),
+    },
+    { fullUrl: patientUrn, resource: patientResource(input.patient, patientUrn) },
+    {
+      fullUrl: insurerUrn,
+      resource: organizationResource(input.coverage.payerCode, input.coverage.payerDisplayName),
+    },
+    { fullUrl: providerUrn, resource: organizationResource(input.actors.senderCode, undefined) },
+    {
+      fullUrl: coverageUrn,
+      resource: coverageResource(input.coverage, patientUrn, insurerUrn, coverageUrn),
+    },
+  ];
+  if (practitionerUrn && input.practitioner) {
+    entries.push({
+      fullUrl: practitionerUrn,
+      resource: practitionerResource(input.practitioner, practitionerUrn),
+    });
+  }
 
   return {
     resourceType: 'Bundle',
     id: bundleId,
     meta: {
       lastUpdated: ts,
-      profile: [HCX_PROFILE_PREAUTH],
+      profile: [PROFILE_CLAIM_BUNDLE],
+      security: META_SECURITY_V_RESTRICTED,
     },
-    identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
+    identifier: { value: bundleId },
     type: 'collection',
     timestamp: ts,
-    entry: [
-      {
-        fullUrl: claimUrn,
-        resource: claimResource(
-          input,
-          'preauthorization',
-          patientUrn,
-          insurerUrn,
-          providerUrn,
-          coverageUrn,
-          claimUrn,
-          ts,
-        ),
-      },
-      { fullUrl: patientUrn, resource: patientResource(input.patient, patientUrn) },
-      {
-        fullUrl: insurerUrn,
-        resource: organizationResource(input.coverage.payerCode, input.coverage.payerDisplayName),
-      },
-      { fullUrl: providerUrn, resource: organizationResource(input.actors.senderCode, undefined) },
-      {
-        fullUrl: coverageUrn,
-        resource: coverageResource(input.coverage, patientUrn, insurerUrn, coverageUrn),
-      },
-    ],
+    entry: entries,
   };
 }
 
 export function buildClaimSubmitBundle(input: FhirClaimSubmitInput): FhirBundle {
   const bundle = buildPreauthSubmitBundle(input);
   // Replace the Claim entry with the use='claim' variant + finalAmount
-  // + documentIds wired into supportingInfo.
+  // + documentIds wired into supportingInfo. Same NRCES ClaimBundle
+  // profile is used; the only delta is `Claim.use` ('claim' vs
+  // 'preauthorization') and the final amount.
   const patientUrn = (bundle.entry.find((e) => e.resource['resourceType'] === 'Patient')?.fullUrl ?? '') as string;
   const insurerUrn = (bundle.entry.find((e) => e.resource['resourceType'] === 'Organization' && (e.resource['identifier'] as Array<{ value: string }>)[0]?.value === input.coverage.payerCode)?.fullUrl ?? '') as string;
   const providerUrn = (bundle.entry.find((e) => e.resource['resourceType'] === 'Organization' && (e.resource['identifier'] as Array<{ value: string }>)[0]?.value === input.actors.senderCode)?.fullUrl ?? '') as string;
   const coverageUrn = (bundle.entry.find((e) => e.resource['resourceType'] === 'Coverage')?.fullUrl ?? '') as string;
+  const practitionerEntry = bundle.entry.find((e) => e.resource['resourceType'] === 'Practitioner');
+  const practitionerUrn = practitionerEntry?.fullUrl;
   const claimEntryIdx = bundle.entry.findIndex((e) => e.resource['resourceType'] === 'Claim');
   const claimUrn = bundle.entry[claimEntryIdx]?.fullUrl ?? makeUrn(input.uuid ?? randomUUID)('claim');
 
@@ -468,13 +808,13 @@ export function buildClaimSubmitBundle(input: FhirClaimSubmitInput): FhirBundle 
       insurerUrn,
       providerUrn,
       coverageUrn,
+      practitionerUrn,
       claimUrn,
       bundle.timestamp,
       input.finalAmount,
       input.documentIds,
     ),
   };
-  bundle.meta.profile = [HCX_PROFILE_CLAIM];
   return bundle;
 }
 
@@ -490,6 +830,7 @@ export function buildCommunicationBundle(input: FhirCommunicationInput): FhirBun
   const communication: Record<string, unknown> = {
     resourceType: 'Communication',
     id: communicationUrn,
+    meta: { profile: [PROFILE_COMMUNICATION] },
     status: 'completed',
     sent: ts,
     sender: { reference: senderUrn },
@@ -512,15 +853,101 @@ export function buildCommunicationBundle(input: FhirCommunicationInput): FhirBun
     id: bundleId,
     meta: {
       lastUpdated: ts,
-      profile: [HCX_PROFILE_COMMUNICATION],
+      profile: [PROFILE_COMMUNICATION_BUNDLE],
+      security: META_SECURITY_V_RESTRICTED,
     },
-    identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
+    identifier: { value: bundleId },
     type: 'collection',
     timestamp: ts,
     entry: [
       { fullUrl: communicationUrn, resource: communication },
       { fullUrl: senderUrn, resource: organizationResource(input.actors.senderCode, undefined) },
       { fullUrl: recipientUrn, resource: organizationResource(input.actors.receiverCode, undefined) },
+    ],
+  };
+}
+
+// `insuranceplan/request` TaskBundle. Mirrors the NRCES example
+// (Bundle-TaskBundleForInsurancePlanRequest-example-01.json):
+// `Task.status = 'completed'`, `Task.code` is HL7 `financialtaskcode/poll`
+// (not the NDHM task-codes system — that one is reserved for cancel /
+// reprocess flows). The two inputs ride on the NDHM
+// `ndhm-task-input-type-code` system.
+export function buildInsurancePlanRequestBundle(
+  input: FhirInsurancePlanRequestInput,
+): FhirBundle {
+  const uuid = input.uuid ?? randomUUID;
+  const ts = (input.now ?? (() => new Date()))().toISOString();
+  const URN = makeUrn(uuid);
+  const bundleId = uuid();
+  const senderUrn = URN('sender');
+  const recipientUrn = URN('recipient');
+  const taskUrn = URN('task');
+
+  const task: Record<string, unknown> = {
+    resourceType: 'Task',
+    id: taskUrn,
+    meta: { profile: [PROFILE_TASK] },
+    status: 'completed',
+    intent: 'order',
+    code: {
+      coding: [
+        { system: SYS_FINANCIAL_TASK_CODE, code: 'poll', display: 'Poll' },
+      ],
+    },
+    description: 'Give the details of Insurance plan linked with the given policy number',
+    authoredOn: ts,
+    requester: { reference: senderUrn },
+    owner: { reference: recipientUrn },
+    input: [
+      {
+        type: {
+          coding: [
+            {
+              system: SYS_NDHM_TASK_INPUT_TYPE,
+              code: 'policyNumber',
+              display: 'PolicyNumber',
+            },
+          ],
+        },
+        valueString: input.policyNumber,
+      },
+      {
+        type: {
+          coding: [
+            {
+              system: SYS_NDHM_TASK_INPUT_TYPE,
+              code: 'providerId',
+              display: 'ProviderId',
+            },
+          ],
+        },
+        valueString: input.providerId,
+      },
+    ],
+  };
+
+  return {
+    resourceType: 'Bundle',
+    id: bundleId,
+    meta: {
+      lastUpdated: ts,
+      profile: [PROFILE_TASK_BUNDLE],
+      security: META_SECURITY_V_RESTRICTED,
+    },
+    identifier: { value: bundleId },
+    type: 'collection',
+    timestamp: ts,
+    entry: [
+      { fullUrl: taskUrn, resource: task },
+      {
+        fullUrl: senderUrn,
+        resource: organizationResource(input.actors.senderCode, input.hospitalDisplayName),
+      },
+      {
+        fullUrl: recipientUrn,
+        resource: organizationResource(input.actors.receiverCode, input.payerDisplayName),
+      },
     ],
   };
 }
@@ -545,9 +972,14 @@ export function buildTaskCancelBundle(input: FhirTaskCancelInput): FhirBundle {
   const recipientUrn = URN('recipient');
   const taskUrn = URN('task');
 
+  // Dual-coded: NRCES canonical first (so NHCX/NHA validators pass),
+  // then the PMJAY-specific URI second (so PMJAY's payer-side adapter
+  // can continue to pick up the coding it already knows). NRCES IG
+  // allows multiple `coding` entries on a single CodeableConcept.
   const task: Record<string, unknown> = {
     resourceType: 'Task',
     id: taskUrn,
+    meta: { profile: [PROFILE_TASK] },
     status: 'cancelled',
     intent: 'order',
     authoredOn: ts,
@@ -555,6 +987,11 @@ export function buildTaskCancelBundle(input: FhirTaskCancelInput): FhirBundle {
     owner: { reference: recipientUrn },
     code: {
       coding: [
+        {
+          system: SYS_NDHM_TASK_CODES,
+          code: 'cancel',
+          display: 'Cancel preauthorization',
+        },
         {
           system: PMJAY_TASK_CODE_SYSTEM,
           code: 'cancel',
@@ -567,7 +1004,7 @@ export function buildTaskCancelBundle(input: FhirTaskCancelInput): FhirBundle {
         type: {
           coding: [
             {
-              system: PMJAY_TASK_CODE_SYSTEM,
+              system: SYS_NDHM_TASK_INPUT_TYPE,
               code: 'ClaimNumber',
               display: 'Payer-issued claim number',
             },
@@ -589,9 +1026,10 @@ export function buildTaskCancelBundle(input: FhirTaskCancelInput): FhirBundle {
     id: bundleId,
     meta: {
       lastUpdated: ts,
-      profile: [HCX_PROFILE_TASK],
+      profile: [PROFILE_TASK_BUNDLE],
+      security: META_SECURITY_V_RESTRICTED,
     },
-    identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
+    identifier: { value: bundleId },
     type: 'collection',
     timestamp: ts,
     entry: [
@@ -630,6 +1068,7 @@ export function buildTaskReprocessBundle(input: FhirTaskReprocessInput): FhirBun
   const task: Record<string, unknown> = {
     resourceType: 'Task',
     id: taskUrn,
+    meta: { profile: [PROFILE_TASK] },
     status: 'requested',
     intent: 'order',
     authoredOn: ts,
@@ -637,6 +1076,11 @@ export function buildTaskReprocessBundle(input: FhirTaskReprocessInput): FhirBun
     owner: { reference: recipientUrn },
     code: {
       coding: [
+        {
+          system: SYS_NDHM_TASK_CODES,
+          code: 'reprocess',
+          display: 'Reprocess claim',
+        },
         {
           system: PMJAY_TASK_CODE_SYSTEM,
           code: 'reprocess',
@@ -649,7 +1093,7 @@ export function buildTaskReprocessBundle(input: FhirTaskReprocessInput): FhirBun
         type: {
           coding: [
             {
-              system: PMJAY_TASK_CODE_SYSTEM,
+              system: SYS_NDHM_TASK_INPUT_TYPE,
               code: 'ClaimNumber',
               display: 'Payer-issued claim number',
             },
@@ -664,6 +1108,11 @@ export function buildTaskReprocessBundle(input: FhirTaskReprocessInput): FhirBun
         type: {
           coding: [
             {
+              system: SYS_NDHM_REASON_CODE,
+              code: 'ReasonCode',
+              display: 'Reprocess reason',
+            },
+            {
               system: PMJAY_TASK_REASON_SYSTEM,
               code: 'ReasonCode',
               display: 'Reprocess reason',
@@ -671,7 +1120,7 @@ export function buildTaskReprocessBundle(input: FhirTaskReprocessInput): FhirBun
           ],
         },
         valueCoding: {
-          system: PMJAY_TASK_REASON_SYSTEM,
+          system: SYS_NDHM_REASON_CODE,
           code: input.reasonCode,
           display: reasonDisplay,
         },
@@ -687,9 +1136,10 @@ export function buildTaskReprocessBundle(input: FhirTaskReprocessInput): FhirBun
     id: bundleId,
     meta: {
       lastUpdated: ts,
-      profile: [HCX_PROFILE_TASK],
+      profile: [PROFILE_TASK_BUNDLE],
+      security: META_SECURITY_V_RESTRICTED,
     },
-    identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
+    identifier: { value: bundleId },
     type: 'collection',
     timestamp: ts,
     entry: [

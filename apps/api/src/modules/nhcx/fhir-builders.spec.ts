@@ -225,19 +225,30 @@ describe('FHIR R4 bundle builders', () => {
         ?.resource as Record<string, unknown> | undefined;
       expect(task!['status']).toBe('cancelled');
       const code = task!['code'] as { coding: Array<{ code: string; system: string }> };
-      expect(code.coding[0]?.code).toBe('cancel');
-      expect(code.coding[0]?.system).toContain('payer.pmjay.nha.gov.in');
+      // Per GAP_ANALYSIS.md row 4.12 the cancel coding is now
+      // dual-coded: NDHM canonical first (so NRCES validators pass)
+      // and the PMJAY-specific URI second (so PMJAY's payer-side
+      // adapter still recognises the code it expects).
+      expect(code.coding.map((c) => c.code)).toEqual(['cancel', 'cancel']);
+      expect(code.coding[0]?.system).toContain('ndhm-task-codes');
+      expect(code.coding[1]?.system).toContain('payer.pmjay.nha.gov.in');
     });
 
     it('Task.input carries ClaimNumber + the preauthRefNum value', () => {
       const task = bundle.entry.find((e) => e.resource['resourceType'] === 'Task')
         ?.resource as Record<string, unknown> | undefined;
       const input = task!['input'] as Array<{
-        type: { coding: Array<{ code: string }> };
+        type: { coding: Array<{ code: string; system: string }> };
         valueIdentifier: { system: string; value: string };
       }>;
       expect(input).toHaveLength(1);
       expect(input[0]?.type.coding[0]?.code).toBe('ClaimNumber');
+      // Per GAP_ANALYSIS.md row 4.14 the input.type now uses the
+      // NDHM canonical task-input-type-code system so NRCES validators
+      // accept it. The PMJAY-specific URI is no longer the first
+      // (or only) coding; valueIdentifier still uses the PMJAY claim-
+      // number URI because that's a payer-side identifier system.
+      expect(input[0]?.type.coding[0]?.system).toContain('ndhm-task-input-type-code');
       expect(input[0]?.valueIdentifier.value).toBe('PA-99999');
       expect(input[0]?.valueIdentifier.system).toContain('hcx.pmjay.gov.in');
     });
@@ -280,8 +291,11 @@ describe('FHIR R4 bundle builders', () => {
       // not asserting a state on their behalf.
       expect(task!['status']).toBe('requested');
       const code = task!['code'] as { coding: Array<{ code: string; system: string }> };
-      expect(code.coding[0]?.code).toBe('reprocess');
-      expect(code.coding[0]?.system).toContain('payer.pmjay.nha.gov.in');
+      // Dual-coded per GAP_ANALYSIS.md row 4.12: NDHM canonical
+      // first, PMJAY-specific second.
+      expect(code.coding.map((c) => c.code)).toEqual(['reprocess', 'reprocess']);
+      expect(code.coding[0]?.system).toContain('ndhm-task-codes');
+      expect(code.coding[1]?.system).toContain('payer.pmjay.nha.gov.in');
     });
 
     it('Task.input has both ClaimNumber + ReasonCode entries', () => {
@@ -303,7 +317,11 @@ describe('FHIR R4 bundle builders', () => {
       };
       expect(reasonEntry.type.coding[0]?.code).toBe('ReasonCode');
       expect(reasonEntry.valueCoding.code).toBe('partialpayment');
-      expect(reasonEntry.valueCoding.system).toContain('task-reason');
+      // valueCoding now rides on the NDHM canonical reason-code
+      // system per GAP_ANALYSIS.md row 4.14. PMJAY adapters that
+      // care about the legacy task-reason URI still see it on the
+      // `type.coding[1]` entry of the same input item.
+      expect(reasonEntry.valueCoding.system).toContain('ndhm-reason-code');
       expect(reasonEntry.valueCoding.display).toMatch(/short-paid/);
     });
 

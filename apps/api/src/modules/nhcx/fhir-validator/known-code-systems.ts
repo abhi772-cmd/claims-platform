@@ -20,16 +20,51 @@ export const UNIVERSAL_SYSTEMS: ReadonlySet<string> = new Set([
   'http://terminology.hl7.org/CodeSystem/processpriority',
   'http://terminology.hl7.org/CodeSystem/organization-type',
   'http://terminology.hl7.org/CodeSystem/claim-type',
+  'http://terminology.hl7.org/CodeSystem/claimcareteamrole',
+  'http://terminology.hl7.org/CodeSystem/v3-Confidentiality',
   'http://hl7.org/fhir/sid/icd-10',
   'http://hl7.org/fhir/identifier-use',
+  // SNOMED CT — required for NRCES NHCX bundles (Claim.type,
+  // diagnosis.type, procedure coding).
+  'http://snomed.info/sct',
+  // LOINC — referenced by the NRCES "Guide for using LOINC in ABDM
+  // FHIR Resources" PDF for observation / document codings.
+  'http://loinc.org',
   'https://hl7.org/fhir/R4/v2/0360/2.7/index.html',
 ]);
 
-// Standard NHCX (HCX 0.7.1) + ABDM + DigiSparsh-internal systems.
+// Standard NHCX (NRCES ABDM v6.5.0) + DigiSparsh-internal systems.
+// Source: every `CodeSystem-ndhm-*.html.md` page under
+// `D:\NHCX context\md\nrces.in\ndhm\fhir\r4\`. The previous list
+// recognised only 2 of these; an inbound payer bundle that codes
+// against any of the others surfaced as "unknown system" in the ops
+// validator log even though the system is canonical NHCX.
 export const NHCX_SYSTEMS: ReadonlySet<string> = new Set([
   // ABDM / NDHM core registries.
   'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-organization',
   'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-identifier-type-code',
+  // Adjudication + claim shape.
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-adjudication-reason',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-benefit-type',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-billing-codes',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-claim-exclusion',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-coverage-type',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-form-code',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-insuranceplan-type',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-payment-type',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-plan-type',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-price-components',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-program-code',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-reason-code',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-related-claim-relationship-code',
+  // Supporting info + tasks.
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-supportinginfo-category',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-supportinginfo-code',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-task-codes',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-task-input-type-code',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-task-output-type',
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-task-output-value',
+  // ABDM identifier registries.
   'https://healthid.abdm.gov.in',
   'https://facility.abdm.gov.in',
   'https://hpr.abdm.gov.in',
@@ -38,7 +73,40 @@ export const NHCX_SYSTEMS: ReadonlySet<string> = new Set([
   'urn:digisparsh:claim:id',
   'urn:digisparsh:claim:payerRefNum',
   'urn:digisparsh:procedure:code',
+  'urn:digisparsh:doctor:registration',
+  'urn:digisparsh:org',
 ]);
+
+// NDHM CodeSystem URI base — exported for reuse in builders so the
+// list above stays the single source of truth.
+export const NDHM_SYSTEM_BASE =
+  'https://nrces.in/ndhm/fhir/r4/CodeSystem';
+
+// Named accessors for the most-used NDHM systems. Builders should
+// reference these constants instead of inline-stringing the URI.
+export const NDHM_SYSTEMS = {
+  organization: `${NDHM_SYSTEM_BASE}/ndhm-organization`,
+  identifierTypeCode: `${NDHM_SYSTEM_BASE}/ndhm-identifier-type-code`,
+  adjudicationReason: `${NDHM_SYSTEM_BASE}/ndhm-adjudication-reason`,
+  benefitType: `${NDHM_SYSTEM_BASE}/ndhm-benefit-type`,
+  billingCodes: `${NDHM_SYSTEM_BASE}/ndhm-billing-codes`,
+  claimExclusion: `${NDHM_SYSTEM_BASE}/ndhm-claim-exclusion`,
+  coverageType: `${NDHM_SYSTEM_BASE}/ndhm-coverage-type`,
+  formCode: `${NDHM_SYSTEM_BASE}/ndhm-form-code`,
+  insurancePlanType: `${NDHM_SYSTEM_BASE}/ndhm-insuranceplan-type`,
+  paymentType: `${NDHM_SYSTEM_BASE}/ndhm-payment-type`,
+  planType: `${NDHM_SYSTEM_BASE}/ndhm-plan-type`,
+  priceComponents: `${NDHM_SYSTEM_BASE}/ndhm-price-components`,
+  programCode: `${NDHM_SYSTEM_BASE}/ndhm-program-code`,
+  reasonCode: `${NDHM_SYSTEM_BASE}/ndhm-reason-code`,
+  relatedClaimRelationshipCode: `${NDHM_SYSTEM_BASE}/ndhm-related-claim-relationship-code`,
+  supportingInfoCategory: `${NDHM_SYSTEM_BASE}/ndhm-supportinginfo-category`,
+  supportingInfoCode: `${NDHM_SYSTEM_BASE}/ndhm-supportinginfo-code`,
+  taskCodes: `${NDHM_SYSTEM_BASE}/ndhm-task-codes`,
+  taskInputTypeCode: `${NDHM_SYSTEM_BASE}/ndhm-task-input-type-code`,
+  taskOutputType: `${NDHM_SYSTEM_BASE}/ndhm-task-output-type`,
+  taskOutputValue: `${NDHM_SYSTEM_BASE}/ndhm-task-output-value`,
+} as const;
 
 // PMJAY-specific systems. Documented in
 // `HIMS-PMJAY suppporting docs/FHIR_bundles_PMJAY_ext/`.

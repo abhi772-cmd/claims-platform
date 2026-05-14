@@ -62,10 +62,28 @@ export class DischargeService {
       actorType: 'user',
       purpose: 'discharge.submit',
     });
+    // HCX correlation chain (doc 07 lines 99–117). Discharge chains
+    // off the most recent preauth-side correlation (enhancement
+    // when one ran, else the original preauth).
+    const claimRow = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      (tx) =>
+        tx.claim.findUniqueOrThrow({
+          where: { id: input.claimId },
+          select: {
+            enhancementCorrelationId: true,
+            preauthCorrelationId: true,
+          },
+        }),
+    );
+    const parentCorrelationId =
+      claimRow.enhancementCorrelationId ?? claimRow.preauthCorrelationId ?? undefined;
     const adapter = await this.nhcx.submitDischarge({
       tenantId: input.tenantId,
       claimId: input.claimId,
       documentIds,
+      ...(parentCorrelationId ? { parentCorrelationId } : {}),
       ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
       ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
     });
@@ -74,6 +92,12 @@ export class DischargeService {
       input.tenantId,
       'tenant',
       async (tx) => {
+        // Stamp dischargeCorrelationId so claim/submit can read it
+        // back as its parentCorrelationId.
+        await tx.claim.update({
+          where: { id: input.claimId },
+          data: { dischargeCorrelationId: adapter.correlationId },
+        });
         const row = await this.integration.recordOutboundWithTx(tx, {
           tenantId: input.tenantId,
           claimId: input.claimId,

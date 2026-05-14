@@ -26,6 +26,7 @@ import { EobOcrModule } from './modules/eob-ocr';
 import { ErasureModule } from './modules/erasure/erasure.module';
 import { HealthModule } from './modules/health/health.module';
 import { HprModule } from './modules/hpr';
+import { InsurancePlanModule } from './modules/insurance-plan';
 import { IntegrationModule } from './modules/integration';
 import { MasterDataModule } from './modules/master-data';
 import { MfaModule } from './modules/mfa';
@@ -106,6 +107,7 @@ import { UserModule } from './modules/user/user.module';
     ClaimModule,
     CaseModule,
     EligibilityModule,
+    InsurancePlanModule,
     PreauthModule,
     PmjayPoliciesModule,
     DocumentModule,

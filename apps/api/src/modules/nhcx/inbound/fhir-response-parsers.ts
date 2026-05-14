@@ -34,10 +34,11 @@ export interface ParsedCommunication {
 }
 
 // Slice BD — gateway-pushed coverage update. Operators see this in
-// the integration_message ledger; we don't yet auto-trigger an
-// eligibility re-verification (no operational pressure), so the
-// parser surfaces just the identifying fields ops need to
-// triage / cross-reference.
+// the integration_message ledger AND on the claim's insurance-plan
+// preview row written by InsurancePlanService.recordResponse — we
+// pull the load-bearing fields (plan name, status, sum insured,
+// effective period) so the operator can decide whether to proceed
+// with preauth without round-tripping back to the payer portal.
 export interface ParsedInsurancePlan {
   // The plan's stable identifier, when the gateway provides one.
   planId?: string;
@@ -47,6 +48,19 @@ export interface ParsedInsurancePlan {
   status?: string;
   // Type code (e.g. 'medical' / 'dental') if the gateway tags it.
   type?: string;
+  // Sum insured / coverage amount in PAISE. Pulled from the first
+  // matching `coverage[].benefit[].limit[].value.value` element, or
+  // from an extension when the payer rides it on `extension`. The
+  // unit is normalised to paise so downstream UI doesn't have to
+  // sniff currency types.
+  sumInsuredPaise?: number;
+  // Plan effective window — useful for the operator's gut-check
+  // ("is this still valid for today's admission?").
+  periodStart?: string; // YYYY-MM-DD
+  periodEnd?: string; // YYYY-MM-DD
+  // Network indicator on the plan ('cashless' / 'reimbursement' /
+  // payer-specific). Pass-through.
+  network?: string;
 }
 
 // Slice BD — gateway-pushed task / status note. Tasks ride alongside
@@ -463,7 +477,99 @@ export function parseInsurancePlan(bundle: unknown): ParsedInsurancePlan {
       if (typeof code === 'string' && code.length > 0) out.type = code;
     }
   }
+
+  // period.start / period.end on the InsurancePlan resource itself.
+  const period = obj['period'];
+  if (isObject(period)) {
+    const start = period['start'];
+    const end = period['end'];
+    if (typeof start === 'string' && start.length > 0) out.periodStart = start.slice(0, 10);
+    if (typeof end === 'string' && end.length > 0) out.periodEnd = end.slice(0, 10);
+  }
+
+  // Sum insured — FHIR InsurancePlan can carry the coverage amount in
+  // a few places depending on the payer's bundle shape:
+  //   1. coverage[].benefit[].limit[].value (Quantity { value, unit })
+  //   2. plan[].generalCost[].cost (Money { value, currency })
+  //   3. extension[] with url ending in "sum-insured" (Money / Quantity)
+  // We accept the first non-empty match. Values are converted to paise
+  // (rupees * 100). Currency is checked when present; non-INR values
+  // are kept but flagged elsewhere — for now, we trust the gateway.
+  const sumInsured = extractSumInsuredPaise(obj);
+  if (sumInsured !== undefined) out.sumInsuredPaise = sumInsured;
+
+  // Network — usually under an extension with url
+  // "https://nrces.in/.../insurance-plan-network" or similar; some
+  // payers stash it on `network[0].display`. Treat the first
+  // non-empty hit as authoritative.
+  const networkArr = obj['network'];
+  if (Array.isArray(networkArr) && networkArr.length > 0 && isObject(networkArr[0])) {
+    const display = (networkArr[0] as Record<string, unknown>)['display'];
+    if (typeof display === 'string' && display.length > 0) out.network = display;
+  }
+
   return out;
+}
+
+function extractSumInsuredPaise(plan: Record<string, unknown>): number | undefined {
+  // Path 1: coverage[].benefit[].limit[].value
+  const coverage = plan['coverage'];
+  if (Array.isArray(coverage)) {
+    for (const cov of coverage) {
+      if (!isObject(cov)) continue;
+      const benefit = cov['benefit'];
+      if (!Array.isArray(benefit)) continue;
+      for (const b of benefit) {
+        if (!isObject(b)) continue;
+        const limit = b['limit'];
+        if (!Array.isArray(limit)) continue;
+        for (const l of limit) {
+          if (!isObject(l)) continue;
+          const v = l['value'];
+          if (isObject(v) && typeof v['value'] === 'number') {
+            return Math.round((v['value'] as number) * 100);
+          }
+        }
+      }
+    }
+  }
+  // Path 2: plan[].generalCost[].cost
+  const planArr = plan['plan'];
+  if (Array.isArray(planArr)) {
+    for (const p of planArr) {
+      if (!isObject(p)) continue;
+      const gc = p['generalCost'];
+      if (!Array.isArray(gc)) continue;
+      for (const cost of gc) {
+        if (!isObject(cost)) continue;
+        const c = cost['cost'];
+        if (isObject(c) && typeof c['value'] === 'number') {
+          return Math.round((c['value'] as number) * 100);
+        }
+      }
+    }
+  }
+  // Path 3: extension[] with url ending in "sum-insured"
+  const ext = plan['extension'];
+  if (Array.isArray(ext)) {
+    for (const e of ext) {
+      if (!isObject(e)) continue;
+      const url = e['url'];
+      if (typeof url !== 'string' || !/sum[-_]?insured/i.test(url)) continue;
+      const vm = e['valueMoney'];
+      if (isObject(vm) && typeof vm['value'] === 'number') {
+        return Math.round((vm['value'] as number) * 100);
+      }
+      const vq = e['valueQuantity'];
+      if (isObject(vq) && typeof vq['value'] === 'number') {
+        return Math.round((vq['value'] as number) * 100);
+      }
+      if (typeof e['valueDecimal'] === 'number') {
+        return Math.round((e['valueDecimal'] as number) * 100);
+      }
+    }
+  }
+  return undefined;
 }
 
 // Slice BD — pluck the surface fields off a Task resource. We surface

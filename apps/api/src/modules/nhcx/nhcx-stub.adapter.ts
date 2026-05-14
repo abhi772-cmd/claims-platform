@@ -12,6 +12,8 @@ import {
   type AdapterEligibilityRequest,
   type AdapterEligibilityResponse,
   type AdapterEnvelopedResult,
+  type AdapterInsurancePlanRequestInput,
+  type AdapterInsurancePlanRequestResult,
   type AdapterPmjayPolicy,
   type AdapterPmjayPolicyLookupInput,
   type AdapterPmjayPolicyLookupResult,
@@ -71,6 +73,49 @@ export class NhcxStubAdapter implements NhcxAdapter {
           rawResponse,
           latencyMs: 5,
         };
+  }
+
+  async requestInsurancePlan(
+    input: AdapterInsurancePlanRequestInput,
+  ): Promise<AdapterInsurancePlanRequestResult> {
+    const correlationId = randomUUID();
+    // Tests can force a "policy not found" outcome by setting
+    // NHCX_STUB_INSURANCEPLAN_FAIL=<comma-list-of-policy-numbers>.
+    // Anything else is treated as success.
+    const failRaw = this.config.get('NHCX_STUB_INSURANCEPLAN_FAIL', { infer: true }) ?? '';
+    const failSet = new Set(
+      String(failRaw)
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
+    );
+    const acknowledged = !failSet.has(input.policyNumber);
+    this.log.log(
+      `nhcx stub insuranceplan/request tenantId=${input.tenantId} policy=${input.policyNumber} acknowledged=${acknowledged}`,
+    );
+    return {
+      acknowledged,
+      correlationId,
+      rawRequest: {
+        bundleType: 'TaskBundle',
+        operation: 'insuranceplan/request',
+        ...input,
+      },
+      rawResponse: {
+        bundleType: 'TaskResponse',
+        outcome: acknowledged ? 'queued' : 'not_found',
+        correlationId,
+        timestamp: new Date().toISOString(),
+        ...(acknowledged
+          ? {
+              // Stub plan details — production gets these on the
+              // async insuranceplan/on_request callback, not here.
+              stubPreviewPlanName: 'Stub Star Health Gold 2026',
+              stubPreviewSumInsured: 500_000,
+            }
+          : { failureReason: 'Policy number not recognised by payer.' }),
+      },
+    };
   }
 
   async submitPreauth(input: AdapterPreauthSubmitInput): Promise<AdapterPreauthSubmitResult> {

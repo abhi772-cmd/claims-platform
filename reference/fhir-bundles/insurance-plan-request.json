@@ -4,7 +4,7 @@
   "meta": {
     "lastUpdated": "2026-05-01T10:00:00.000Z",
     "profile": [
-      "https://nrces.in/ndhm/fhir/r4/StructureDefinition/CommunicationBundle"
+      "https://nrces.in/ndhm/fhir/r4/StructureDefinition/TaskBundle"
     ],
     "security": [
       {
@@ -21,36 +21,58 @@
   "timestamp": "2026-05-01T10:00:00.000Z",
   "entry": [
     {
-      "fullUrl": "urn:uuid:00000000-0000-4000-8000-000000000004-communication",
+      "fullUrl": "urn:uuid:00000000-0000-4000-8000-000000000004-task",
       "resource": {
-        "resourceType": "Communication",
-        "id": "urn:uuid:00000000-0000-4000-8000-000000000004-communication",
+        "resourceType": "Task",
+        "id": "urn:uuid:00000000-0000-4000-8000-000000000004-task",
         "meta": {
           "profile": [
-            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Communication"
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Task"
           ]
         },
         "status": "completed",
-        "sent": "2026-05-01T10:00:00.000Z",
-        "sender": {
+        "intent": "order",
+        "code": {
+          "coding": [
+            {
+              "system": "http://terminology.hl7.org/CodeSystem/financialtaskcode",
+              "code": "poll",
+              "display": "Poll"
+            }
+          ]
+        },
+        "description": "Give the details of Insurance plan linked with the given policy number",
+        "authoredOn": "2026-05-01T10:00:00.000Z",
+        "requester": {
           "reference": "urn:uuid:00000000-0000-4000-8000-000000000002-sender"
         },
-        "recipient": [
+        "owner": {
+          "reference": "urn:uuid:00000000-0000-4000-8000-000000000003-recipient"
+        },
+        "input": [
           {
-            "reference": "urn:uuid:00000000-0000-4000-8000-000000000003-recipient"
-          }
-        ],
-        "payload": [
+            "type": {
+              "coding": [
+                {
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-task-input-type-code",
+                  "code": "policyNumber",
+                  "display": "PolicyNumber"
+                }
+              ]
+            },
+            "valueString": "POL-12345"
+          },
           {
-            "contentString": "Patient was admitted on 2026-05-01."
-          }
-        ],
-        "inResponseTo": [
-          {
-            "identifier": {
-              "system": "urn:digisparsh:claim:payerRefNum",
-              "value": "PA-12345"
-            }
+            "type": {
+              "coding": [
+                {
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-task-input-type-code",
+                  "code": "providerId",
+                  "display": "ProviderId"
+                }
+              ]
+            },
+            "valueString": "1234567890"
           }
         ]
       }
@@ -71,7 +93,7 @@
             "value": "SENDER1"
           }
         ],
-        "name": "SENDER1"
+        "name": "Asha Hospital"
       }
     },
     {
@@ -90,7 +112,7 @@
             "value": "RECEIVER1"
           }
         ],
-        "name": "RECEIVER1"
+        "name": "Medi Assist"
       }
     }
   ]

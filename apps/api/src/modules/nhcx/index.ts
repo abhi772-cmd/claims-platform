@@ -19,6 +19,8 @@ export {
   type AdapterClaimReprocessInput,
   type AdapterClaimReprocessReason,
   type AdapterClaimReprocessResult,
+  type AdapterInsurancePlanRequestInput,
+  type AdapterInsurancePlanRequestResult,
   type AdapterPmjayLookupIdentifierType,
   type AdapterPmjayPolicy,
   type AdapterPmjayPolicyLookupInput,

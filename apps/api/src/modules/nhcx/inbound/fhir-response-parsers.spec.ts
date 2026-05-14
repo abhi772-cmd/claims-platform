@@ -367,6 +367,87 @@ describe('parseInsurancePlan', () => {
     );
     expect(out.planId).toBe('P-2');
   });
+
+  it('extracts sumInsured from coverage[].benefit[].limit[].value (path 1)', () => {
+    const out = parseInsurancePlan(
+      bundle({
+        resourceType: 'InsurancePlan',
+        coverage: [
+          {
+            benefit: [
+              {
+                limit: [{ value: { value: 500000, unit: 'INR' } }],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(out.sumInsuredPaise).toBe(50_000_000); // 500,000 rupees → paise
+  });
+
+  it('extracts sumInsured from plan[].generalCost[].cost (path 2)', () => {
+    const out = parseInsurancePlan(
+      bundle({
+        resourceType: 'InsurancePlan',
+        plan: [{ generalCost: [{ cost: { value: 250000, currency: 'INR' } }] }],
+      }),
+    );
+    expect(out.sumInsuredPaise).toBe(25_000_000);
+  });
+
+  it('extracts sumInsured from an extension with sum-insured url (path 3)', () => {
+    const out = parseInsurancePlan(
+      bundle({
+        resourceType: 'InsurancePlan',
+        extension: [
+          {
+            url: 'https://nrces.in/ndhm/fhir/r4/StructureDefinition/sum-insured',
+            valueMoney: { value: 100000, currency: 'INR' },
+          },
+        ],
+      }),
+    );
+    expect(out.sumInsuredPaise).toBe(10_000_000);
+  });
+
+  it('also accepts extension.valueDecimal as a sum-insured path', () => {
+    const out = parseInsurancePlan(
+      bundle({
+        resourceType: 'InsurancePlan',
+        extension: [{ url: 'urn:foo:sum_insured', valueDecimal: 75000 }],
+      }),
+    );
+    expect(out.sumInsuredPaise).toBe(7_500_000);
+  });
+
+  it('extracts period.start and period.end (truncates to YYYY-MM-DD)', () => {
+    const out = parseInsurancePlan(
+      bundle({
+        resourceType: 'InsurancePlan',
+        period: { start: '2026-04-01T00:00:00+05:30', end: '2027-03-31' },
+      }),
+    );
+    expect(out.periodStart).toBe('2026-04-01');
+    expect(out.periodEnd).toBe('2027-03-31');
+  });
+
+  it('extracts network[0].display when present', () => {
+    const out = parseInsurancePlan(
+      bundle({
+        resourceType: 'InsurancePlan',
+        network: [{ display: 'Cashless tier-1' }],
+      }),
+    );
+    expect(out.network).toBe('Cashless tier-1');
+  });
+
+  it('returns undefined sumInsured when no recognised path is populated', () => {
+    const out = parseInsurancePlan(
+      bundle({ resourceType: 'InsurancePlan', name: 'Plan with no benefits payload' }),
+    );
+    expect(out.sumInsuredPaise).toBeUndefined();
+  });
 });
 
 describe('parseTask', () => {

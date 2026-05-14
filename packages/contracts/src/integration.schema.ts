@@ -100,6 +100,59 @@ export const EligibilityResponseSchema = z.object({
 });
 export type EligibilityResponse = z.infer<typeof EligibilityResponseSchema>;
 
+// `insuranceplan/request` lookup — chain-root NHCX operation.
+// Hospitals call this with a policy number + provider id to fetch
+// plan details from the payer before opening a claim or running
+// eligibility. The HTTP response is a synchronous ack; the actual
+// plan details come back asynchronously on the
+// `insuranceplan/on_request` callback.
+export const InsurancePlanRequestSchema = z.object({
+  payerCode: z.string().min(1).max(64),
+  policyNumber: z.string().min(1).max(64),
+  // Provider identifier the payer authenticates the lookup against.
+  // Typically the hospital's HFR ID captured during the
+  // `hfr_facility` onboarding step. Required so the caller is
+  // explicit about which identity the lookup runs under.
+  providerId: z.string().min(1).max(64),
+  payerDisplayName: z.string().min(1).max(120).optional(),
+});
+export type InsurancePlanRequest = z.infer<typeof InsurancePlanRequestSchema>;
+
+export const InsurancePlanRequestResponseSchema = z.object({
+  acknowledged: z.boolean(),
+  correlationId: z.string(),
+});
+export type InsurancePlanRequestResponse = z.infer<typeof InsurancePlanRequestResponseSchema>;
+
+// View shape returned by GET /cases/:caseId/claims/:claimId/
+// insurance-plan and GET /insurance-plan/lookups/:correlationId.
+// `pending` rows surface immediately after the outbound POST;
+// `resolved` / `failed` rows appear after the matching
+// insuranceplan/on_request callback (or after a server-side
+// failure / timeout). UI uses `status` + `resolvedAt` to drive
+// the spinner → details transition.
+export const InsurancePlanLookupSchema = z.object({
+  id: z.string().uuid(),
+  correlationId: z.string(),
+  claimId: z.string().uuid().nullable(),
+  payerCode: z.string(),
+  policyNumber: z.string(),
+  providerId: z.string(),
+  status: z.enum(['pending', 'resolved', 'failed']),
+  planId: z.string().nullable(),
+  planName: z.string().nullable(),
+  planStatus: z.string().nullable(),
+  planType: z.string().nullable(),
+  sumInsuredPaise: z.number().int().nullable(),
+  periodStart: z.string().nullable(),
+  periodEnd: z.string().nullable(),
+  network: z.string().nullable(),
+  failureReason: z.string().nullable(),
+  requestedAt: z.string(),
+  resolvedAt: z.string().nullable(),
+});
+export type InsurancePlanLookup = z.infer<typeof InsurancePlanLookupSchema>;
+
 // NHCX inbound webhook payload (Slice Z). The HCX gateway POSTs one
 // of these for every callback (coverageeligibility/on_check,
 // preauth/on_submit, claim/on_submit, communication/request).

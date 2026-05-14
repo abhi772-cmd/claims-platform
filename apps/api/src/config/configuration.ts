@@ -18,6 +18,14 @@ export interface AppConfig extends Env {
   nhcxPrivateKeyPem: string | null;
   nhcxPrivateKeyPemV2: string | null;
   nhcxGatewayPublicKeyPem: string | null;
+  // Optional outbound mTLS material. All three are null when
+  // NHCX_MTLS_ENABLED=false (the default). When enabled the boot
+  // check below guarantees clientCert + clientKey are both present;
+  // the CA bundle is independently optional (Node falls back to the
+  // system trust store).
+  nhcxMtlsClientCertPem: string | null;
+  nhcxMtlsClientKeyPem: string | null;
+  nhcxMtlsCaPem: string | null;
 }
 
 export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
@@ -109,6 +117,24 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     }
   }
 
+  // NHCX_MTLS_ENABLED demands both client cert AND key. The CA
+  // bundle remains optional — production deployments should pin it
+  // for defence-in-depth but Node's system trust store covers the
+  // common ABDM cert chain out of the box. Catch the misconfig at
+  // boot rather than at the first outbound call.
+  if (env.NHCX_MTLS_ENABLED) {
+    const missing: string[] = [];
+    if (!env.NHCX_MTLS_CLIENT_CERT_BASE64) missing.push('NHCX_MTLS_CLIENT_CERT_BASE64');
+    if (!env.NHCX_MTLS_CLIENT_KEY_BASE64) missing.push('NHCX_MTLS_CLIENT_KEY_BASE64');
+    if (missing.length > 0) {
+      throw new ConfigError({
+        NHCX_MTLS_ENABLED: [
+          `mTLS enabled but missing: ${missing.join(', ')}. Either disable NHCX_MTLS_ENABLED or provide the cert + key.`,
+        ],
+      });
+    }
+  }
+
   // Slice AO — production must verify HTTP Signature on inbound. The
   // env-gate is permissive in dev / test (so integration tests can
   // POST without minting signatures); production cannot silently fall
@@ -146,6 +172,21 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
           env.NHCX_GATEWAY_PUBLIC_KEY_BASE64,
           'NHCX_GATEWAY_PUBLIC_KEY_BASE64',
         )
+      : null,
+    nhcxMtlsClientCertPem: env.NHCX_MTLS_CLIENT_CERT_BASE64
+      ? decodeBase64Pem(
+          env.NHCX_MTLS_CLIENT_CERT_BASE64,
+          'NHCX_MTLS_CLIENT_CERT_BASE64',
+        )
+      : null,
+    nhcxMtlsClientKeyPem: env.NHCX_MTLS_CLIENT_KEY_BASE64
+      ? decodeBase64Pem(
+          env.NHCX_MTLS_CLIENT_KEY_BASE64,
+          'NHCX_MTLS_CLIENT_KEY_BASE64',
+        )
+      : null,
+    nhcxMtlsCaPem: env.NHCX_MTLS_CA_BASE64
+      ? decodeBase64Pem(env.NHCX_MTLS_CA_BASE64, 'NHCX_MTLS_CA_BASE64')
       : null,
   };
 }

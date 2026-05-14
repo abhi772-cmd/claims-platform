@@ -4,11 +4,17 @@
   "meta": {
     "lastUpdated": "2026-05-01T10:00:00.000Z",
     "profile": [
-      "https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-ClaimRequestBundle.html"
+      "https://nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimBundle"
+    ],
+    "security": [
+      {
+        "system": "http://terminology.hl7.org/CodeSystem/v3-Confidentiality",
+        "code": "V",
+        "display": "very restricted"
+      }
     ]
   },
   "identifier": {
-    "system": "https://ig.hcxprotocol.io",
     "value": "00000000-0000-4000-8000-000000000001"
   },
   "type": "collection",
@@ -19,6 +25,11 @@
       "resource": {
         "resourceType": "Claim",
         "id": "urn:uuid:00000000-0000-4000-8000-000000000006-claim",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Claim"
+          ]
+        },
         "identifier": [
           {
             "system": "urn:digisparsh:claim:id",
@@ -29,8 +40,9 @@
         "type": {
           "coding": [
             {
-              "system": "http://terminology.hl7.org/CodeSystem/claim-type",
-              "code": "institutional"
+              "system": "http://snomed.info/sct",
+              "code": "737481003",
+              "display": "Inpatient care management (procedure)"
             }
           ]
         },
@@ -77,7 +89,18 @@
                 }
               ],
               "text": "Essential hypertension"
-            }
+            },
+            "type": [
+              {
+                "coding": [
+                  {
+                    "system": "http://snomed.info/sct",
+                    "code": "89100005",
+                    "display": "Final diagnosis (discharge)"
+                  }
+                ]
+              }
+            ]
           }
         ],
         "procedure": [
@@ -86,7 +109,7 @@
             "procedureCodeableConcept": {
               "coding": [
                 {
-                  "system": "urn:digisparsh:procedure:code",
+                  "system": "http://snomed.info/sct",
                   "code": "PROC-001",
                   "display": "CABG"
                 }
@@ -101,13 +124,24 @@
             "category": {
               "coding": [
                 {
-                  "code": "hospitalized"
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-supportinginfo-category",
+                  "code": "hospitalized",
+                  "display": "Hospitalization"
                 }
               ]
             },
             "valueQuantity": {
               "value": 3,
               "unit": "days"
+            },
+            "code": {
+              "coding": [
+                {
+                  "system": "http://snomed.info/sct",
+                  "code": "32485007",
+                  "display": "Hospital admission"
+                }
+              ]
             }
           }
         ],
@@ -123,6 +157,11 @@
       "resource": {
         "resourceType": "Patient",
         "id": "urn:uuid:00000000-0000-4000-8000-000000000002-patient",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Patient"
+          ]
+        },
         "identifier": [
           {
             "system": "urn:digisparsh:hospital:mrn",
@@ -151,6 +190,11 @@
       "resource": {
         "resourceType": "Organization",
         "id": "urn:digisparsh:org:MEDIASSIST",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Organization"
+          ]
+        },
         "identifier": [
           {
             "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-organization",
@@ -165,6 +209,11 @@
       "resource": {
         "resourceType": "Organization",
         "id": "urn:digisparsh:org:SENDER1",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Organization"
+          ]
+        },
         "identifier": [
           {
             "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-organization",
@@ -179,6 +228,11 @@
       "resource": {
         "resourceType": "Coverage",
         "id": "urn:uuid:00000000-0000-4000-8000-000000000005-coverage",
+        "meta": {
+          "profile": [
+            "https://nrces.in/ndhm/fhir/r4/StructureDefinition/Coverage"
+          ]
+        },
         "status": "active",
         "subscriberId": "POL-001",
         "beneficiary": {

@@ -121,10 +121,33 @@ export class ClaimSubmitService {
       tx.preauthDraft.findUnique({ where: { claimId: input.claimId } }),
     );
     const docs = await this.documents.list(input.tenantId, input.claimId);
+    // HCX correlation chain (doc 07 lines 99–117). claim/submit
+    // chains off the most recent preauth-side correlation. Order of
+    // precedence: discharge → enhancement → preauth. The first
+    // non-null id is what NHA-side reporting will group on.
+    const claimRow = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      (tx) =>
+        tx.claim.findUniqueOrThrow({
+          where: { id: input.claimId },
+          select: {
+            dischargeCorrelationId: true,
+            enhancementCorrelationId: true,
+            preauthCorrelationId: true,
+          },
+        }),
+    );
+    const parentCorrelationId =
+      claimRow.dischargeCorrelationId ??
+      claimRow.enhancementCorrelationId ??
+      claimRow.preauthCorrelationId ??
+      undefined;
     const adapter = await this.nhcx.submitClaim({
       tenantId: input.tenantId,
       claimId: input.claimId,
       finalAmount: input.finalAmount,
+      ...(parentCorrelationId ? { parentCorrelationId } : {}),
       ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
       ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
       documentIds: docs.map((d) => d.id),
@@ -142,6 +165,13 @@ export class ClaimSubmitService {
       input.tenantId,
       'tenant',
       async (tx) => {
+        // Stamp the claim correlation id on the row so callbacks
+        // can dispatch by correlation and the payment stage can read
+        // it back as its parentCorrelationId.
+        await tx.claim.update({
+          where: { id: input.claimId },
+          data: { claimCorrelationId: adapter.correlationId },
+        });
         const row = await this.integration.recordOutboundWithTx(tx, {
           tenantId: input.tenantId,
           claimId: input.claimId,

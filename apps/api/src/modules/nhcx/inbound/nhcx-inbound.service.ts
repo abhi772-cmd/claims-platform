@@ -20,6 +20,7 @@ import { type AppConfig } from '../../../config/configuration';
 import { ClaimSubmitService } from '../../claim-submit/claim-submit.service';
 import { DischargeService } from '../../discharge/discharge.service';
 import { EligibilityService } from '../../eligibility/eligibility.service';
+import { InsurancePlanService } from '../../insurance-plan/insurance-plan.service';
 import { PreauthService } from '../../preauth/preauth.service';
 import { SettlementService } from '../../settlement/settlement.service';
 import { TenantService } from '../../tenant/tenant.service';
@@ -82,6 +83,7 @@ export class NhcxInboundService {
     private readonly settlement: SettlementService,
     private readonly senderAllowlist: NhcxSenderAllowlistService,
     private readonly tenants: TenantService,
+    private readonly insurancePlan: InsurancePlanService,
     private readonly config: ConfigService<AppConfig, true>,
     @Optional() @Inject(NHCX_KEY_RESOLVER) private readonly keyResolver: NhcxKeyResolver | null,
   ) {}
@@ -327,6 +329,23 @@ export class NhcxInboundService {
       // unknown notice kinds log + skip without driving a transition.
       const parsed = parsePaymentNotice(decrypted);
       if (parsed.kind === 'paid') {
+        // Stamp paymentCorrelationId on the claim row so the
+        // lifecycle audit can reconstruct the full HCX chain
+        // (insurance → coverage → preauth → claim → payment) by
+        // joining on these seven id columns. The outbound side is
+        // empty here — payment is payer-initiated — so we stamp
+        // from the inbound correlation id itself.
+        if (row.claimId) {
+          await this.prisma.runInTenantContext(
+            row.tenantId,
+            'tenant',
+            (tx) =>
+              tx.claim.update({
+                where: { id: row.claimId as string },
+                data: { paymentCorrelationId: input.correlationId },
+              }),
+          );
+        }
         const updated = await this.settlement.recordReceipt({
           tenantId: row.tenantId,
           claimId: row.claimId,
@@ -349,16 +368,56 @@ export class NhcxInboundService {
         summary = { ...summary, parsed };
       }
     } else if (operation === 'insuranceplan/on_request') {
-      // Slice BD — log + record. The integration_message row carries
-      // the full decrypted bundle; the parsed summary is just the
-      // surface fields ops grep for. No state transition: payer-pushed
-      // coverage updates would re-run eligibility, which is a future
-      // operational concern, not a Sprint 6 deliverable.
-      const parsed = parseInsurancePlan(decrypted);
-      this.log.log(
-        `nhcx insuranceplan recorded planId=${parsed.planId ?? '<unknown>'} status=${parsed.status ?? '<unknown>'} correlationId=${input.correlationId}`,
-      );
-      summary = { ...summary, parsed };
+      // GAP_ANALYSIS row 1.14: previously we logged + dropped the
+      // parsed plan. Now we persist it onto the insurance_plan_lookup
+      // row keyed by correlationId so the operator UI can surface
+      // the plan name / sum insured / effective dates without a
+      // separate ledger pivot.
+      //
+      // Two outcomes:
+      //   - parser succeeds + plan.status != 'retired' → resolved
+      //   - parser succeeds but the plan is retired → resolved with
+      //     a failureReason note (still treated as a usable
+      //     response — the operator can decide).
+      //   - parser throws → failed with the exception message.
+      try {
+        const parsed = parseInsurancePlan(decrypted);
+        const outcome: 'resolved' | 'failed' = 'resolved';
+        await this.insurancePlan.recordResponse({
+          tenantId: row.tenantId,
+          correlationId: input.correlationId,
+          outcome,
+          ...(parsed.planId !== undefined ? { planId: parsed.planId } : {}),
+          ...(parsed.name !== undefined ? { planName: parsed.name } : {}),
+          ...(parsed.status !== undefined ? { planStatus: parsed.status } : {}),
+          ...(parsed.type !== undefined ? { planType: parsed.type } : {}),
+          ...(parsed.sumInsuredPaise !== undefined
+            ? { sumInsuredPaise: parsed.sumInsuredPaise }
+            : {}),
+          ...(parsed.periodStart !== undefined ? { periodStart: parsed.periodStart } : {}),
+          ...(parsed.periodEnd !== undefined ? { periodEnd: parsed.periodEnd } : {}),
+          ...(parsed.network !== undefined ? { network: parsed.network } : {}),
+        });
+        this.log.log(
+          `nhcx insuranceplan resolved planId=${parsed.planId ?? '<unknown>'} ` +
+            `name="${parsed.name ?? ''}" status=${parsed.status ?? '<unknown>'} ` +
+            `sumInsuredPaise=${parsed.sumInsuredPaise ?? 'null'} ` +
+            `correlationId=${input.correlationId}`,
+        );
+        summary = { ...summary, parsed };
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        await this.insurancePlan.recordResponse({
+          tenantId: row.tenantId,
+          correlationId: input.correlationId,
+          outcome: 'failed',
+          failureReason: reason,
+        });
+        this.log.warn(
+          `nhcx insuranceplan parse failed correlationId=${input.correlationId} reason=${reason}`,
+        );
+        summary = { ...summary, parseError: reason };
+      }
     } else if (operation === 'task/on_submit') {
       // Slice BD — log + record. Tasks ride alongside the four
       // canonical phases for ad-hoc payer messages; we capture them

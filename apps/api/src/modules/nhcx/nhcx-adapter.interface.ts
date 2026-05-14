@@ -10,6 +10,23 @@
 
 export const NHCX_ADAPTER = Symbol('NHCX_ADAPTER');
 
+// Optional fields every outbound input may carry to participate in
+// the NHCX correlation chain + use-case taxonomy. Per
+// `docs/07-nhcx-and-pmjay.md` lines 98–117, every chained operation
+// (insurance → coverage → preauth → enhancement → discharge → claim
+// → payment) reuses the *previous* call's correlation id as its
+// own `x-hcx-correlation-id`. The first call in a chain leaves
+// `parentCorrelationId` unset; later calls thread it through so
+// NHA-side reporting groups the whole lifecycle.
+//
+// `useCase` is the `x-hcx-use-case` header value the gateway uses to
+// distinguish a fresh submission from an enhancement, resubmission,
+// reprocess, or cancellation.
+export interface NhcxChainFields {
+  parentCorrelationId?: string;
+  useCase?: 'New' | 'Enhancement' | 'Resubmission' | 'Reprocess' | 'Cancel';
+}
+
 export interface AdapterPatientFields {
   fullName: string;
   hospitalMrn: string;
@@ -31,7 +48,7 @@ export interface AdapterCoverageFields {
 // in the FHIR builder as the default when purpose is omitted.
 export type AdapterEligibilityPurpose = 'validation' | 'benefits' | 'auth-requirements';
 
-export interface AdapterEligibilityRequest {
+export interface AdapterEligibilityRequest extends NhcxChainFields {
   tenantId: string;
   claimId: string;
   hospitalMrn: string;
@@ -58,7 +75,7 @@ export interface AdapterEligibilityResponse {
   latencyMs: number;
 }
 
-export interface AdapterPreauthSubmitInput {
+export interface AdapterPreauthSubmitInput extends NhcxChainFields {
   tenantId: string;
   claimId: string;
   requestedAmount: number | null;
@@ -81,7 +98,7 @@ export interface AdapterPreauthSubmitResult {
   rawResponse: Record<string, unknown>;
 }
 
-export interface AdapterPreauthQueryRespondInput {
+export interface AdapterPreauthQueryRespondInput extends NhcxChainFields {
   tenantId: string;
   claimId: string;
   queryId: string;
@@ -99,7 +116,7 @@ export interface AdapterEnvelopedResult {
   rawResponse: Record<string, unknown>;
 }
 
-export interface AdapterDischargeSubmitInput {
+export interface AdapterDischargeSubmitInput extends NhcxChainFields {
   tenantId: string;
   claimId: string;
   documentIds: string[];
@@ -107,7 +124,7 @@ export interface AdapterDischargeSubmitInput {
   coverage?: AdapterCoverageFields;
 }
 
-export interface AdapterClaimSubmitInput {
+export interface AdapterClaimSubmitInput extends NhcxChainFields {
   tenantId: string;
   claimId: string;
   finalAmount: number;
@@ -138,7 +155,7 @@ export interface AdapterClaimSubmitResult {
 // We type a single `cancelPreauth` method rather than a generic
 // `submitTask` so callers stay honest about the operation —
 // reprocess (Slice BI) will get its own typed input/output.
-export interface AdapterPreauthCancelInput {
+export interface AdapterPreauthCancelInput extends NhcxChainFields {
   tenantId: string;
   claimId: string;
   // Echoed onto the gateway under PMJAY's `inputType: 'ClaimNumber'`
@@ -178,7 +195,7 @@ export interface AdapterPreauthCancelResult {
 // dispatcher).
 export type AdapterClaimReprocessReason = 'claimrejected' | 'partialpayment';
 
-export interface AdapterClaimReprocessInput {
+export interface AdapterClaimReprocessInput extends NhcxChainFields {
   tenantId: string;
   claimId: string;
   // Echoed onto the gateway under PMJAY's ClaimNumber input — the
@@ -245,8 +262,43 @@ export interface AdapterPmjayPolicyLookupResult {
   identifier: string;
 }
 
+// `insuranceplan/request` — chain root operation. The hospital sends
+// a policy number + provider id and the payer responds asynchronously
+// via `insuranceplan/on_request` with an InsurancePlan resource. The
+// correlation id returned here is what we stamp into Claim.
+// insuranceCorrelationId so every later HCX-chained call inherits it.
+export interface AdapterInsurancePlanRequestInput extends NhcxChainFields {
+  tenantId: string;
+  // Optional — set when the lookup is tied to a specific in-flight
+  // claim row that should have insuranceCorrelationId stamped. When
+  // null the lookup is freestanding (e.g. pre-admission policy
+  // verification before any claim row has been opened).
+  claimId?: string;
+  payerCode: string;
+  policyNumber: string;
+  providerId: string;
+  patient?: AdapterPatientFields;
+  // Optional display strings to enrich the FHIR Organization resources
+  // on the outbound bundle. The lookup works without them; humans
+  // reading the ledger appreciate them.
+  payerDisplayName?: string;
+  hospitalDisplayName?: string;
+}
+
+export interface AdapterInsurancePlanRequestResult {
+  // True on synchronous gateway ack. The actual plan details arrive
+  // asynchronously on the `insuranceplan/on_request` callback.
+  acknowledged: boolean;
+  correlationId: string;
+  rawRequest: Record<string, unknown>;
+  rawResponse: Record<string, unknown>;
+}
+
 export interface NhcxAdapter {
   verifyEligibility(input: AdapterEligibilityRequest): Promise<AdapterEligibilityResponse>;
+  requestInsurancePlan(
+    input: AdapterInsurancePlanRequestInput,
+  ): Promise<AdapterInsurancePlanRequestResult>;
   submitPreauth(input: AdapterPreauthSubmitInput): Promise<AdapterPreauthSubmitResult>;
   respondPreauthQuery(
     input: AdapterPreauthQueryRespondInput,

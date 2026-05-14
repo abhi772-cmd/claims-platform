@@ -134,6 +134,27 @@ model Claim {
   preauthRefNum   String?
   claimRefNum     String?
   payerRefNum     String?
+  // --- HCX correlation chain (doc 07 lines 99–117) ----------------
+  // NHCX expects participants to thread `x-hcx-correlation-id` across
+  // the lifecycle so NHA-side reporting groups every message of one
+  // case together. Each column below is set by the outbound adapter
+  // on its respective operation and reused as `inheritCorrelationId`
+  // by the next stage. NULL until that stage has fired.
+  //
+  // The chain is:
+  //   insurance → coverage → preauth → enhancement → discharge → claim → payment
+  //
+  // Why 7 columns and not one rolling field: NHCX callbacks arrive
+  // out-of-order, and reconstructing which stage a callback refers to
+  // requires the per-stage id. Storing on the Claim row (rather than
+  // a join table) keeps the hot read on the dispatch path single-row.
+  insuranceCorrelationId   String?
+  coverageCorrelationId    String?
+  preauthCorrelationId     String?
+  enhancementCorrelationId String?
+  dischargeCorrelationId   String?
+  claimCorrelationId       String?
+  paymentCorrelationId     String?
   // Captured at eligibility time. Drives the coverage actor on every
   // subsequent FHIR R4 outbound (preauth, discharge, claim, communication)
   // so we don't re-pass the payer code on every request.
@@ -151,7 +172,69 @@ model Claim {
   @@index([tenantId, status])
   @@index([tenantId, assignedToUserId, status])
   @@index([caseId])
+  // Hot dispatch path: every preauth/on_submit and claim/on_submit
+  // callback looks up the Claim by its outbound correlation id.
+  // Partial index (WHERE … IS NOT NULL) keeps the index small —
+  // only ~one row per Claim once preauth has been sent.
+  @@index([preauthCorrelationId])
+  @@index([claimCorrelationId])
   @@map("claim")
+}
+
+// InsurancePlan lookup ledger — populated by InsurancePlanService.request
+// at the moment we POST `insuranceplan/request` to NHA, and updated by
+// the inbound dispatcher when the matching `insuranceplan/on_request`
+// callback lands. Keyed by HCX correlation id (the one we stamp into
+// Claim.insuranceCorrelationId when the lookup is claim-bound) so the
+// inbound dispatcher can do a single-row UPSERT-by-correlation without
+// needing a parent reference.
+//
+// claimId is OPTIONAL because the platform supports two flows:
+//   1. Pre-admission policy check — no claim row yet (OPD-style),
+//      so the lookup row stands alone.
+//   2. Mid-claim enrichment — the lookup is bound to an in-flight
+//      Claim and the parsed plan details surface on the claim UI.
+//
+// Plan-detail columns are NULL until the callback arrives. Status
+// progresses pending → resolved (success) or pending → failed
+// (HTTP error, timeout, or payer returned a not-found response).
+model InsurancePlanLookup {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @db.Uuid
+  // Optional FK to the claim. When NULL the lookup is freestanding.
+  // No referential FK because the lookup may outlive a deleted claim
+  // (and we want the ledger preserved for audit anyway).
+  claimId           String?   @db.Uuid
+  // Stamped at request time. Matches the `x-hcx-correlation-id` we
+  // sent on the outbound POST, and the one the gateway echoes back
+  // on the inbound `insuranceplan/on_request` callback.
+  correlationId     String    @unique
+  payerCode         String
+  policyNumber      String
+  providerId        String
+  requestedAt       DateTime  @default(now())
+  requestedByUserId String?   @db.Uuid
+
+  // Response state. Filled by the inbound dispatcher; NULL on
+  // pending rows. `status` is the only required field that changes
+  // post-request.
+  status            String    @default("pending") // pending | resolved | failed
+  planId            String?
+  planName          String?
+  planStatus        String?   // active | retired | draft (from FHIR)
+  planType          String?   // medical | dental | ...
+  // Sum insured in paise, normalised by the parser regardless of
+  // which FHIR path the payer used to ship the number.
+  sumInsuredPaise   Int?
+  periodStart       String?   // YYYY-MM-DD
+  periodEnd         String?   // YYYY-MM-DD
+  network           String?
+  failureReason     String?
+  resolvedAt        DateTime?
+
+  @@index([tenantId, claimId])
+  @@index([tenantId, requestedAt])
+  @@map("insurance_plan_lookup")
 }
 
 // Append-only via RLS. Application code that tries to UPDATE/DELETE
