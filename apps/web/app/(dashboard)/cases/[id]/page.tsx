@@ -15,6 +15,7 @@ import { PlanPreviewCard } from '../../../../components/insurance-plan/PlanPrevi
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { PreauthPanel } from '../../../../components/preauth/PreauthPanel';
 import { SettlementPanel } from '../../../../components/settlement/SettlementPanel';
+import { SlaPill } from '../../../../components/sla/SlaPill';
 import { CaseApi } from '../../../../lib/api/case.api';
 
 interface PageProps {
@@ -105,6 +106,15 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
               </span>
             </div>
           </div>
+          {/* T2-15 — IRDAI SLA pills on the patient hero. Shows
+              preauth (1h) and claim (3h) timers when each phase has
+              started. Ticks every 30s while pending. */}
+          {claim?.sla && (claim.sla.preauth || claim.sla.claim) ? (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {claim.sla.preauth ? <SlaPill sla={claim.sla.preauth} /> : null}
+              {claim.sla.claim ? <SlaPill sla={claim.sla.claim} /> : null}
+            </div>
+          ) : null}
         </section>
 
         {/* Financial summary (2 cols on lg) */}

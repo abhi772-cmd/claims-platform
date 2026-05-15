@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { ClaimSlaSchema } from './sla.schema';
+
 // All 35 statuses from docs/04-state-machines.md. The order matters for
 // no client — keep it in lockstep with the doc's section order so the
 // diff stays grep-able.
@@ -169,6 +171,12 @@ export const ClaimSchema = z.object({
   claimRefNum: z.string().nullable(),
   initiatedAt: z.string().datetime(),
   closedAt: z.string().datetime().nullable(),
+  // T2-15 — IRDAI SLA timers. Optional so callers that don't compute
+  // it (list endpoints that skip the per-claim event scan) stay
+  // wire-compatible. Case-detail responses always populate it.
+  // ClaimSlaSchema is imported from sla.schema.ts — no circular
+  // risk since sla.schema doesn't reference claim.schema.
+  sla: ClaimSlaSchema.optional(),
 });
 export type Claim = z.infer<typeof ClaimSchema>;
 
