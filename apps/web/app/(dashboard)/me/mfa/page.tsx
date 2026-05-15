@@ -77,137 +77,180 @@ export default function MfaPage(): JSX.Element {
     }
   }
 
-  if (!me) return <p className="text-sm text-neutral-500">Loading…</p>;
+  if (!me) return <p className="text-body text-on-surface-variant">Loading…</p>;
 
   return (
-    <div className="space-y-6 rounded-md bg-neutral-0 p-8 shadow-md">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-neutral-800">Two-step verification</h1>
-        <p className="text-sm text-neutral-500">
-          Add a second factor on top of your password. Required for some roles by your admin.
-        </p>
-      </header>
-
-      {backupCodes ? (
-        <div className="space-y-3 rounded-sm border border-warning-300 bg-warning-50 p-4">
-          <p className="text-sm font-medium text-warning-700">Save these backup codes</p>
-          <p className="text-xs text-warning-700">
-            Each code can be used once if you lose access to your authenticator. We won&apos;t
-            show them again.
-          </p>
-          <ul className="grid grid-cols-2 gap-x-6 gap-y-1 font-mono text-sm text-neutral-800">
-            {backupCodes.map((c) => (
-              <li key={c}>{c}</li>
-            ))}
-          </ul>
-          <button
-            onClick={() => setBackupCodes(null)}
-            className="rounded-sm bg-primary-600 px-3 py-1 text-xs font-medium text-neutral-0"
-          >
-            I&apos;ve saved them
-          </button>
-        </div>
-      ) : null}
-
-      {mode === 'idle' && !setup ? (
-        <button
-          onClick={startSetup}
-          disabled={submitting}
-          className="rounded-sm bg-primary-600 px-3 py-2 text-sm font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
-        >
-          {submitting ? 'Starting…' : 'Set up two-step verification'}
-        </button>
-      ) : null}
-
-      {mode === 'setup-pending' && setup ? (
-        <div className="space-y-4">
-          <p className="text-sm text-neutral-600">
-            Scan this QR with your authenticator app, or enter the code below manually.
-          </p>
-          <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={setup.qrDataUrl} alt="MFA QR code" className="h-40 w-40 rounded-sm border border-neutral-200" />
-            <div className="space-y-1">
-              <p className="text-xs text-neutral-500">Manual setup key</p>
-              <p className="font-mono text-xs break-all text-neutral-700">{setup.secret}</p>
-            </div>
+    <div className="mx-auto w-full max-w-2xl">
+      <section className="glass space-y-6 rounded-xl p-8">
+        <header className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary">encrypted</span>
+          <div>
+            <h2 className="text-h2 font-h2 text-on-surface">Two-step verification</h2>
+            <p className="mt-1 text-body-sm text-on-surface-variant">
+              Add a second factor on top of your password. Required for some roles by your
+              admin.
+            </p>
           </div>
-          <form onSubmit={confirm} className="space-y-2">
-            <label htmlFor="code" className="text-sm font-medium text-neutral-700">
-              Enter the 6-digit code from your app
-            </label>
+        </header>
+
+        {backupCodes ? (
+          <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-5">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-amber-700">key</span>
+              <p className="text-body font-semibold text-amber-700">Save these backup codes</p>
+            </div>
+            <p className="text-body-sm text-amber-700">
+              Each code can be used once if you lose access to your authenticator. We won&apos;t
+              show them again.
+            </p>
+            <ul className="grid grid-cols-2 gap-x-6 gap-y-1 font-mono text-body text-on-surface">
+              {backupCodes.map((c) => (
+                <li key={c}>{c}</li>
+              ))}
+            </ul>
+            <button
+              onClick={() => setBackupCodes(null)}
+              className="btn-primary"
+              style={{ padding: '8px 18px', fontSize: '13px' }}
+            >
+              <span className="material-symbols-outlined text-[18px]">check_circle</span>
+              I&apos;ve saved them
+            </button>
+          </div>
+        ) : null}
+
+        {mode === 'idle' && !setup ? (
+          <button
+            onClick={startSetup}
+            disabled={submitting}
+            className="btn-primary"
+            style={{ padding: '12px 24px', fontSize: '13px' }}
+          >
+            <span
+              className="material-symbols-outlined text-[18px]"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              add_circle
+            </span>
+            {submitting ? 'Starting…' : 'Set up two-step verification'}
+          </button>
+        ) : null}
+
+        {mode === 'setup-pending' && setup ? (
+          <div className="space-y-4">
+            <p className="text-body text-on-surface">
+              Scan this QR with your authenticator app, or enter the code below manually.
+            </p>
+            <div className="flex flex-col items-start gap-4 rounded-xl border border-white/40 bg-surface-container-lowest/50 p-5 sm:flex-row sm:items-center">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={setup.qrDataUrl}
+                alt="MFA QR code"
+                className="h-40 w-40 rounded-lg border border-outline-variant/40 bg-white p-2"
+              />
+              <div className="space-y-1">
+                <p className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                  Manual setup key
+                </p>
+                <p className="break-all font-mono text-body-sm text-on-surface">
+                  {setup.secret}
+                </p>
+              </div>
+            </div>
+            <form onSubmit={confirm} className="space-y-2">
+              <label
+                htmlFor="code"
+                className="block text-eyebrow uppercase tracking-eyebrow text-on-surface-variant"
+              >
+                Enter the 6-digit code from your app
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  id="code"
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]{6}"
+                  required
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  className="glass-input glass-input--sm w-44 text-center font-mono tabular-nums tracking-wider"
+                />
+                <button
+                  type="submit"
+                  disabled={submitting || !/^[0-9]{6}$/.test(code)}
+                  className="btn-primary"
+                  style={{ padding: '10px 22px', fontSize: '13px' }}
+                >
+                  <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                  {submitting ? 'Confirming…' : 'Confirm'}
+                </button>
+              </div>
+            </form>
+          </div>
+        ) : null}
+
+        {mode === 'confirmed' && !backupCodes ? (
+          <div className="space-y-3 rounded-xl border border-green-200 bg-green-50 p-5">
+            <div className="flex items-center gap-2">
+              <span className="material-symbols-outlined text-green-700">verified_user</span>
+              <p className="text-body font-semibold text-green-700">
+                Two-step verification is on.
+              </p>
+            </div>
+            <button
+              onClick={() => setMode('disabling')}
+              className="text-body-sm font-medium text-error hover:underline"
+            >
+              Disable two-step verification
+            </button>
+          </div>
+        ) : null}
+
+        {mode === 'disabling' ? (
+          <form
+            onSubmit={disable}
+            className="space-y-3 rounded-xl border border-white/40 bg-surface-container-lowest/50 p-5"
+          >
+            <p className="text-body font-semibold text-on-surface">
+              Confirm your password and one current code to disable.
+            </p>
             <input
-              id="code"
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]{6}"
+              type="password"
+              placeholder="Current password"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
               required
+              className="glass-input glass-input--sm"
+            />
+            <input
+              type="text"
+              placeholder="Authenticator code or backup code"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              className="w-40 rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 font-mono tracking-wider"
+              required
+              className="glass-input glass-input--sm font-mono"
             />
-            <button
-              type="submit"
-              disabled={submitting || !/^[0-9]{6}$/.test(code)}
-              className="ml-2 rounded-sm bg-primary-600 px-3 py-2 text-sm font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
-            >
-              {submitting ? 'Confirming…' : 'Confirm'}
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={submitting}
+                className="inline-flex items-center gap-2 rounded-full bg-error px-5 py-2.5 text-body-sm font-semibold text-on-error shadow-[0_4px_14px_rgba(186,26,26,0.25)] transition hover:bg-[#93000a] disabled:opacity-60"
+              >
+                <span className="material-symbols-outlined text-[18px]">remove_circle</span>
+                {submitting ? 'Disabling…' : 'Disable'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('confirmed')}
+                className="btn-outline"
+                style={{ padding: '10px 22px', fontSize: '13px' }}
+              >
+                Cancel
+              </button>
+            </div>
           </form>
-        </div>
-      ) : null}
-
-      {mode === 'confirmed' && !backupCodes ? (
-        <div className="space-y-3 rounded-sm border border-success-200 bg-success-50 p-4">
-          <p className="text-sm font-medium text-success-700">Two-step verification is on.</p>
-          <button
-            onClick={() => setMode('disabling')}
-            className="text-xs text-error-700 hover:underline"
-          >
-            Disable two-step verification
-          </button>
-        </div>
-      ) : null}
-
-      {mode === 'disabling' ? (
-        <form onSubmit={disable} className="space-y-3 rounded-sm border border-neutral-200 p-4">
-          <p className="text-sm font-medium text-neutral-800">
-            Confirm your password and one current code to disable.
-          </p>
-          <input
-            type="password"
-            placeholder="Current password"
-            value={currentPassword}
-            onChange={(e) => setCurrentPassword(e.target.value)}
-            required
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm"
-          />
-          <input
-            type="text"
-            placeholder="Authenticator code or backup code"
-            value={code}
-            onChange={(e) => setCode(e.target.value)}
-            required
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 font-mono text-sm"
-          />
-          <div className="flex gap-2">
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-sm bg-error-600 px-3 py-2 text-sm font-medium text-neutral-0 hover:bg-error-700 disabled:opacity-60"
-            >
-              {submitting ? 'Disabling…' : 'Disable'}
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode('confirmed')}
-              className="rounded-sm border border-neutral-200 px-3 py-2 text-sm"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      ) : null}
+        ) : null}
+      </section>
     </div>
   );
 }

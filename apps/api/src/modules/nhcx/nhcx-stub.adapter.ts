@@ -8,6 +8,8 @@ import {
   type AdapterClaimReprocessResult,
   type AdapterClaimSubmitInput,
   type AdapterClaimSubmitResult,
+  type AdapterCommunicationSendInput,
+  type AdapterCommunicationSendResult,
   type AdapterDischargeSubmitInput,
   type AdapterEligibilityRequest,
   type AdapterEligibilityResponse,
@@ -252,6 +254,33 @@ export class NhcxStubAdapter implements NhcxAdapter {
       rawResponse: {
         bundleType: 'TaskResponse',
         outcome: 'queued',
+        correlationId,
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  // Stage 5 — hospital-initiated communication/request. Stub echoes
+  // the text + inReplyToRefNum back so integration tests can verify
+  // the orchestrator → adapter wiring without a real FHIR pipeline.
+  async sendCommunication(
+    input: AdapterCommunicationSendInput,
+  ): Promise<AdapterCommunicationSendResult> {
+    const correlationId = randomUUID();
+    return {
+      correlationId,
+      rawRequest: {
+        bundleType: 'Communication',
+        operation: 'communication/request',
+        text: input.text,
+        ...(input.inReplyToRefNum !== undefined
+          ? { inReplyToRefNum: input.inReplyToRefNum }
+          : {}),
+        ...(input.coverage !== undefined ? { payerCode: input.coverage.payerCode } : {}),
+      },
+      rawResponse: {
+        bundleType: 'CommunicationResponse',
+        outcome: 'acknowledged',
         correlationId,
         timestamp: new Date().toISOString(),
       },

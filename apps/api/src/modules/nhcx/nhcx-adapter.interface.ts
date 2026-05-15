@@ -245,6 +245,31 @@ export interface AdapterPmjayPolicyLookupResult {
   identifier: string;
 }
 
+// Stage 5 — hospital-initiated communication/request outbound.
+// Distinct from `respondPreauthQuery` (which is a state-transitioning
+// gesture using the `preauth/query/respond` operation): this method
+// sends a free-form Communication bundle under the canonical
+// `communication/request` operation. Used for T2-6 variance questions,
+// T2-10 release-and-settle-later notes, T3-3 partial-approval queries.
+export interface AdapterCommunicationSendInput {
+  tenantId: string;
+  claimId: string;
+  text: string;
+  // Optional thread pointer. When set, the FHIR Communication bundle
+  // carries an inResponseTo[] reference identifying the earlier
+  // message by the payer-side reference number (preauth ref num or
+  // claim ref num — whichever was captured on the claim row).
+  inReplyToRefNum?: string;
+  patient?: AdapterPatientFields;
+  coverage?: AdapterCoverageFields;
+}
+
+export interface AdapterCommunicationSendResult {
+  correlationId: string;
+  rawRequest: Record<string, unknown>;
+  rawResponse: Record<string, unknown>;
+}
+
 export interface NhcxAdapter {
   verifyEligibility(input: AdapterEligibilityRequest): Promise<AdapterEligibilityResponse>;
   submitPreauth(input: AdapterPreauthSubmitInput): Promise<AdapterPreauthSubmitResult>;
@@ -258,4 +283,7 @@ export interface NhcxAdapter {
   lookupPmjayPolicies(
     input: AdapterPmjayPolicyLookupInput,
   ): Promise<AdapterPmjayPolicyLookupResult>;
+  sendCommunication(
+    input: AdapterCommunicationSendInput,
+  ): Promise<AdapterCommunicationSendResult>;
 }

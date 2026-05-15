@@ -140,6 +140,15 @@ export const ClaimEventTypeSchema = z.enum([
 
   // case-level
   'case.abandoned',
+
+  // Stage 5 — hospital-initiated communication/request.
+  // These are NON-TRANSITIONING events: the claim status stays
+  // exactly where it is (resultingStatus = currentStatus). They
+  // populate the case-detail communications timeline without
+  // touching the state machine. The corresponding gateway traffic
+  // is logged in integration_message as usual.
+  'communication.outbound_sent',
+  'communication.inbound_received',
 ]);
 export type ClaimEventType = z.infer<typeof ClaimEventTypeSchema>;
 

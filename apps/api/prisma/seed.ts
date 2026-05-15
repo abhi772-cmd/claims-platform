@@ -87,6 +87,8 @@ const ROLE_SEEDS: RoleSeed[] = [
       'breach_incident.manage',
       'consent.view',
       'consent.manage',
+      'communication.send',
+      'communication.view',
     ],
   },
   {
@@ -115,6 +117,8 @@ const ROLE_SEEDS: RoleSeed[] = [
       'analytics.export',
       'consent.view',
       'consent.manage',
+      'communication.send',
+      'communication.view',
     ],
   },
   {
@@ -137,6 +141,8 @@ const ROLE_SEEDS: RoleSeed[] = [
       'analytics.view',
       'consent.view',
       'consent.manage',
+      'communication.send',
+      'communication.view',
     ],
   },
   {

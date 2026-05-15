@@ -23,6 +23,8 @@ export {
   type AdapterPmjayPolicy,
   type AdapterPmjayPolicyLookupInput,
   type AdapterPmjayPolicyLookupResult,
+  type AdapterCommunicationSendInput,
+  type AdapterCommunicationSendResult,
 } from './nhcx-adapter.interface';
 export {
   encryptToParticipant,

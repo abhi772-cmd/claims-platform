@@ -103,6 +103,8 @@ CODE | HTTP | Severity | Title | Body | Primary Action | Secondary Action
 |---------------------------------------|------|----------|----------------------------------------|----------------------------------------------------------------------------------------------------------------------|---------------------|------------|
 | QUERY_RESPONSE_BODY_TOO_LONG          | 422  | warning  | Response too long                       | Maximum 5000 characters per query response. You're at {count}.                                                      | Edit                |            |
 | QUERY_RESPONSE_DOCUMENTS_REQUIRED     | 412  | warning  | Documents required                       | This payer requires supporting documents for query responses. Attach at least one before submitting.               | Attach              | Cancel     |
+| COMMUNICATION_TEXT_REQUIRED           | 422  | warning  | Message text required                    | Enter the message you want to send to the payer before submitting.                                                  | Edit                |            |
+| COMMUNICATION_REPLY_TARGET_NOT_FOUND  | 422  | warning  | Reply target missing                     | The message you're replying to no longer exists on this claim. Refresh and try again.                               | Refresh             | Cancel     |
 
 ## SETTLEMENT
 

@@ -18,6 +18,7 @@ import { NhcxSenderAllowlistService } from './nhcx-sender-allowlist.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
 import { type AppConfig } from '../../../config/configuration';
 import { ClaimSubmitService } from '../../claim-submit/claim-submit.service';
+import { CommunicationService } from '../../communication';
 import { DischargeService } from '../../discharge/discharge.service';
 import { EligibilityService } from '../../eligibility/eligibility.service';
 import { PreauthService } from '../../preauth/preauth.service';
@@ -80,6 +81,7 @@ export class NhcxInboundService {
     private readonly claimSubmit: ClaimSubmitService,
     private readonly discharge: DischargeService,
     private readonly settlement: SettlementService,
+    private readonly communication: CommunicationService,
     private readonly senderAllowlist: NhcxSenderAllowlistService,
     private readonly tenants: TenantService,
     private readonly config: ConfigService<AppConfig, true>,
@@ -300,6 +302,22 @@ export class NhcxInboundService {
         summary = { ...summary, outboundOp, claimStatus: out.status };
       } else {
         const parsed = parseCommunication(decrypted);
+        // Stage 5 — every inbound communication that carries a text
+        // payload is mirrored as a `communication.inbound_received`
+        // ClaimEvent so the case-detail timeline shows the conversation
+        // in chronological order regardless of whether the payer
+        // framed it as a "query" or a free-form note. The
+        // preauth.applyDecision call below still owns the state
+        // transition when the payer's intent was an actionable query.
+        if (parsed.text && parsed.text.trim().length > 0) {
+          await this.communication.recordInbound({
+            tenantId: row.tenantId,
+            claimId: row.claimId,
+            text: parsed.text,
+            correlationId: input.correlationId,
+            occurredAt: input.receivedAt,
+          });
+        }
         if (parsed.kind === 'query') {
           const out = await this.preauth.applyDecision({
             tenantId: row.tenantId,

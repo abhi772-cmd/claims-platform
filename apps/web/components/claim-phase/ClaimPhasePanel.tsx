@@ -47,7 +47,6 @@ export function ClaimPhasePanel({ caseId, claimId, status, onChanged }: Props): 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId, claimId, status]);
 
-  // Visible from preauth-decision through claim phase (incl. discharge).
   const inDischargeLifecycle =
     PREAUTH_DONE.has(status) ||
     status === 'DISCHARGE_PENDING' ||
@@ -95,98 +94,144 @@ export function ClaimPhasePanel({ caseId, claimId, status, onChanged }: Props): 
   }
 
   return (
-    <section className="space-y-4 rounded-md bg-neutral-0 p-6 shadow-md">
-      <h2 className="text-sm font-semibold text-neutral-700">Discharge & claim</h2>
+    <section className="glass space-y-6 rounded-xl p-6">
+      <div className="flex items-center gap-2">
+        <span className="material-symbols-outlined text-primary">medical_information</span>
+        <h3 className="text-h3 font-h3 text-on-surface">Discharge &amp; claim</h3>
+      </div>
 
-      <div className="space-y-2">
-        <p className="text-xs text-neutral-500">Documents</p>
+      {/* Documents */}
+      <div className="space-y-3">
+        <span className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+          Documents
+        </span>
         {docs.length === 0 ? (
-          <p className="text-xs text-neutral-400">None uploaded.</p>
+          <p className="text-body-sm text-on-surface-variant/70">None uploaded.</p>
         ) : (
-          <ul className="space-y-1">
+          <ul className="space-y-1.5">
             {docs.map((d) => (
-              <li key={d.id} className="rounded-sm border border-neutral-100 p-2 text-xs">
-                <span className="font-mono text-neutral-700">{d.documentType}</span> ·{' '}
-                <span className="text-neutral-500">{d.originalFilename}</span>
+              <li
+                key={d.id}
+                className="flex items-center gap-2 rounded-lg border border-white/40 bg-surface-container-lowest/50 p-2.5 text-body-sm"
+              >
+                <span className="material-symbols-outlined text-[18px] text-primary">
+                  description
+                </span>
+                <span className="font-mono text-on-surface">{d.documentType}</span>
+                <span className="text-on-surface-variant">·</span>
+                <span className="text-on-surface-variant">{d.originalFilename}</span>
               </li>
             ))}
           </ul>
         )}
         <form onSubmit={uploadDoc} className="flex flex-wrap items-end gap-2 pt-1">
-          <select
-            value={docType}
-            onChange={(e) => setDocType(e.target.value as DocumentType)}
-            className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
-          >
-            <option value="discharge_summary">discharge_summary</option>
-            <option value="investigation_report">investigation_report</option>
-            <option value="implant_sticker">implant_sticker</option>
-            <option value="OT_notes">OT_notes</option>
-            <option value="final_bill">final_bill</option>
-            <option value="other">other</option>
-          </select>
+          <div className="relative">
+            <select
+              value={docType}
+              onChange={(e) => setDocType(e.target.value as DocumentType)}
+              className="glass-input glass-input--sm appearance-none pr-10"
+            >
+              <option value="discharge_summary">discharge_summary</option>
+              <option value="investigation_report">investigation_report</option>
+              <option value="implant_sticker">implant_sticker</option>
+              <option value="OT_notes">OT_notes</option>
+              <option value="final_bill">final_bill</option>
+              <option value="other">other</option>
+            </select>
+            <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant">
+              expand_more
+            </span>
+          </div>
           <input
             value={filename}
             onChange={(e) => setFilename(e.target.value)}
             placeholder="filename.pdf"
-            className="flex-1 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 font-mono text-xs"
+            className="glass-input glass-input--sm flex-1 font-mono"
           />
           <button
             type="submit"
             disabled={busy === 'upload' || !filename}
-            className="rounded-sm border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50 disabled:opacity-60"
+            className="btn-outline"
+            style={{ padding: '8px 16px', fontSize: '13px' }}
           >
-            {busy === 'upload' ? 'Uploading…' : 'Upload (stub)'}
+            <span className="material-symbols-outlined text-[18px]">upload</span>
+            {busy === 'upload' ? 'Uploading…' : 'Upload'}
           </button>
         </form>
       </div>
 
-      <div className="space-y-2 border-t border-neutral-100 pt-3">
-        <p className="text-xs text-neutral-500">Discharge</p>
+      {/* Discharge */}
+      <div className="space-y-3 border-t border-surface-variant/50 pt-4">
+        <span className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+          Discharge
+        </span>
         <div className="flex flex-wrap gap-2">
           {PREAUTH_DONE.has(status) ? (
             <button
-              onClick={() => action('discharge.initiate', () => CaseApi.initiateDischarge(caseId, claimId))}
+              onClick={() =>
+                action('discharge.initiate', () => CaseApi.initiateDischarge(caseId, claimId))
+              }
               disabled={busy === 'discharge.initiate'}
-              className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+              className="btn-primary"
+              style={{ padding: '8px 18px', fontSize: '13px' }}
             >
+              <span
+                className="material-symbols-outlined text-[18px]"
+                style={{ fontVariationSettings: "'FILL' 1" }}
+              >
+                play_arrow
+              </span>
               {busy === 'discharge.initiate' ? '…' : 'Initiate discharge'}
             </button>
           ) : null}
           {status === 'DISCHARGE_PENDING' ? (
             <button
-              onClick={() => action('discharge.submit', () => CaseApi.submitDischarge(caseId, claimId))}
+              onClick={() =>
+                action('discharge.submit', () => CaseApi.submitDischarge(caseId, claimId))
+              }
               disabled={busy === 'discharge.submit'}
-              className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+              className="btn-primary"
+              style={{ padding: '8px 18px', fontSize: '13px' }}
             >
+              <span
+                className="material-symbols-outlined text-[18px]"
+                style={{ fontVariationSettings: "'FILL' 1" }}
+              >
+                send
+              </span>
               {busy === 'discharge.submit' ? '…' : 'Submit discharge bundle'}
             </button>
           ) : null}
         </div>
       </div>
 
-      <div className="space-y-2 border-t border-neutral-100 pt-3">
-        <p className="text-xs text-neutral-500">Claim submission</p>
-        <div className="flex flex-wrap gap-2">
+      {/* Claim submission */}
+      <div className="space-y-3 border-t border-surface-variant/50 pt-4">
+        <span className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+          Claim submission
+        </span>
+        <div className="flex flex-wrap items-end gap-2">
           {status === 'DISCHARGE_SUBMITTED' ? (
             <button
               onClick={() =>
                 action('claim.start', () => CaseApi.startClaimSubmission(caseId, claimId))
               }
               disabled={busy === 'claim.start'}
-              className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+              className="btn-primary"
+              style={{ padding: '8px 18px', fontSize: '13px' }}
             >
+              <span className="material-symbols-outlined text-[18px]">edit_note</span>
               {busy === 'claim.start' ? '…' : 'Start claim drafting'}
             </button>
           ) : null}
           {status === 'CLAIM_DRAFTING' ? (
-            <div className="flex items-center gap-2">
+            <>
               <input
                 type="number"
                 placeholder="Final amount (₹)"
                 value={finalAmount}
                 onChange={(e) => setFinalAmount(e.target.value)}
-                className="w-40 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+                className="glass-input glass-input--sm w-48 font-mono tabular-nums"
               />
               <button
                 onClick={() =>
@@ -197,11 +242,18 @@ export function ClaimPhasePanel({ caseId, claimId, status, onChanged }: Props): 
                   )
                 }
                 disabled={busy === 'claim.submit' || !finalAmount}
-                className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+                className="btn-primary"
+                style={{ padding: '8px 18px', fontSize: '13px' }}
               >
+                <span
+                  className="material-symbols-outlined text-[18px]"
+                  style={{ fontVariationSettings: "'FILL' 1" }}
+                >
+                  send
+                </span>
                 {busy === 'claim.submit' ? '…' : 'Submit claim'}
               </button>
-            </div>
+            </>
           ) : null}
         </div>
       </div>

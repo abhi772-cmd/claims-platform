@@ -1,5 +1,59 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap');
+/* Sora + Newsreader are scoped to the auth screens — Sora drives the
+   login layout typography (premium, geometric); Newsreader italic
+   provides the editorial accent on the hero headline ("for every claim"). */
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700;800&family=Newsreader:ital,wght@0,400;0,500;1,400;1,500&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap');
 @import '@claims/ui-tokens/tokens.css';
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Material Symbols Outlined — default 400 weight, unfilled, 24px optical size.
+   Override per-instance with inline `font-variation-settings` if needed. */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+.material-symbols-outlined.filled {
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Tabular numerals for amounts, dates, and any column of numbers. */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sidebar / navigation typography — Plus Jakarta Sans gives the nav a
+   distinct typographic voice from the Inter-set body, and reads
+   sharply against the deep-teal sidebar background. */
+.font-nav {
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+  letter-spacing: -0.005em;
+}
+
+/* Auth screens — Sora is the geometric premium sans the design canvas
+   commits to. Applied at the auth shell so the entire login surface
+   inherits without leaking into the dashboard. */
+.font-auth {
+  font-family: 'Sora', system-ui, sans-serif;
+}
+.font-auth-italic {
+  font-family: 'Newsreader', Georgia, serif;
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Login captcha — wrong-code shake. Triggered by toggling the
+   .captcha-shake class on the input row for ~400ms. */
+@keyframes captchaShake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-6px); }
+  40% { transform: translateX(6px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+.captcha-shake {
+  animation: captchaShake 0.4s ease;
+}

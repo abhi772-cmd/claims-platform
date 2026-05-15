@@ -10,11 +10,6 @@ import { useEffect, useState } from 'react';
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
 import { CaseApi } from '../../lib/api/case.api';
 
-// Where in the claim lifecycle the panel is meaningful. The appeal
-// row may exist past these statuses (history), so we render the
-// summary read-only after APPEAL_RESOLVED leads to PAYMENT_PENDING /
-// WRITTEN_OFF / CLOSED downstream — operators still want to see
-// "this claim was appealed, here's the outcome".
 const APPEAL_ELIGIBLE_FROM: ReadonlySet<ClaimStatus> = new Set([
   'PREAUTH_REJECTED',
   'CLAIM_REJECTED',
@@ -69,9 +64,6 @@ export function AppealPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId, claimId, status]);
 
-  // Hide the panel entirely when the claim has never been in an
-  // appealable lifecycle (e.g. fresh INITIATED claim). The appeal row
-  // also won't exist there, so the GET would just return null anyway.
   const eligible = APPEAL_ELIGIBLE_FROM.has(status);
   const live = APPEAL_LIVE_FROM.has(status);
   const historical = APPEAL_HISTORICAL_FROM.has(status) && appeal !== null;
@@ -89,60 +81,113 @@ export function AppealPanel({
     }
   }
 
+  const appealStatusPill = (() => {
+    if (!appeal) return null;
+    const s = appeal.status.toUpperCase();
+    let dot = 'bg-outline';
+    let cls = 'bg-surface-container text-on-surface-variant border-outline-variant/50';
+    if (s.includes('RESOLVED')) {
+      if (appeal.resolutionKind === 'approved') {
+        cls = 'bg-green-50 text-green-700 border-green-100';
+        dot = 'bg-green-500';
+      } else if (appeal.resolutionKind === 'rejected') {
+        cls = 'bg-red-50 text-red-700 border-red-100';
+        dot = 'bg-red-500';
+      } else {
+        cls = 'bg-amber-50 text-amber-700 border-amber-100';
+        dot = 'bg-amber-500';
+      }
+    } else if (s.includes('SUBMITTED')) {
+      cls = 'bg-amber-50 text-amber-700 border-amber-100';
+      dot = 'bg-amber-500';
+    } else if (s.includes('INITIATED')) {
+      cls = 'bg-blue-50 text-blue-700 border-blue-100';
+      dot = 'bg-blue-500';
+    }
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-body-sm font-medium ${cls}`}
+      >
+        <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
+        {appeal.status}
+        {appeal.resolutionKind ? ` · ${appeal.resolutionKind}` : ''}
+      </span>
+    );
+  })();
+
   return (
-    <section className="space-y-4 rounded-md bg-neutral-0 p-6 shadow-md">
+    <section className="glass space-y-5 rounded-xl p-6">
       <header className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-neutral-700">Appeal</h2>
-        {appeal ? (
-          <span className="text-xs uppercase tracking-wide text-neutral-500">
-            {appeal.status}
-            {appeal.resolutionKind ? ` · ${appeal.resolutionKind}` : ''}
-          </span>
-        ) : null}
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary">gavel</span>
+          <h3 className="text-h3 font-h3 text-on-surface">Appeal</h3>
+        </div>
+        {appealStatusPill}
       </header>
 
       {appeal ? (
-        <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-          <dt className="text-neutral-500">Reason</dt>
-          <dd className="text-neutral-700">{appeal.reason}</dd>
-          <dt className="text-neutral-500">Started</dt>
-          <dd className="text-neutral-700">
-            {new Date(appeal.startedAt).toLocaleString()}
-          </dd>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-body-sm md:grid-cols-2">
+          <div className="flex flex-col">
+            <dt className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+              Reason
+            </dt>
+            <dd className="text-on-surface">{appeal.reason}</dd>
+          </div>
+          <div className="flex flex-col">
+            <dt className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+              Started
+            </dt>
+            <dd className="text-on-surface">
+              {new Date(appeal.startedAt).toLocaleString()}
+            </dd>
+          </div>
           {appeal.submittedAt ? (
-            <>
-              <dt className="text-neutral-500">Submitted</dt>
-              <dd className="text-neutral-700">
+            <div className="flex flex-col">
+              <dt className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                Submitted
+              </dt>
+              <dd className="text-on-surface">
                 {new Date(appeal.submittedAt).toLocaleString()}
               </dd>
-            </>
+            </div>
           ) : null}
           {appeal.resolvedAt ? (
-            <>
-              <dt className="text-neutral-500">Resolved</dt>
-              <dd className="text-neutral-700">
+            <div className="flex flex-col">
+              <dt className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                Resolved
+              </dt>
+              <dd className="text-on-surface">
                 {new Date(appeal.resolvedAt).toLocaleString()}
               </dd>
-            </>
+            </div>
           ) : null}
           {appeal.approvedAmount !== null ? (
-            <>
-              <dt className="text-neutral-500">Approved (₹)</dt>
-              <dd className="text-neutral-700">{appeal.approvedAmount}</dd>
-            </>
+            <div className="flex flex-col">
+              <dt className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                Approved (₹)
+              </dt>
+              <dd className="font-mono tabular-nums text-on-surface">
+                ₹{appeal.approvedAmount.toLocaleString('en-IN')}
+              </dd>
+            </div>
           ) : null}
           {appeal.resolutionNote ? (
-            <>
-              <dt className="text-neutral-500">Note</dt>
-              <dd className="text-neutral-700">{appeal.resolutionNote}</dd>
-            </>
+            <div className="flex flex-col md:col-span-2">
+              <dt className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                Note
+              </dt>
+              <dd className="text-on-surface">{appeal.resolutionNote}</dd>
+            </div>
           ) : null}
         </dl>
       ) : null}
 
       {eligible && appeal === null ? (
-        <div className="space-y-2 border-t border-neutral-100 pt-3">
-          <label htmlFor="appeal-reason" className="block text-xs font-medium text-neutral-700">
+        <div className="space-y-2 border-t border-surface-variant/50 pt-4">
+          <label
+            htmlFor="appeal-reason"
+            className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant"
+          >
             Ground for appeal
           </label>
           <textarea
@@ -151,26 +196,33 @@ export function AppealPanel({
             onChange={(e) => setReason(e.target.value)}
             rows={3}
             placeholder="e.g. Procedure is covered under rider B; surgeon notes attached."
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+            className="glass-input glass-input--sm resize-none"
           />
           <button
             onClick={() =>
               action('start', () => CaseApi.startAppeal(caseId, claimId, { reason }))
             }
             disabled={busy === 'start' || reason.trim().length === 0}
-            className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+            className="btn-primary"
+            style={{ padding: '8px 18px', fontSize: '13px' }}
           >
+            <span
+              className="material-symbols-outlined text-[18px]"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              gavel
+            </span>
             {busy === 'start' ? '…' : 'Start appeal'}
           </button>
         </div>
       ) : null}
 
       {status === 'APPEAL_INITIATED' ? (
-        <div className="space-y-2 border-t border-neutral-100 pt-3">
-          <p className="text-xs text-neutral-500">
-            Submit the appeal once supporting documents are uploaded under this
-            claim. Real outbound to the payer is a Sprint 5 backlog item — for
-            now this just freezes the package locally.
+        <div className="space-y-2 border-t border-surface-variant/50 pt-4">
+          <p className="text-body-sm text-on-surface-variant">
+            Submit the appeal once supporting documents are uploaded under this claim. Real
+            outbound to the payer is a Sprint 5 backlog item — for now this just freezes the
+            package locally.
           </p>
           <button
             onClick={() =>
@@ -179,33 +231,47 @@ export function AppealPanel({
               )
             }
             disabled={busy === 'submit'}
-            className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+            className="btn-primary"
+            style={{ padding: '8px 18px', fontSize: '13px' }}
           >
+            <span
+              className="material-symbols-outlined text-[18px]"
+              style={{ fontVariationSettings: "'FILL' 1" }}
+            >
+              send
+            </span>
             {busy === 'submit' ? '…' : 'Submit appeal'}
           </button>
         </div>
       ) : null}
 
       {status === 'APPEAL_SUBMITTED' ? (
-        <div className="space-y-2 border-t border-neutral-100 pt-3">
-          <p className="text-xs text-neutral-500">Record the payer&apos;s decision:</p>
+        <div className="space-y-3 border-t border-surface-variant/50 pt-4">
+          <p className="text-body-sm text-on-surface-variant">
+            Record the payer&apos;s decision:
+          </p>
           <div className="flex flex-wrap items-end gap-2">
-            <select
-              value={resolutionKind}
-              onChange={(e) => setResolutionKind(e.target.value as AppealResolutionKind)}
-              className="rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
-            >
-              <option value="approved">approved</option>
-              <option value="partially_approved">partially_approved</option>
-              <option value="rejected">rejected</option>
-            </select>
+            <div className="relative">
+              <select
+                value={resolutionKind}
+                onChange={(e) => setResolutionKind(e.target.value as AppealResolutionKind)}
+                className="glass-input glass-input--sm appearance-none pr-10"
+              >
+                <option value="approved">approved</option>
+                <option value="partially_approved">partially_approved</option>
+                <option value="rejected">rejected</option>
+              </select>
+              <span className="material-symbols-outlined pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant">
+                expand_more
+              </span>
+            </div>
             {resolutionKind !== 'rejected' ? (
               <input
                 type="number"
                 placeholder="Approved amount (₹)"
                 value={approvedAmount}
                 onChange={(e) => setApprovedAmount(e.target.value)}
-                className="w-44 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+                className="glass-input glass-input--sm w-48 font-mono tabular-nums"
               />
             ) : null}
             <input
@@ -213,7 +279,7 @@ export function AppealPanel({
               placeholder="Note (optional)"
               value={resolutionNote}
               onChange={(e) => setResolutionNote(e.target.value)}
-              className="flex-1 rounded-sm border border-neutral-200 bg-neutral-0 px-2 py-1 text-xs"
+              className="glass-input glass-input--sm flex-1"
             />
             <button
               onClick={() =>
@@ -228,11 +294,12 @@ export function AppealPanel({
                 )
               }
               disabled={
-                busy === 'resolve' ||
-                (resolutionKind !== 'rejected' && !approvedAmount)
+                busy === 'resolve' || (resolutionKind !== 'rejected' && !approvedAmount)
               }
-              className="rounded-sm bg-primary-600 px-2 py-1 text-xs font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+              className="btn-primary"
+              style={{ padding: '8px 18px', fontSize: '13px' }}
             >
+              <span className="material-symbols-outlined text-[18px]">check_circle</span>
               {busy === 'resolve' ? '…' : 'Record resolution'}
             </button>
           </div>
@@ -240,12 +307,12 @@ export function AppealPanel({
       ) : null}
 
       {status === 'APPEAL_RESOLVED' ? (
-        // Slice AJ: favourable resolutions auto-chain to PAYMENT_PENDING
-        // via SettlementService.expectPayment, so a claim that's still
-        // sitting at APPEAL_RESOLVED is necessarily a rejected one.
-        <div className="border-t border-neutral-100 pt-3 text-xs text-neutral-500">
-          Appeal rejected. Use Write off in the Settlement panel to
-          close out the claim.
+        <div className="flex items-start gap-2 rounded-lg border border-secondary-container/30 bg-secondary-fixed/40 p-3 text-body-sm text-on-surface">
+          <span className="material-symbols-outlined text-secondary">info</span>
+          <span>
+            Appeal rejected. Use <strong>Write off</strong> in the Settlement panel to close
+            out the claim.
+          </span>
         </div>
       ) : null}
     </section>

@@ -19,6 +19,8 @@ import {
   type AdapterClaimReprocessResult,
   type AdapterClaimSubmitInput,
   type AdapterClaimSubmitResult,
+  type AdapterCommunicationSendInput,
+  type AdapterCommunicationSendResult,
   type AdapterCoverageFields,
   type AdapterDischargeSubmitInput,
   type AdapterEligibilityRequest,
@@ -336,6 +338,39 @@ export class NhcxJweAdapter implements NhcxAdapter {
     );
     return {
       acknowledged: op.response.acknowledged,
+      correlationId: op.correlationId,
+      rawRequest: op.request as unknown as Record<string, unknown>,
+      rawResponse: op.response as unknown as Record<string, unknown>,
+    };
+  }
+
+  // Stage 5 — hospital-initiated communication/request. Mirrors
+  // `respondPreauthQuery` in shape but uses the canonical
+  // `communication/request` operation rather than the gesture-specific
+  // `preauth/query/respond`. The Communication FHIR bundle carries
+  // `inResponseTo[]` when an inReplyToRefNum is supplied so the payer
+  // can thread it onto their existing case record.
+  async sendCommunication(
+    input: AdapterCommunicationSendInput,
+  ): Promise<AdapterCommunicationSendResult> {
+    const fhirPayload = input.coverage
+      ? buildCommunicationBundle({
+          actors: this.actors(input.coverage.payerCode),
+          payload: input.text,
+          ...(input.inReplyToRefNum !== undefined
+            ? { inReplyToRefNum: input.inReplyToRefNum }
+            : {}),
+        })
+      : {
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          text: input.text,
+          ...(input.inReplyToRefNum !== undefined
+            ? { inReplyToRefNum: input.inReplyToRefNum }
+            : {}),
+        };
+    const op = await this.callOperation('communication/request', fhirPayload);
+    return {
       correlationId: op.correlationId,
       rawRequest: op.request as unknown as Record<string, unknown>,
       rawResponse: op.response as unknown as Record<string, unknown>,

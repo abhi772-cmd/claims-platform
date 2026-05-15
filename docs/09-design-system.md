@@ -2,25 +2,70 @@
 
 This doc captures the visual language, component patterns, and modal-first error UX for the platform. Colors and typography are derived from the existing DigiSparsh palette and modernised for accessibility and consistency.
 
-The actual CSS variables live in `reference/tokens.css`. Import that file in `apps/web/app/globals.css`.
+The actual design tokens live in **`packages/ui-tokens/src/tokens.css`** (CSS variables + component-recipe classes). It is imported once in `apps/web/app/globals.css`; `apps/web/tailwind.config.ts` re-exposes the tokens as Tailwind theme values. The matching high-fidelity mockups live in the **"DigiSparsh Healthcare Claims Platform"** Stitch project (design system asset *"DigiSparsh Glass Interface"*) — that project is the visual source of truth for layout and component appearance; this doc and `tokens.css` are the source of truth for the values.
 
 ---
 
 ## Brand identity (carried over)
 
-- **Primary color** — Teal `#008F99` (DigiSparsh brand teal). Used for navigation, headings, primary semantic emphasis.
-- **Accent color** — Amber `#FAA71A`. Used for primary CTAs, action confirmations, key highlights.
+- **Primary color** — Teal `#008F99` (DigiSparsh brand teal). Used for navigation, headings, primary semantic emphasis, glass tints and ambient shadows.
+- **Accent color** — Amber `#FAA71A`. Reserved for primary CTAs, action confirmations, and critical status — kept sparing so it "pops" against the cool glass.
 - **Body text** — Dark slate `#363A44`. Same as the existing platform's `label` color.
-- **Surface** — White cards on light off-white `#F8FAFC` page background.
+- **Surface** — Frosted-glass white cards floating over a teal-and-amber radial mesh wash on warm off-white `#F4F8FA`.
 - **Logo** — Existing DigiSparsh logo applies; tenant logos override on tenant-branded views.
 
 The result is a product that feels like the DigiSparsh family but cleaner, more spacious, and built for hour-after-hour use.
 
 ---
 
+## Visual language — glassmorphism + bento
+
+The interface theme is **"Clarity through Depth"**: a complex, data-heavy healthcare SaaS made to feel lightweight via frosted-glass layers, with claim data organised into a rhythmic bento grid.
+
+### Layers / elevation
+
+Depth comes from glass and ambient light, not hard drop-shadows.
+
+| Level | What | Token recipe |
+|---|---|---|
+| 0 — Canvas | The radial mesh wash | `--bg-app-gradient` on `html, body` (teal glow top-left ~22%, amber glow top-right ~10%, over `#F4F8FA → #F8FAFC`), `background-attachment: fixed` |
+| 1 — Cards | Frosted panels — stat tiles, panels, list/table chrome | `.glass` → `rgba(255,255,255,.70)`, `backdrop-filter: blur(24px) saturate(140%)`, 1px white hairline border (`--glass-border`), `box-shadow: inset white hairline + --shadow-md` |
+| 2 — Modals / overlays | Dialogs, the auth card | `.glass-strong` → `rgba(255,255,255,.85)`, `blur(40px) saturate(160%)`, `--shadow-lg` (use `--shadow-modal` for true overlays) |
+| — | Teal-tinted glass for "resolved/positive" callouts | `.glass-tint` → `rgba(232,246,247,.58)` with a `rgba(0,143,153,.18)` border |
+
+`.glass-card` adds `border-radius: var(--radius-lg)` (14px) + `padding: var(--space-5)`.
+
+**Shadows are ambient teal**, never pure black: `--shadow-{sm,md,lg,xl}` are `rgba(0,105,112, .07/.10/.12/.16)`; `--shadow-modal` is `rgba(0,105,112,.18)`.
+
+### Shape language (hybrid)
+
+- **Containers / cards / glass surfaces** → `--radius-lg` = **14px**.
+- **Inputs, sidebar items, inner panels** → `--radius-md` = **12px**.
+- **Action elements — CTAs and status pills** → `--radius-pill` = **9999px** (full pill). The radius contrast between rounded containers and pill triggers is intentional: it tells the user what's clickable.
+
+### App shell
+
+- **Sidebar** — a solid structural anchor that deliberately *breaks* the glass aesthetic: deep-teal vertical gradient `--sidebar-bg` (`#0d7a82 → #075c63`), 240px, sticky full-height. Logo sits in a white pill; nav is grouped (Operations / Compliance / Tenant admin / Account) with icon + sub-label per item; active item = solid white pill with teal text (`.sidebar-item--active`); a translucent user card pins to the bottom.
+- **Top bar** — 64px, sticky, `.glass`; breadcrumb + page title on the left, tenant-status pill + amber "＋ New case" CTA on the right.
+- **Auth pages** — split layout: deep-teal brand strip on `lg+` (logo pill, "Claims, simplified for Indian hospitals.", amber-dot feature bullets, copyright); the form sits in a `.glass .glass-strong` card via the shared `<AuthCard>` wrapper (mobile-only logo pill, optional teal eyebrow / `text-2xl` title / subtitle, `tone` prop tinting for terminal states).
+
+### Bento grid
+
+`.bento-grid` — `grid-template-columns: repeat(4, 1fr)`, `grid-auto-rows: minmax(120px, auto)`, `grid-auto-flow: dense`, 16px gap. Tiles claim space with `.bento-wide` (span 2), `.bento-tall` (span 2 rows), `.bento-hero` (2×2). Collapses to 2 columns at `max-width: 900px`. Used on the dashboard home, the profile hub, and the compliance/remittance stat rows.
+
+### Primary CTA
+
+`.btn-cta` — pill-shaped, `linear-gradient(180deg, #FAB23A → #FAA71A)`, dark text (`--color-neutral-900`), `font-weight: 600`, `padding: 10px 20px`, soft amber glow `0 4px 15px rgba(250,167,26,.30)` (`0 8px 22px / .36` on hover, plus a `translateY(-1px)` lift). Add `w-full` for full-width form submits. Secondary actions use a white glass button with teal/neutral text or a teal-outline button; destructive actions use a `danger-`outline button.
+
+### Eyebrows / labels
+
+Uppercase, `--tracking-eyebrow` = `0.12em`, `--font-size-eyebrow` = `10.5px`, weight 600, `text-primary-700` (or `text-neutral-500` for muted sections). Headings carry slight negative tracking (`--tracking-h1` `-0.02em`, `--tracking-h2` `-0.01em`, applied globally to `h1`/`h2`).
+
+---
+
 ## Color tokens
 
-The full token set is in `reference/tokens.css`. Summary:
+The full token set is in `packages/ui-tokens/src/tokens.css`. Summary:
 
 ```
 --color-primary-600    #008F99    Brand teal (kept exactly)
@@ -61,19 +106,30 @@ xl    22px / 30px lh     (h3)
 ```
 Regular  400      body
 Medium   500      labels, badges
-Semibold 600      headings, emphasized
+Semibold 600      headings, emphasized, eyebrows
 Bold     700      page titles, key callouts
 ```
+
+### Tracking & eyebrows
+
+```
+h1            -0.02em      tight; applied globally to <h1>
+h2            -0.01em      tight; applied globally to <h2>
+eyebrow       +0.12em      uppercase section labels — 10.5px / 600 / text-primary-700
+```
+
+Page titles in app surfaces render at `text-2xl font-bold` (`<h1>`); marketing/auth headings can go up to 36px (`--font-size-3xl`). Tokens: `--tracking-h1`, `--tracking-h2`, `--tracking-eyebrow`, `--font-size-eyebrow`.
 
 ---
 
 ## Layout grid
 
 - **Page max width**: 1440px (with 24px gutters at edges).
-- **Side navigation**: 240px collapsed → 64px icon-only.
-- **Top bar**: 64px fixed.
-- **Card padding**: 24px (16px on mobile).
+- **Side navigation**: 240px (deep-teal `.sidebar-shell`) → 64px icon-only when collapsed.
+- **Top bar**: 64px, sticky, `.glass`.
+- **Card padding**: 20–24px (16px on mobile).
 - **Form vertical rhythm**: 16px between fields, 24px between sections.
+- **Bento**: 4-column dense grid, 16px gap, `grid-auto-rows: minmax(120px, auto)`; 2 columns below 900px.
 
 ---
 

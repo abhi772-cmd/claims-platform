@@ -13,6 +13,42 @@ k8s manifests). Sprint 9 closed the audit-compliance + per-payer
 normalisation axes; Sprint 10 takes the platform from
 feature-complete to production-ready.
 
+### Stage 5 — hospital-initiated `communication/request` outbound
+
+- New module `apps/api/src/modules/communication/` with
+  `CommunicationService.sendOutbound()` + `recordInbound()` and
+  `CommunicationController` exposing
+  `POST /cases/:caseId/claims/:claimId/communications`
+  (body `{ text, inReplyToCorrelationId? }`) and
+  `GET /cases/:caseId/communications`.
+- Adapter additions: `AdapterCommunicationSendInput/Result` +
+  `sendCommunication()` on `NhcxAdapter`. Stub echoes the input;
+  `NhcxJweAdapter` wraps the existing `buildCommunicationBundle`
+  under operation `communication/request`.
+- Two new non-transitioning `ClaimEvent` types:
+  `communication.outbound_sent` and `communication.inbound_received`.
+  `resultingStatus` is pinned to the claim's current status — these
+  events DO NOT move the state machine.
+- New permissions `communication.send` + `communication.view`
+  seeded on `tenant_admin`, `billing_manager`,
+  `insurance_desk_executive`.
+- Inbound dispatcher now mirrors every payer-pushed Communication
+  payload into a `communication.inbound_received` ClaimEvent so
+  the case-detail timeline shows both directions in chronological
+  order. The existing `preauth.applyDecision({kind:'query_received'})`
+  state transition is preserved.
+- Web: `CommunicationApi` client + `<CommunicationsPanel>`
+  mounted on `/cases/[id]`. Glass card, teal + amber only,
+  sentence case, send-form CTA mirrors the login page button
+  height + radius.
+- Edge cases enabled by this slice (commit-message refs):
+  **T2-6** pre-auth approved-less variance question,
+  **T2-10** release-and-settle-later notes,
+  **T3-3** partial-approval line-item query.
+- NHCX sandbox: continues to run against `NhcxStubAdapter`
+  (confirmed conscious choice with operator — no real-mode env
+  template exists yet).
+
 ### CG — DPDP §6 hard-enforcement flag (`tenant.requireConsent`)
 
 - New boolean column `tenant.requireConsent` (default `false` for

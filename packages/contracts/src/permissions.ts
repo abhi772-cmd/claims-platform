@@ -83,6 +83,16 @@ export const Permissions = {
   // be filed.
   CONSENT_VIEW: 'consent.view',
   CONSENT_MANAGE: 'consent.manage',
+
+  // Stage 5 — hospital-initiated communication/request outbound.
+  // Send permission gates the new POST endpoint (any operator
+  // role that can drive a case forward should be able to raise a
+  // proactive payer query — variance question, clarification,
+  // status nudge). View gates the timeline read. Both are
+  // safe to grant broadly because the actual gateway traffic
+  // is still rate-limited at the adapter layer.
+  COMMUNICATION_SEND: 'communication.send',
+  COMMUNICATION_VIEW: 'communication.view',
 } as const;
 
 export type Permission = (typeof Permissions)[keyof typeof Permissions];

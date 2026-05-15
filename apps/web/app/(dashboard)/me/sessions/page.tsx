@@ -22,7 +22,6 @@ export default function SessionsPage(): JSX.Element {
 
   useEffect(() => {
     void load();
-    // load is stable in this component (no closures over state) — only run once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -39,53 +38,65 @@ export default function SessionsPage(): JSX.Element {
   }
 
   return (
-    <div className="space-y-4 rounded-md bg-neutral-0 p-8 shadow-md">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-neutral-800">Active sessions</h1>
-        <p className="text-sm text-neutral-500">
-          Devices currently signed in to your account.
-        </p>
-      </header>
-      {sessions === null ? (
-        <p className="text-sm text-neutral-500">Loading…</p>
-      ) : sessions.length === 0 ? (
-        <p className="text-sm text-neutral-500">No active sessions.</p>
-      ) : (
-        <ul className="space-y-2">
-          {sessions.map((s) => (
-            <li
-              key={s.id}
-              className="flex items-center justify-between gap-4 rounded-sm border border-neutral-200 p-3"
-            >
-              <div className="space-y-0.5">
-                <p className="text-sm text-neutral-700">
-                  {s.userAgent ?? 'Unknown device'}
-                  {s.isCurrent ? (
-                    <span className="ml-2 rounded-sm bg-success-50 px-2 py-0.5 text-xs text-success-700">
-                      this device
-                    </span>
-                  ) : null}
-                </p>
-                <p className="text-xs text-neutral-400">
-                  {s.ipAddress ?? '—'} · started {new Date(s.createdAt).toLocaleString()} · expires{' '}
-                  {new Date(s.expiresAt).toLocaleDateString()}
-                </p>
-              </div>
-              {s.isCurrent ? (
-                <span className="text-xs text-neutral-400">use sign-out to end</span>
-              ) : (
-                <button
-                  onClick={() => revoke(s.id)}
-                  disabled={busy === s.id}
-                  className="rounded-sm border border-error-300 px-2 py-1 text-xs text-error-700 hover:bg-error-50 disabled:opacity-60"
-                >
-                  {busy === s.id ? 'Revoking…' : 'Revoke'}
-                </button>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="mx-auto w-full max-w-3xl">
+      <section className="glass space-y-5 rounded-xl p-6">
+        <header className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary">devices</span>
+          <div>
+            <h2 className="text-h2 font-h2 text-on-surface">Active sessions</h2>
+            <p className="mt-1 text-body-sm text-on-surface-variant">
+              Devices currently signed in to your account.
+            </p>
+          </div>
+        </header>
+        {sessions === null ? (
+          <p className="text-body text-on-surface-variant">Loading…</p>
+        ) : sessions.length === 0 ? (
+          <p className="text-body text-on-surface-variant">No active sessions.</p>
+        ) : (
+          <ul className="space-y-2">
+            {sessions.map((s) => (
+              <li
+                key={s.id}
+                className="flex items-center justify-between gap-4 rounded-lg border border-white/40 bg-surface-container-lowest/50 p-4"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <span className="material-symbols-outlined text-[20px]">computer</span>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="flex items-center gap-2 text-body text-on-surface">
+                      <span>{s.userAgent ?? 'Unknown device'}</span>
+                      {s.isCurrent ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-green-100 bg-green-50 px-2 py-0.5 text-body-sm font-medium text-green-700">
+                          <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+                          this device
+                        </span>
+                      ) : null}
+                    </p>
+                    <p className="text-body-sm text-on-surface-variant">
+                      {s.ipAddress ?? '—'} · started {new Date(s.createdAt).toLocaleString()} ·
+                      expires {new Date(s.expiresAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+                {s.isCurrent ? (
+                  <span className="text-body-sm text-on-surface-variant">use sign-out to end</span>
+                ) : (
+                  <button
+                    onClick={() => revoke(s.id)}
+                    disabled={busy === s.id}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-error/40 px-3 py-1.5 text-body-sm font-semibold text-error transition hover:bg-error/5 disabled:opacity-60"
+                  >
+                    <span className="material-symbols-outlined text-[16px]">logout</span>
+                    {busy === s.id ? 'Revoking…' : 'Revoke'}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

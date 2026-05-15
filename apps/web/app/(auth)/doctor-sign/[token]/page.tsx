@@ -6,6 +6,7 @@ import {
 } from '@claims/contracts';
 import { useEffect, useState, type FormEvent } from 'react';
 
+import { AuthCard } from '../../../../components/auth/AuthCard';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { DoctorApi } from '../../../../lib/api/doctor.api';
 
@@ -62,61 +63,65 @@ export default function DoctorSignPage({ params }: PageProps): JSX.Element {
     }
   }
 
-  if (loading) return <p className="text-sm text-neutral-500">Loading…</p>;
+  if (loading) {
+    return (
+      <AuthCard eyebrow="Clinician signature" title="Loading…">
+        <p className="mt-3 text-sm text-neutral-500">One moment.</p>
+      </AuthCard>
+    );
+  }
   if (!preview) {
     return (
-      <div className="space-y-2 rounded-md bg-neutral-0 p-8 shadow-md">
-        <h1 className="text-lg font-semibold text-neutral-800">This link is no longer valid</h1>
-        <p className="text-sm text-neutral-500">
+      <AuthCard tone="warning" eyebrow="Clinician signature" title="This link is no longer valid">
+        <p className="mt-3 text-sm text-neutral-700">
           Doctor signature links expire 10 minutes after they&apos;re sent. Ask the insurance desk
           to send a new one.
         </p>
-      </div>
+      </AuthCard>
     );
   }
   if (signed) {
     return (
-      <div className="space-y-3 rounded-md bg-neutral-0 p-8 shadow-md">
-        <h1 className="text-xl font-semibold text-success-700">Signature recorded</h1>
-        <p className="text-sm text-neutral-700">
+      <AuthCard tone="success" eyebrow="Clinician signature" title="Signature recorded">
+        <p className="mt-3 text-sm text-neutral-700">
           Thank you, {signed.doctorFullName}. The pre-auth bundle for{' '}
-          <span className="font-medium">{preview.patientName}</span> has been signed at{' '}
+          <span className="font-medium text-neutral-900">{preview.patientName}</span> was signed at{' '}
           {new Date(signed.signedAt).toLocaleString()}.
         </p>
-      </div>
+      </AuthCard>
     );
   }
 
   return (
-    <div className="space-y-6 rounded-md bg-neutral-0 p-8 shadow-md">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-neutral-800">Sign clinical justification</h1>
-        <p className="text-sm text-neutral-500">
-          Dr. {preview.doctorFirstName} {preview.doctorLastName} —{' '}
-          {preview.tenantDisplayName}
-        </p>
-      </header>
-      <dl className="space-y-1 rounded-sm border border-neutral-200 bg-neutral-50 p-3 text-sm">
-        <div className="flex justify-between">
+    <AuthCard
+      eyebrow="Clinician signature"
+      title="Sign clinical justification"
+      subtitle={`Dr. ${preview.doctorFirstName} ${preview.doctorLastName} — ${preview.tenantDisplayName}`}
+    >
+      <dl className="mt-4 space-y-1.5 rounded-md border border-neutral-100 bg-white/50 p-3 text-sm">
+        <div className="flex justify-between gap-3">
           <dt className="text-neutral-500">Patient</dt>
           <dd className="font-medium text-neutral-800">{preview.patientName}</dd>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-neutral-500">Case</dt>
           <dd className="font-medium text-neutral-800">{preview.caseRef}</dd>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-neutral-500">Requested by</dt>
           <dd className="font-medium text-neutral-800">{preview.requesterName}</dd>
         </div>
-        <div className="flex justify-between">
+        <div className="flex justify-between gap-3">
           <dt className="text-neutral-500">Expires</dt>
           <dd className="text-neutral-700">{new Date(preview.expiresAt).toLocaleTimeString()}</dd>
         </div>
       </dl>
-      <form onSubmit={onSubmit} className="space-y-4" noValidate>
-        <div className="space-y-1">
-          <label htmlFor="hpr" className="text-sm font-medium text-neutral-700">
+      <form onSubmit={onSubmit} className="mt-5 space-y-4" noValidate>
+        <div className="space-y-1.5">
+          <label
+            htmlFor="hpr"
+            className="text-xs font-semibold uppercase tracking-wider text-neutral-600"
+          >
             HPR ID (14 digits)
           </label>
           <input
@@ -127,11 +132,14 @@ export default function DoctorSignPage({ params }: PageProps): JSX.Element {
             required
             value={hprId}
             onChange={(e) => setHprId(e.target.value)}
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 font-mono text-sm focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-md border border-neutral-200 bg-white/80 px-3.5 py-2.5 font-mono text-sm transition focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
           />
         </div>
-        <div className="space-y-1">
-          <label htmlFor="otp" className="text-sm font-medium text-neutral-700">
+        <div className="space-y-1.5">
+          <label
+            htmlFor="otp"
+            className="text-xs font-semibold uppercase tracking-wider text-neutral-600"
+          >
             HPR OTP (6 digits)
           </label>
           <input
@@ -143,11 +151,14 @@ export default function DoctorSignPage({ params }: PageProps): JSX.Element {
             required
             value={hprOtp}
             onChange={(e) => setHprOtp(e.target.value)}
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 font-mono tracking-wider focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-md border border-neutral-200 bg-white/80 px-3.5 py-2.5 font-mono text-sm tracking-wider transition focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
           />
         </div>
-        <div className="space-y-1">
-          <label htmlFor="note" className="text-sm font-medium text-neutral-700">
+        <div className="space-y-1.5">
+          <label
+            htmlFor="note"
+            className="text-xs font-semibold uppercase tracking-wider text-neutral-600"
+          >
             Clinical note (optional)
           </label>
           <textarea
@@ -156,17 +167,18 @@ export default function DoctorSignPage({ params }: PageProps): JSX.Element {
             onChange={(e) => setNote(e.target.value)}
             rows={3}
             maxLength={2000}
-            className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm"
+            className="w-full rounded-md border border-neutral-200 bg-white/80 px-3.5 py-2.5 text-sm transition focus:border-primary-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary-500/20"
           />
         </div>
         <button
           type="submit"
           disabled={submitting}
-          className="w-full rounded-sm bg-primary-600 px-3 py-2 text-sm font-medium text-neutral-0 hover:bg-primary-700 disabled:opacity-60"
+          className="btn-cta mt-2 w-full"
+          style={{ padding: '12px 16px', fontSize: '14px' }}
         >
           {submitting ? 'Signing…' : 'Sign with HPR'}
         </button>
       </form>
-    </div>
+    </AuthCard>
   );
 }

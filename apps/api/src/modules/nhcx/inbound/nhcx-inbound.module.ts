@@ -6,6 +6,7 @@ import { NhcxInboundController } from './nhcx-inbound.controller';
 import { NhcxInboundService } from './nhcx-inbound.service';
 import { NhcxSenderAllowlistService } from './nhcx-sender-allowlist.service';
 import { ClaimSubmitModule } from '../../claim-submit/claim-submit.module';
+import { CommunicationModule } from '../../communication';
 import { DischargeModule } from '../../discharge/discharge.module';
 import { EligibilityModule } from '../../eligibility/eligibility.module';
 import { PreauthModule } from '../../preauth/preauth.module';
@@ -24,6 +25,7 @@ import { TenantModule } from '../../tenant/tenant.module';
     EligibilityModule,
     PreauthModule,
     ClaimSubmitModule,
+    CommunicationModule,
     DischargeModule,
     SettlementModule,
     TenantModule,

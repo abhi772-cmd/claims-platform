@@ -1,22 +1,22 @@
 'use client';
 
-import {
-  type LifecycleStateResponse,
-  type TenantLifecycleState,
-} from '@claims/contracts';
+import { type LifecycleStateResponse, type TenantLifecycleState } from '@claims/contracts';
 import { useEffect, useState } from 'react';
 
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { TenantApi } from '../../../../lib/api/tenant.api';
 
-const STATE_LABELS: Record<TenantLifecycleState, { label: string; tone: string }> = {
-  CONTRACTED:   { label: 'Contracted',   tone: 'text-neutral-600' },
-  PROVISIONING: { label: 'Provisioning', tone: 'text-neutral-600' },
-  IN_SETUP:     { label: 'In setup',     tone: 'text-warning-700' },
-  PILOT:        { label: 'Pilot',        tone: 'text-primary-700' },
-  LIVE:         { label: 'Live',         tone: 'text-success-700' },
-  SUSPENDED:    { label: 'Suspended',    tone: 'text-error-700' },
-  CHURNED:      { label: 'Churned',      tone: 'text-neutral-500' },
+const STATE_LABELS: Record<
+  TenantLifecycleState,
+  { label: string; cls: string; dot: string }
+> = {
+  CONTRACTED: { label: 'Contracted', cls: 'bg-surface-container text-on-surface-variant border-outline-variant/50', dot: 'bg-outline' },
+  PROVISIONING: { label: 'Provisioning', cls: 'bg-surface-container text-on-surface-variant border-outline-variant/50', dot: 'bg-outline' },
+  IN_SETUP: { label: 'In setup', cls: 'bg-amber-50 text-amber-700 border-amber-100', dot: 'bg-amber-500' },
+  PILOT: { label: 'Pilot', cls: 'bg-blue-50 text-blue-700 border-blue-100', dot: 'bg-blue-500' },
+  LIVE: { label: 'Live', cls: 'bg-green-50 text-green-700 border-green-100', dot: 'bg-green-500' },
+  SUSPENDED: { label: 'Suspended', cls: 'bg-red-50 text-red-700 border-red-100', dot: 'bg-red-500' },
+  CHURNED: { label: 'Churned', cls: 'bg-surface-container-high text-on-surface-variant border-outline-variant/50', dot: 'bg-outline' },
 };
 
 export default function LifecyclePage(): JSX.Element {
@@ -42,9 +42,7 @@ export default function LifecyclePage(): JSX.Element {
   async function transition(target: TenantLifecycleState): Promise<void> {
     setBusy(target);
     try {
-      const out = await TenantApi.transitionLifecycle(
-        reason ? { target, reason } : { target },
-      );
+      const out = await TenantApi.transitionLifecycle(reason ? { target, reason } : { target });
       setState(out);
       setReason('');
     } catch (err) {
@@ -55,51 +53,76 @@ export default function LifecyclePage(): JSX.Element {
   }
 
   return (
-    <div className="space-y-4 rounded-md bg-neutral-0 p-6 shadow-md">
-      <header className="space-y-1">
-        <h1 className="text-xl font-semibold text-neutral-800">Tenant lifecycle</h1>
-        <p className="text-sm text-neutral-500">
-          Apply lifecycle transitions. Going to PILOT or LIVE requires the readiness check
-          to pass.
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+      <header className="glass rounded-xl p-6">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary">orbit</span>
+          <h2 className="text-h2 font-h2 text-on-surface">Tenant lifecycle</h2>
+        </div>
+        <p className="mt-2 text-body text-on-surface-variant">
+          Apply lifecycle transitions. Going to PILOT or LIVE requires the readiness check to
+          pass.
         </p>
       </header>
-      {state === null ? (
-        <p className="text-sm text-neutral-500">Loading…</p>
-      ) : (
-        <div className="space-y-4">
-          <p className="text-sm text-neutral-700">
-            Current state:{' '}
-            <span className={`font-medium ${STATE_LABELS[state.state].tone}`}>
-              {STATE_LABELS[state.state].label}
-            </span>
-          </p>
-          {state.allowedTargets.length === 0 ? (
-            <p className="text-sm text-neutral-500">No transitions available from this state.</p>
-          ) : (
-            <div className="space-y-2">
-              <input
-                type="text"
-                placeholder="Optional reason"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                className="w-full rounded-sm border border-neutral-200 bg-neutral-0 px-3 py-2 text-sm"
-              />
-              <div className="flex flex-wrap gap-2">
-                {state.allowedTargets.map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => transition(t)}
-                    disabled={busy === t}
-                    className="rounded-sm border border-neutral-200 px-3 py-1 text-xs hover:bg-neutral-50 disabled:opacity-60"
-                  >
-                    {busy === t ? 'Applying…' : `→ ${STATE_LABELS[t].label}`}
-                  </button>
-                ))}
-              </div>
+
+      <section className="glass space-y-5 rounded-xl p-6">
+        {state === null ? (
+          <p className="text-body text-on-surface-variant">Loading…</p>
+        ) : (
+          <>
+            <div className="flex items-center gap-3">
+              <span className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                Current state
+              </span>
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-body-sm font-medium ${STATE_LABELS[state.state].cls}`}
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${STATE_LABELS[state.state].dot}`}
+                />
+                {STATE_LABELS[state.state].label}
+              </span>
             </div>
-          )}
-        </div>
-      )}
+
+            {state.allowedTargets.length === 0 ? (
+              <p className="text-body-sm text-on-surface-variant">
+                No transitions available from this state.
+              </p>
+            ) : (
+              <div className="space-y-4 border-t border-surface-variant/50 pt-4">
+                <label className="space-y-1.5">
+                  <span className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                    Reason (optional)
+                  </span>
+                  <input
+                    type="text"
+                    placeholder="e.g. Sandbox cutover complete"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    className="glass-input glass-input--sm"
+                  />
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {state.allowedTargets.map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => transition(t)}
+                      disabled={busy === t}
+                      className="btn-outline"
+                      style={{ padding: '8px 18px', fontSize: '13px' }}
+                    >
+                      <span className="material-symbols-outlined text-[18px]">
+                        arrow_forward
+                      </span>
+                      {busy === t ? 'Applying…' : STATE_LABELS[t].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </section>
     </div>
   );
 }

@@ -11,7 +11,10 @@ import { AuditEvents, AuditService } from '../audit';
 const ALL_STEP_KEYS: readonly OnboardingStepKey[] = [
   'tenant_profile',
   'roles_assigned',
+  'hfr_facility',
+  'nhcx_participant_code',
   'nhcx_cert',
+  'nhcx_callback_url',
   'pmjay_state',
   'payer_master',
   'package_master',
