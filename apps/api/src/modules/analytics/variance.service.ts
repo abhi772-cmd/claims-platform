@@ -162,6 +162,13 @@ export class VarianceService {
       // tens at most per tenant, so this is cheap. Doing it in SQL
       // would require Prisma's groupBy + a separate count query, and
       // the in-process loop keeps the variance math in one place.
+      //
+      // Important: short-pay is computed per-claim and summed, NOT
+      // (totalApproved − totalPaid) at the group level. Aggregate
+      // math would treat unpaid claims (paidAmount=null) as 100%
+      // short-pay, which is wrong — those claims simply haven't
+      // received a payment yet. This matches the summary endpoint's
+      // gating: only contribute short-pay when paidAmount IS NOT NULL.
       const byPayer = new Map<
         string,
         {
@@ -169,6 +176,7 @@ export class VarianceService {
           totalBilled: number;
           totalApproved: number;
           totalPaid: number;
+          shortPay: number;
         }
       >();
       for (const c of claims) {
@@ -178,17 +186,24 @@ export class VarianceService {
           totalBilled: 0,
           totalApproved: 0,
           totalPaid: 0,
+          shortPay: 0,
         };
         slot.claimCount += 1;
         slot.totalBilled += c.claimAmount ?? 0;
         slot.totalApproved += c.approvedAmount ?? 0;
         slot.totalPaid += c.paidAmount ?? 0;
+        if (
+          c.approvedAmount !== null &&
+          c.paidAmount !== null &&
+          c.paidAmount < c.approvedAmount
+        ) {
+          slot.shortPay += c.approvedAmount - c.paidAmount;
+        }
         byPayer.set(key, slot);
       }
       const rows: VariancePayerRow[] = Array.from(byPayer.entries()).map(
         ([payerCode, s]) => {
           const billedVariance = s.totalBilled - s.totalApproved;
-          const shortPay = Math.max(0, s.totalApproved - s.totalPaid);
           return {
             payerCode,
             claimCount: s.claimCount,
@@ -196,8 +211,8 @@ export class VarianceService {
             totalApproved: s.totalApproved,
             totalPaid: s.totalPaid,
             billedVariance,
-            shortPay,
-            netLeakage: billedVariance + shortPay,
+            shortPay: s.shortPay,
+            netLeakage: billedVariance + s.shortPay,
             varianceRate: s.totalBilled > 0 ? billedVariance / s.totalBilled : 0,
           };
         },
