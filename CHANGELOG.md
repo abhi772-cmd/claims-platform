@@ -6,6 +6,48 @@ sprint slices rather than calendar releases.
 
 ## Sprint 10 — TBD (May 2026)
 
+### T2-15 — IRDAI SLA timers on every claim
+
+- New `apps/api/src/modules/claim/sla-deadline.ts` — pure
+  functions that derive SLA state from a claim's event timeline.
+  No DB access, no NestJS imports; unit-tested with synthetic
+  event streams covering every state in the enum.
+- IRDAI windows: **1 hour for preauth** (`preauth.submitted_internally`
+  → first `preauth.{approved,rejected,partially_approved,query_received}`),
+  **3 hours for claim** (`claim.submitted_internally` → first
+  `claim.{approved,rejected,partially_approved,query_received}`).
+- SLA states: `on_track` (<50% elapsed), `at_risk` (≥50%),
+  `breached` (past deadline, not decided), `met` (decided in window),
+  `missed` (decided after window). PMJAY resubmit-on-query keeps
+  the earliest submit as the IRDAI-clocked event — payers can't
+  game the timer by triggering queries.
+- `CaseService.getById` pulls each claim's events alongside the
+  claim row and stamps the computed SLA onto every claim in the
+  case-detail response (`claim.sla.preauth`, `claim.sla.claim`).
+  No new tables, no schema migration.
+- New schemas in `packages/contracts/src/sla.schema.ts`:
+  `SlaPhaseSchema`, `SlaStatusSchema`, `SlaStateSchema`,
+  `ClaimSlaSchema`, plus `IRDAI_PREAUTH_WINDOW_MINUTES` (60) and
+  `IRDAI_CLAIM_WINDOW_MINUTES` (180) constants.
+- New web component `<SlaPill>` mounted on the case-detail hero.
+  Renders both preauth + claim pills with colour (teal /
+  amber-700 / error), icon, and minutes-left or
+  minutes-overdue. Re-ticks every 30s while pending so the
+  operator sees the timer drain without refreshing. Glass
+  background, tabular numerics, sentence case.
+- Unit tests cover every status path + boundary conditions
+  (duplicate submits, out-of-order events).
+- Integration test plants events directly via Prisma to assert
+  the API surface returns the expected state across breached /
+  met / on_track / claim-phase scenarios.
+- Edge case enabled: **T2-15** IRDAI SLA timers visible on every
+  claim.
+- List-card SLA pills (under /cases) deferred to a follow-up:
+  `CaseSummary` doesn't include claim events; rolling them in
+  requires a list-endpoint change.
+
+
+
 ### T3-1 — CFO variance dashboard
 
 - New module `apps/api/src/modules/analytics/` with

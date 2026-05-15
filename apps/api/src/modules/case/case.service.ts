@@ -14,6 +14,7 @@ import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { AuditEvents, AuditService } from '../audit';
 import { ClaimService } from '../claim';
+import { computeSlaForClaim, type SlaEvent } from '../claim/sla-deadline';
 import { ConsentService } from '../consent/consent.module';
 import { PatientService } from '../patient';
 
@@ -210,10 +211,24 @@ export class CaseService {
     const row = await this.prisma.runInTenantContext(tenantId, 'tenant', (tx) =>
       tx.case.findUnique({
         where: { id: caseId },
-        include: { claims: { orderBy: { initiatedAt: 'asc' } } },
+        include: {
+          claims: {
+            orderBy: { initiatedAt: 'asc' },
+            // T2-15 — pull events so we can compute the IRDAI SLA state
+            // (1-hour preauth, 3-hour claim) at read time without a
+            // second round-trip per claim.
+            include: {
+              events: {
+                orderBy: { occurredAt: 'asc' },
+                select: { eventType: true, occurredAt: true },
+              },
+            },
+          },
+        },
       }),
     );
     if (!row) throw new CaseNotFoundError();
+    const now = new Date();
     const claims = row.claims.map((c) => ({
       id: c.id,
       tenantId: c.tenantId,
@@ -228,6 +243,15 @@ export class CaseService {
       claimRefNum: c.claimRefNum,
       initiatedAt: c.initiatedAt.toISOString(),
       closedAt: c.closedAt ? c.closedAt.toISOString() : null,
+      sla: computeSlaForClaim(
+        c.events.map(
+          (e): SlaEvent => ({
+            eventType: e.eventType as SlaEvent['eventType'],
+            occurredAt: e.occurredAt,
+          }),
+        ),
+        now,
+      ),
     }));
     return this.assemble(row, claims);
   }
