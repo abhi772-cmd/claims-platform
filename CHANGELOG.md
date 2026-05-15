@@ -6,6 +6,38 @@ sprint slices rather than calendar releases.
 
 ## Sprint 10 — TBD (May 2026)
 
+### T3-1 — CFO variance dashboard
+
+- New module `apps/api/src/modules/analytics/` with
+  `VarianceService` + `VarianceController`. Three read endpoints
+  gated on `analytics.view`:
+  - `GET /analytics/variance/summary` — KPI tiles (total billed /
+    approved / paid / billed-variance / short-pay) plus aging
+    buckets (`d0_7`, `d8_14`, `d15_30`, `d31_plus`) over
+    unsettled claims.
+  - `GET /analytics/variance/by-payer?limit=N` — top-N payers
+    ordered by net leakage (billed-variance + short-pay), with
+    variance rate.
+  - `GET /analytics/variance/claims?bucket=&payerCode=&limit=` —
+    drill-down list filtered by either dimension.
+- New schemas in `packages/contracts/src/variance.schema.ts`:
+  `VarianceAgingBucketSchema`, `VarianceSummaryResponseSchema`,
+  `VarianceByPayerResponseSchema`, `VarianceClaimsResponseSchema`.
+- New web route `/admin/variance` — KPI tiles, aging-bucket
+  rail (click to filter), top-payer table, drill-down with
+  active filter pills. Glass cards, teal + amber only, sentence
+  case, tabular-nums on every amount. Sidebar nav entry added
+  under Operations.
+- No new Prisma model, no migration — pure read aggregations
+  over existing `Claim` + `Case` rows, RLS-scoped via
+  `runInTenantContext`.
+- Integration test plants four claims across two tenants and
+  verifies summary math, bucket distribution, by-payer ordering,
+  filters, invalid-bucket 422, RBAC, cross-tenant isolation.
+- Edge case enabled: **T3-1** variance dashboard.
+- Reuses existing `analytics.view` permission — no seed changes
+  required.
+
 Theme: **v1 launch readiness.** OCR v1 (Python repo, parallel),
 intake-flow consent capture (TS), hard consent enforcement
 rollout (TS, gated on intake), production deploy work (OVH KMS,

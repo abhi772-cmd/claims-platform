@@ -44,6 +44,7 @@ const NAV: NavGroup[] = [
       { href: '/cases', label: 'Cases', icon: 'clinical_notes' },
       { href: '/cases/new', label: 'New case', icon: 'note_add' },
       { href: '/admin/remittance', label: 'Settlement / EOB', icon: 'payments' },
+      { href: '/admin/variance', label: 'Variance', icon: 'monitoring' },
     ],
   },
   {
