@@ -24,6 +24,12 @@ export const IntegrationStatusSchema = z.enum([
   'succeeded',
   'failed',
   'circuit_open',
+  // T1-5 — outbound failed transiently and is parked in the replay
+  // queue. The NhcxReplayWorker re-issues the call once nextRetryAt
+  // has passed. Caller-facing: this is a soft-failure that becomes
+  // 'succeeded' (no operator action needed) or 'failed' (retries
+  // exhausted) on subsequent worker ticks.
+  'queued_for_retry',
 ]);
 export type IntegrationStatus = z.infer<typeof IntegrationStatusSchema>;
 

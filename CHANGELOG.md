@@ -6,6 +6,58 @@ sprint slices rather than calendar releases.
 
 ## Sprint 10 — TBD (May 2026)
 
+### T1-5 — NHCX outbound replay queue (foundation)
+
+- New status value `queued_for_retry` on
+  `IntegrationStatusSchema` for outbounds that failed
+  transiently and are parked for replay.
+- New column `IntegrationMessage.nextRetryAt: DateTime?` plus
+  an index on `(status, nextRetryAt)` driving the worker poll
+  query. Migration `20260601000000_integration_replay_queue`
+  applied via plain `ADD COLUMN` + index — no data backfill,
+  safe to deploy under load.
+- New service helpers in `IntegrationMessageService`:
+  - `markQueuedForRetry()` — parks a failed outbound with
+    exponential backoff (60s, 5m, 30m, 2h, 6h capped). Increments
+    `retryCount` atomically.
+  - `findReplayable()` — cross-tenant poll for rows whose
+    `nextRetryAt` has lapsed (direct prisma access; mirrors
+    `NotificationRetryWorker.runOnce`).
+  - `markReplaySucceeded()` — flips to `succeeded` + writes
+    the inbound mirror row.
+  - `markReplayExhausted()` — flips to `failed` when retries
+    are spent.
+  - `REPLAY_BACKOFF_SECONDS` + `REPLAY_MAX_ATTEMPTS` (5) constants.
+- New `NhcxReplayWorker` (`OnApplicationBootstrap` +
+  `OnApplicationShutdown`) running every 30s. Services that
+  want their outbounds queued register a handler at bootstrap:
+  ```ts
+  this.replay.registerHandler({
+    operation: 'eligibility.verify',
+    handle: async (ctx) => {
+      // re-derive request from current claim state, call adapter,
+      // call markReplaySucceeded on success
+      return 'succeeded' | 'transient' | 'permanent';
+    },
+  });
+  ```
+- Worker outcomes: `succeeded` (counted, no further action;
+  handler is responsible for calling `markReplaySucceeded`),
+  `transient` (worker re-parks with new backoff),
+  `permanent` (worker marks the row exhausted). Unhandled
+  exceptions are treated as `transient`.
+- 7-case unit spec for the worker: registration semantics,
+  dispatch table, missing-handler skip, succeeded count-only,
+  transient re-park with incremented attempts, permanent mark,
+  thrown-error re-park, multi-row batch.
+- Edge case enabled: **T1-5** foundation. Individual service
+  wiring (eligibility, preauth, claim-submit, communication,
+  payment, etc.) lands per-slice in follow-ups — each is a
+  small additive change: call `markQueuedForRetry()` on
+  transient adapter errors + register a handler at bootstrap.
+
+
+
 ### T2-15 — IRDAI SLA timers on every claim
 
 - New `apps/api/src/modules/claim/sla-deadline.ts` — pure
