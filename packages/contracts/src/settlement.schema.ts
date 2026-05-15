@@ -135,3 +135,103 @@ export const RemittanceBatchResponseSchema = z.object({
   results: z.array(RemittanceRowResultSchema),
 });
 export type RemittanceBatchResponse = z.infer<typeof RemittanceBatchResponseSchema>;
+
+// ============================================================
+// T3-2 — lump-sum UTR allocation
+// ============================================================
+// Slice AL (above) handles the "payer sent us a remittance file
+// with per-claim breakdown" case. T3-2 is the inverse case:
+//
+//   Bank shows ONE deposit of ₹3,00,000 with UTR 'HDFC0123' against
+//   a TPA payer. There is NO per-claim breakdown — the operator has
+//   to figure out which open settlements the lump matches and
+//   allocate the amount across them manually.
+//
+// Flow:
+//   1. Operator hits GET /settlement/remittance/candidates with
+//      payerCode + totalAmount → service returns open settlements
+//      for that payer with their expectedAmount and current
+//      receivedAmount. UI ranks them so the operator can pick.
+//   2. Operator picks N settlements + assigns per-claim amounts
+//      that sum to the UTR total.
+//   3. POST /settlement/remittance/lump-sum applies all allocations
+//      atomically. Each per-claim leg goes through the same
+//      SettlementService.recordReceipt path as the manual flow, so
+//      state-machine semantics + audit + reconciliationStatus all
+//      stay identical to per-claim. The shared bankTxnId on every
+//      Settlement row ties the lump back together for finance audit.
+//
+// We deliberately do NOT add a RemittanceBatch table — the
+// Settlement.bankTxnId column + per-claim claim_event rows already
+// give a complete audit trail. Adding a separate table would
+// duplicate state without earning anything.
+
+export const RemittanceCandidateSchema = z.object({
+  claimId: z.string().uuid(),
+  claimRefNum: z.string().nullable(),
+  patientName: z.string(),
+  payerCode: z.string().nullable(),
+  expectedAmount: z.number().int().nonnegative(),
+  // Already-received amount (null when no receipt recorded yet).
+  // Used by the UI to show "₹X of ₹Y received" + suggest the
+  // remaining (expectedAmount - currentReceivedAmount) as the
+  // default per-claim allocation.
+  currentReceivedAmount: z.number().int().nonnegative().nullable(),
+  reconciliationStatus: z.string(),
+});
+export type RemittanceCandidate = z.infer<typeof RemittanceCandidateSchema>;
+
+export const RemittanceCandidatesResponseSchema = z.object({
+  candidates: z.array(RemittanceCandidateSchema),
+});
+export type RemittanceCandidatesResponse = z.infer<typeof RemittanceCandidatesResponseSchema>;
+
+export const LumpSumAllocationSchema = z.object({
+  claimId: z.string().uuid(),
+  // Per-claim allocated amount in paise. Allowed to be less than the
+  // settlement's expectedAmount — that's exactly the "short payment"
+  // case the existing recordReceipt path handles.
+  allocatedAmount: z.number().int().nonnegative(),
+});
+export type LumpSumAllocation = z.infer<typeof LumpSumAllocationSchema>;
+
+export const LumpSumAllocateRequestSchema = z.object({
+  // Bank transaction id (UTR, NEFT ref, RTGS ref, etc.). Persisted
+  // on every per-claim Settlement row so finance can reverse-lookup
+  // which claims a single deposit covered.
+  bankTxnId: z.string().min(1).max(128),
+  // The total received from the bank. Sum of allocations must equal
+  // this — service rejects with REMITTANCE_ALLOCATION_VARIANCE
+  // otherwise.
+  totalAmount: z.number().int().positive(),
+  receivedAt: z.string().datetime().optional(),
+  // Optional. Used only for the duplicate-UTR check + audit trail.
+  payerCode: z.string().min(1).max(128).optional(),
+  allocations: z
+    .array(LumpSumAllocationSchema)
+    .min(1, 'At least one allocation is required.')
+    .max(200, 'Cannot allocate to more than 200 claims in a single batch.'),
+});
+export type LumpSumAllocateRequest = z.infer<typeof LumpSumAllocateRequestSchema>;
+
+export const LumpSumAllocateResultSchema = z.object({
+  claimId: z.string().uuid(),
+  allocatedAmount: z.number().int().nonnegative(),
+  outcome: z.enum(['applied', 'failed']),
+  reconciliationStatus: z.string().optional(),
+  error: z.string().optional(),
+});
+export type LumpSumAllocateResult = z.infer<typeof LumpSumAllocateResultSchema>;
+
+export const LumpSumAllocateResponseSchema = z.object({
+  bankTxnId: z.string(),
+  totalAmount: z.number().int().positive(),
+  allocatedTotal: z.number().int().nonnegative(),
+  // applied count + failed count; failed allocations DO NOT roll
+  // back the applied ones (matches Slice AL semantics). Operator
+  // re-runs the failed legs.
+  appliedCount: z.number().int().nonnegative(),
+  failedCount: z.number().int().nonnegative(),
+  results: z.array(LumpSumAllocateResultSchema),
+});
+export type LumpSumAllocateResponse = z.infer<typeof LumpSumAllocateResponseSchema>;

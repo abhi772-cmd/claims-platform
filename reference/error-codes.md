@@ -115,6 +115,8 @@ CODE | HTTP | Severity | Title | Body | Primary Action | Secondary Action
 | SETTLEMENT_DUPLICATE_PAYMENT               | 409  | warning  | Possible duplicate payment              | This appears to match a payment already recorded for this claim.                                                     | Compare             | Cancel     |
 | EOB_PARSE_FAILED                           | 500  | error    | Couldn't read the EOB                   | The EOB couldn't be automatically parsed. Enter the line items manually.                                            | Enter manually      |            |
 | EOB_LOW_CONFIDENCE                         | 200  | info     | Review extracted values                 | We extracted line items from the EOB but our confidence is low. Please verify before saving.                         | Review              |            |
+| REMITTANCE_ALLOCATION_VARIANCE             | 422  | warning  | Allocations don't add up                | The per-claim amounts you've assigned don't equal the bank total. Adjust until the variance is zero.                | Adjust              | Cancel     |
+| REMITTANCE_DUPLICATE_UTR                   | 422  | warning  | Bank UTR already applied                | This UTR has already been applied to one or more claims. Clear the prior allocation before re-running.              | View prior          | Cancel     |
 
 ## DOCUMENT
 
