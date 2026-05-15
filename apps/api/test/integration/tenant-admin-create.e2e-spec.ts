@@ -244,11 +244,12 @@ describe('Tenant admin — create hospital + invite primary admin', () => {
           lastName: 'S',
         },
       });
-    expect(res.status).toBe(400);
+    // VALIDATION_FAILED → HTTP 422 per packages/error-codes/src/codes.ts.
+    expect(res.status).toBe(422);
     expect(res.body.code).toBe('VALIDATION_FAILED');
   });
 
-  it('duplicate primary-admin email → 400 VALIDATION_FAILED', async () => {
+  it('duplicate primary-admin email → 422 VALIDATION_FAILED', async () => {
     const cookies = await loginAs(PLATFORM_ADMIN);
     const res = await request(app.getHttpServer())
       .post('/admin/tenants')
@@ -263,7 +264,7 @@ describe('Tenant admin — create hospital + invite primary admin', () => {
           lastName: 'N',
         },
       });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(422);
     expect(res.body.code).toBe('VALIDATION_FAILED');
   });
 
@@ -339,7 +340,7 @@ describe('Tenant admin — create hospital + invite primary admin', () => {
     expect(res.status).toBe(403);
   });
 
-  it('invalid slug shape (uppercase) → 400 VALIDATION_FAILED', async () => {
+  it('invalid slug shape (uppercase) → 422 VALIDATION_FAILED', async () => {
     const cookies = await loginAs(PLATFORM_ADMIN);
     const res = await request(app.getHttpServer())
       .post('/admin/tenants')
@@ -353,7 +354,7 @@ describe('Tenant admin — create hospital + invite primary admin', () => {
           lastName: 'S',
         },
       });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(422);
     expect(res.body.code).toBe('VALIDATION_FAILED');
   });
 
