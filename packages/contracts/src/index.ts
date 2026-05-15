@@ -1,5 +1,6 @@
 export * from './auth.schema';
 export * from './tenant.schema';
+export * from './tenant-admin.schema';
 export * from './user.schema';
 export * from './invitation.schema';
 export * from './password.schema';
