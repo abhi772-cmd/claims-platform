@@ -64,10 +64,12 @@ const NAV: NavGroup[] = [
       { href: '/admin/comms-config', label: 'Comms', icon: 'forum' },
     ],
   },
-];
-
-const SUPPORT_ITEMS: NavItem[] = [
-  { href: '/me', label: 'My profile', icon: 'account_circle' },
+  {
+    title: 'Platform ops',
+    items: [
+      { href: '/admin/tenants', label: 'Hospitals', icon: 'apartment' },
+    ],
+  },
 ];
 
 interface MeMinimal {
@@ -107,7 +109,7 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
       );
     }
   }, [activeGroupTitle]);
-  const [accountOpen, setAccountOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -230,54 +232,6 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
             );
           })}
 
-          <div className="rounded-lg">
-            <button
-              type="button"
-              onClick={() => setAccountOpen((v) => !v)}
-              aria-expanded={accountOpen}
-              className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-white/80 transition-colors hover:bg-white/5"
-            >
-              <span className="text-[11px] font-bold uppercase tracking-[0.14em]">
-                Account
-              </span>
-              <span
-                className="material-symbols-outlined text-[18px] transition-transform"
-                style={{ transform: accountOpen ? 'rotate(0deg)' : 'rotate(-90deg)' }}
-              >
-                expand_more
-              </span>
-            </button>
-            {accountOpen && (
-              <ul className="ml-1 mt-1 space-y-0.5 border-l border-white/10 pl-2">
-              {SUPPORT_ITEMS.map((item) => {
-                const active =
-                  pathname === item.href || pathname?.startsWith(`${item.href}/`);
-                return (
-                  <li key={item.href}>
-                    <Link
-                      href={item.href}
-                      className={
-                        active
-                          ? 'flex items-center gap-3 rounded-lg border-l-2 border-secondary-container bg-white/10 px-3 py-2 font-semibold text-white transition-all'
-                          : 'flex items-center gap-3 rounded-lg px-3 py-2 font-medium text-white/85 transition-all hover:bg-white/5 hover:text-white'
-                      }
-                    >
-                      <span
-                        className="material-symbols-outlined text-[20px]"
-                        style={
-                          active ? { fontVariationSettings: "'FILL' 1" } : undefined
-                        }
-                      >
-                        {item.icon}
-                      </span>
-                      <span className="text-[14px]">{item.label}</span>
-                    </Link>
-                  </li>
-                );
-              })}
-              </ul>
-            )}
-          </div>
         </nav>
 
         {/* Sidebar footer — user chip + sign out */}
@@ -365,6 +319,82 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
               >
                 <span className="material-symbols-outlined">notifications</span>
               </button>
+
+              {/* Profile menu — replaces the sidebar Account dropdown.
+                  Click the avatar to open; click outside (or any item)
+                  to close. Menu is anchored to the right edge. */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen((v) => !v)}
+                  aria-label="Account menu"
+                  aria-haspopup="menu"
+                  aria-expanded={profileMenuOpen}
+                  className={`inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-body-sm font-bold text-primary transition hover:bg-primary/20 ${
+                    profileMenuOpen ? 'ring-2 ring-primary/40' : ''
+                  }`}
+                >
+                  {me
+                    ? `${(me.firstName[0] ?? '').toUpperCase()}${(me.lastName[0] ?? '').toUpperCase()}`
+                    : '…'}
+                </button>
+                {profileMenuOpen && (
+                  <>
+                    {/* Click-away overlay. Captures the click that
+                        closes the menu without blocking other UI. */}
+                    <button
+                      type="button"
+                      aria-hidden="true"
+                      tabIndex={-1}
+                      onClick={() => setProfileMenuOpen(false)}
+                      className="fixed inset-0 z-10 cursor-default bg-transparent"
+                    />
+                    <div
+                      role="menu"
+                      className="absolute right-0 top-full z-20 mt-2 w-64 overflow-hidden rounded-xl border border-outline-variant/40 bg-surface shadow-lg"
+                    >
+                      {me ? (
+                        <div className="border-b border-outline-variant/30 px-4 py-3">
+                          <div className="truncate text-body-sm font-semibold text-on-surface">
+                            {me.firstName} {me.lastName}
+                          </div>
+                          <div className="truncate text-body-sm text-on-surface-variant">
+                            {me.email}
+                          </div>
+                          <div className="mt-1 truncate text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                            {me.tenantDisplayName}
+                          </div>
+                        </div>
+                      ) : null}
+                      <Link
+                        href="/me"
+                        role="menuitem"
+                        onClick={() => setProfileMenuOpen(false)}
+                        className="flex items-center gap-3 px-4 py-2.5 text-body text-on-surface transition hover:bg-primary/5"
+                      >
+                        <span className="material-symbols-outlined text-[20px] text-on-surface-variant">
+                          account_circle
+                        </span>
+                        My profile
+                      </Link>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setProfileMenuOpen(false);
+                          void onSignOut();
+                        }}
+                        className="flex w-full items-center gap-3 border-t border-outline-variant/30 px-4 py-2.5 text-body text-on-surface transition hover:bg-primary/5"
+                      >
+                        <span className="material-symbols-outlined text-[20px] text-on-surface-variant">
+                          logout
+                        </span>
+                        Sign out
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </header>

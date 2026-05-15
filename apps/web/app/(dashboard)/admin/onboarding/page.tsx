@@ -71,6 +71,10 @@ export default function OnboardingPage(): JSX.Element {
   const [readiness, setReadiness] = useState<ReadinessReport | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [openStep, setOpenStep] = useState<OnboardingStepKey | null>(null);
+  // Surfaces "API not reachable" inline instead of letting the page
+  // silently render only the header when the steps call fails. The
+  // descriptors are canonical so the rest of the UI still renders.
+  const [apiError, setApiError] = useState<string | null>(null);
 
   async function reload(): Promise<void> {
     try {
@@ -80,7 +84,10 @@ export default function OnboardingPage(): JSX.Element {
       ]);
       setSteps(s.steps);
       setReadiness(r);
+      setApiError(null);
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load.';
+      setApiError(message);
       showApiError(err);
     }
   }
@@ -102,27 +109,43 @@ export default function OnboardingPage(): JSX.Element {
     }
   }
 
-  // Compute NHCX-blocker status. The two views the operator cares
-  // about are: (1) overall completion %, (2) every cutover blocker
-  // ticked. We surface both at the top.
+  // Descriptors are the canonical list — the page renders one row per
+  // descriptor regardless of whether the API has responded. When the
+  // API responds, its row data merges in; otherwise the row stays at
+  // status='pending'. Keeps the wizard rendering even when the steps
+  // endpoint is slow, unreachable, or returns a partial list.
+  const displaySteps = useMemo<OnboardingStep[]>(() => {
+    const byKey = new Map((steps ?? []).map((s) => [s.key, s]));
+    return ONBOARDING_STEP_DESCRIPTORS.map(
+      (d): OnboardingStep =>
+        byKey.get(d.key) ?? {
+          key: d.key,
+          status: 'pending',
+          completedAt: null,
+          evidence: {},
+        },
+    );
+  }, [steps]);
+
   const cutover = useMemo(() => {
-    if (!steps) return null;
     const blockers = ONBOARDING_STEP_DESCRIPTORS.filter((d) => d.blocksNhcxCutover);
-    const blockerStatus = blockers.map((d) => {
-      const s = steps.find((x) => x.key === d.key);
-      return { ...d, status: s?.status ?? 'pending' };
-    });
-    const blocked = blockerStatus.filter((b) => b.status !== 'completed' && b.status !== 'skipped');
+    const byKey = new Map(displaySteps.map((s) => [s.key, s]));
+    const blockerStatus = blockers.map((d) => ({
+      ...d,
+      status: byKey.get(d.key)?.status ?? ('pending' as OnboardingStep['status']),
+    }));
+    const blocked = blockerStatus.filter(
+      (b) => b.status !== 'completed' && b.status !== 'skipped',
+    );
     return {
       total: blockers.length,
       complete: blockers.length - blocked.length,
       blocked,
       ready: blocked.length === 0,
     };
-  }, [steps]);
+  }, [displaySteps]);
 
   const stepsByGroup = useMemo(() => {
-    if (!steps) return null;
     const groups: Record<StepGroupKey, OnboardingStep[]> = {
       identity: [],
       nhcx: [],
@@ -130,18 +153,25 @@ export default function OnboardingPage(): JSX.Element {
       masters: [],
       governance: [],
     };
-    for (const s of steps) {
+    for (const s of displaySteps) {
       const g = STEP_TO_GROUP[s.key];
       if (g) groups[g].push(s);
     }
     return groups;
-  }, [steps]);
+  }, [displaySteps]);
 
   const overall = useMemo(() => {
-    if (!steps) return null;
-    const done = steps.filter((s) => s.status === 'completed' || s.status === 'skipped').length;
-    return { done, total: steps.length, pct: steps.length ? Math.round((done / steps.length) * 100) : 0 };
-  }, [steps]);
+    const done = displaySteps.filter(
+      (s) => s.status === 'completed' || s.status === 'skipped',
+    ).length;
+    return {
+      done,
+      total: displaySteps.length,
+      pct: displaySteps.length
+        ? Math.round((done / displaySteps.length) * 100)
+        : 0,
+    };
+  }, [displaySteps]);
 
   return (
     <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
@@ -156,8 +186,7 @@ export default function OnboardingPage(): JSX.Element {
               message through NHA&apos;s gateway — they cannot be skipped or worked around.
             </p>
           </div>
-          {overall ? (
-            <div className="min-w-[200px]">
+          <div className="min-w-[200px]">
               <div className="flex items-baseline justify-between">
                 <span className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
                   Progress
@@ -178,19 +207,28 @@ export default function OnboardingPage(): JSX.Element {
                 {overall.done} of {overall.total} steps done
               </div>
             </div>
-          ) : null}
         </div>
       </header>
 
+      {apiError && (
+        <section className="rounded-xl border border-red-200 bg-red-50/70 p-4 text-body-sm text-red-700">
+          <div className="font-semibold">Couldn&apos;t load onboarding status from the API.</div>
+          <div className="mt-1 break-all text-red-700/80">{apiError}</div>
+          <div className="mt-2 text-red-700/80">
+            The checklist below is rendered from the canonical descriptor list; live
+            progress + readiness probes will appear once the API is reachable.
+          </div>
+        </section>
+      )}
+
       {/* NHCX cutover readiness banner. */}
-      {cutover && (
-        <section
-          className={`rounded-xl border p-5 backdrop-blur-[24px] ${
-            cutover.ready
-              ? 'border-green-200 bg-green-50/70'
-              : 'border-amber-200 bg-amber-50/70'
-          }`}
-        >
+      <section
+        className={`rounded-xl border p-5 backdrop-blur-[24px] ${
+          cutover.ready
+            ? 'border-green-200 bg-green-50/70'
+            : 'border-amber-200 bg-amber-50/70'
+        }`}
+      >
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               <div
@@ -239,11 +277,9 @@ export default function OnboardingPage(): JSX.Element {
             </div>
           )}
         </section>
-      )}
 
       {/* Step list grouped by axis. */}
-      {stepsByGroup && (
-        <div className="space-y-4">
+      <div className="space-y-4">
           {(Object.keys(GROUP_LABELS) as StepGroupKey[]).map((groupKey) => {
             const group = GROUP_LABELS[groupKey];
             const items = stepsByGroup[groupKey];
@@ -281,7 +317,6 @@ export default function OnboardingPage(): JSX.Element {
             );
           })}
         </div>
-      )}
 
       {/* Detailed readiness items — the per-check breakdown the API
           returns. Kept as a separate audit panel so the step list
