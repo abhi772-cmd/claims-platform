@@ -29,7 +29,10 @@ interface PlantedClaim {
   payerCode: string;
   claimAmount: number;
   approvedAmount: number;
-  paidAmount: number;
+  // null when the claim hasn't received any payment yet — matches
+  // production semantics where PAYMENT_PENDING claims have paidAmount=null
+  // until SettlementService.recordReceipt fires.
+  paidAmount: number | null;
   status: string;
   submittedAt: Date;
 }
@@ -185,8 +188,8 @@ describe('T3-1 — CFO variance dashboard', () => {
           claimId: '',
           payerCode: 'MEDIASSIST',
           claimAmount: 200_000,
-          approvedAmount: 180_000, // 20k variance
-          paidAmount: 0,
+          approvedAmount: 180_000, // 20k variance, no payment yet
+          paidAmount: null,
           status: 'PAYMENT_PENDING',
           submittedAt: new Date(now - 20 * dayMs), // bucket d15_30
         },
@@ -198,8 +201,8 @@ describe('T3-1 — CFO variance dashboard', () => {
           claimId: '',
           payerCode: 'PARAMOUNT',
           claimAmount: 50_000,
-          approvedAmount: 50_000, // no variance
-          paidAmount: 0,
+          approvedAmount: 50_000, // no variance, no payment yet
+          paidAmount: null,
           status: 'PAYMENT_PENDING',
           submittedAt: new Date(now - 40 * dayMs), // bucket d31_plus
         },
