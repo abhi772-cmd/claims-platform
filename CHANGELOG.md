@@ -6,6 +6,40 @@ sprint slices rather than calendar releases.
 
 ## Sprint 10 — TBD (May 2026)
 
+### T3-2 — lump-sum UTR allocation
+
+- New endpoints under `/settlement/remittance`:
+  - `GET /candidates?payerCode=&limit=` — open Settlement rows
+    (status `manual_match_pending` or `short_paid`), enriched with
+    patient name and current received amount, ordered by
+    `expectedAmount desc`.
+  - `POST /lump-sum` — atomic application of an operator-built
+    allocation. Body: `{ bankTxnId, totalAmount, receivedAt?,
+    payerCode?, allocations: [{ claimId, allocatedAmount }] }`.
+- `RemittanceService.proposeCandidates()` + `allocateLumpSum()`.
+  Each per-claim leg routes through the existing
+  `SettlementService.recordReceipt` path, so state-machine
+  semantics (`payment.received`, `payment.short_paid`) and audit
+  trail (per-claim `ClaimEvent` + `IntegrationMessage`) are
+  identical to manual receipts. Failed legs do NOT roll back
+  applied legs (mirrors Slice AL).
+- Variance guard: `sum(allocations.allocatedAmount) !== totalAmount`
+  → `422 VALIDATION_FAILED` with field `allocations`.
+- Duplicate-UTR guard: any prior Settlement in the same tenant
+  with the same `bankTxnId` rejects the new allocation with
+  `422 VALIDATION_FAILED` on field `bankTxnId`.
+- New web component `<LumpSumAllocationPanel>` mounted above the
+  existing Slice-AM CSV batch panel on `/admin/remittance`. Glass
+  card, teal/amber only, live sum-vs-total banner that gates the
+  Allocate button.
+- No new Prisma table — `Settlement.bankTxnId` is the existing
+  join key for finance reverse-lookup; per-claim `claim_event`
+  rows are the audit trail.
+- Edge case enabled: **T3-2** lump-sum payment reconciliation
+  (CFO weekly batch matching across many claims).
+- Reuses the existing `settlement.upload_eob` permission — same
+  operator audience as the CSV batch flow.
+
 Theme: **v1 launch readiness.** OCR v1 (Python repo, parallel),
 intake-flow consent capture (TS), hard consent enforcement
 rollout (TS, gated on intake), production deploy work (OVH KMS,

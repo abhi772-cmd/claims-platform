@@ -13,6 +13,7 @@ import {
 import { useState } from 'react';
 
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
+import { LumpSumAllocationPanel } from '../../../../components/remittance/LumpSumAllocationPanel';
 import { RemittanceApi } from '../../../../lib/api/remittance.api';
 
 const REQUIRED_COLS = ['claimRefNum', 'receivedAmount'] as const;
@@ -138,6 +139,11 @@ export default function RemittanceBatchPage(): JSX.Element {
           </span>
         </div>
       </section>
+
+      {/* T3-2 — lump-sum UTR allocation panel. Sits above the CSV
+          batch flow because lump-sum is the more common operator
+          workflow (bank deposits without per-claim breakdown). */}
+      <LumpSumAllocationPanel />
 
       {/* 12-col grid */}
       <div className="grid grid-cols-12 gap-6">
