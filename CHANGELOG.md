@@ -6,6 +6,39 @@ sprint slices rather than calendar releases.
 
 ## Sprint 10 — TBD (May 2026)
 
+### Smoke-test follow-ups — AbortError modal + PII KMS onboarding
+
+Two polish items surfaced while walking `SMOKE_TEST.md` against a
+fresh clone of `main`. Both are zero-behaviour-change fixes for
+developer / operator UX.
+
+- **AbortError mis-classified as INTERNAL_ERROR modal.**
+  `ErrorModalProvider.showApiError` treated any non-`ApiError`
+  thrown value as `INTERNAL_ERROR`. React StrictMode's dev-mode
+  double-fetch race aborts the first request, which surfaced as
+  a full-screen "Something went wrong / Reference: INTERNAL_ERROR"
+  modal on every page load. Same code path fires on legitimate
+  component-unmount and in-flight navigation aborts in prod too.
+  Now swallowed early — real `ApiError`s (e.g. `VALIDATION_FAILED`)
+  still surface with their correct codes.
+
+- **PII_KMS_ROOT_KEY_BASE64 onboarding gap.**
+  First-time devs hit a confusing 500 on case-create because
+  `.env.example` didn't mention the key and the runtime error
+  blamed the config loader. Per the dev-tolerant-boot design
+  documented in `configuration.ts`, the schema deliberately
+  doesn't require the key in non-prod (so tests that don't touch
+  PII keep booting). The fix is documentation + a better
+  runtime error: `.env.example` now ships a `PII_KMS_*` block
+  with key-gen one-liners, and `patient.service.ts` throws a
+  message pointing at `.env` / `.env.example` instead of "config
+  loader should have rejected".
+
+No schema changes. No behaviour changes on the happy path. Typecheck
++ lint clean.
+
+
+
 ### T1-5 follow-up — communication outbound wired to the replay queue
 
 Fourth and final outbound service opt-in for the

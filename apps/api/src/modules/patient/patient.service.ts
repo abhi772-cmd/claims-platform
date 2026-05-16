@@ -48,8 +48,14 @@ export class PatientService {
     if (cached) return cached;
     const rootKeyB64 = this.config.get('PII_KMS_ROOT_KEY_BASE64', { infer: true });
     if (!rootKeyB64) {
+      // Boot deliberately tolerates a missing key in dev/test so flows
+      // that don't touch PII still run (see configuration.ts). We get
+      // here when a dev/test flow actually needs it — point the
+      // operator at the fix instead of blaming the config loader.
       throw new Error(
-        'PII_KMS_ROOT_KEY_BASE64 missing — config loader should have rejected.',
+        'PII_KMS_ROOT_KEY_BASE64 is not set. Add it to apps/api/.env ' +
+          '(32 bytes, base64; sample in apps/api/.env.example). ' +
+          'Production boot is gated separately in configuration.ts.',
       );
     }
     const rootKey = Buffer.from(rootKeyB64, 'base64');
