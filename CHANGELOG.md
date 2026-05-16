@@ -4,6 +4,58 @@ Notable changes to the DigiSparsh Claims Platform. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) but oriented around
 sprint slices rather than calendar releases.
 
+## Sprint 11 — in flight (May 2026)
+
+### T2-14 — room rent sub-limit pre-warn
+
+First edge case closed in Sprint 11. The single biggest source of
+post-discharge surprise bills for Indian patients is the room-rent
+sub-limit: policies cap "room rent" per day (typically ₹3000-₹5000),
+and when the patient is admitted to a room above the cap, the policy
+applies a proportionate deduction on associated services on top of
+the per-day room-rent differential. By the time the family hears the
+number it's at discharge, and the trust hit is real. T2-14 catches
+it at admission.
+
+Three new nullable Int (paise) columns on `case` captured at intake:
+- `roomDailyRate` — actual daily rate of the assigned room
+- `policyRoomRentLimit` — policy's per-day room rent cap
+- `estimatedStayDays` — planned length of stay (optional projection)
+
+Wire-up:
+- New `apps/api/src/modules/case/room-rent-liability.ts` pure helper
+  (`computeRoomRentLiability`) plus 7-case unit spec covering the
+  full branch matrix: missing rate, missing limit, at cap, below
+  cap (no underflow), above cap with stayDays, above cap without
+  stayDays, policy-cap-is-zero edge.
+- `CreateCaseRequestSchema` accepts the three optional paise fields
+  with sanity caps (₹100k/day max, 365 days max).
+- `CaseSummarySchema` always returns them (nullable) so the
+  case-detail page can compute liability without a separate fetch.
+- `case.controller.ts` forwards the fields from the validated body
+  to `CaseService.create`.
+- `case.service.ts` persists when provided; `toSummary` + `assemble`
+  type signatures extended to carry the new columns through.
+- `apps/web/app/(dashboard)/cases/new/page.tsx` gets a new
+  "Room & coverage" glass card with three rupee inputs and a
+  live pre-warn block that materialises only when both rate +
+  limit are typed: amber "Room rate exceeds cap by ₹X/day"
+  with projected total when stay days present, OR a green
+  "within the policy cap" confirmation when at/below.
+- `apps/web/app/(dashboard)/cases/[id]/page.tsx` shows the same
+  warning as a persistent amber banner at the top of the case
+  detail when per-day liability > 0.
+
+No effect on cases where the operator skips the fields (emergency
+intake, self-pay, partial info) — the banner just doesn't render.
+The math mirrors the server-side helper so the two surfaces never
+disagree.
+
+Edge case enabled: **T2-14**. Highest user-visible value among the
+remaining MISSION-brief edge cases per the Sprint 10 handoff.
+
+
+
 ## Sprint 10 — closed (May 2026)
 
 **What shipped this sprint.** Sprint 10 was the resilience-and-finish

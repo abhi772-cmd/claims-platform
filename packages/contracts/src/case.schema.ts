@@ -75,6 +75,14 @@ export const CreateCaseRequestSchema = z.object({
   // patient is not (you can't bind a consent to a non-existent
   // patient row).
   consent: IntakeConsentSchema.optional(),
+  // T2-14 — room rent sub-limit pre-warn. All three optional;
+  // when both rate + limit are present the UI computes the
+  // per-day liability and the projected out-of-pocket. Paise.
+  // Capped at ₹100k/day (10_000_000 paise) to catch data-entry
+  // typos that would otherwise show six-figure liabilities.
+  roomDailyRate: z.number().int().nonnegative().max(10_000_000).optional(),
+  policyRoomRentLimit: z.number().int().nonnegative().max(10_000_000).optional(),
+  estimatedStayDays: z.number().int().positive().max(365).optional(),
 });
 export type CreateCaseRequest = z.infer<typeof CreateCaseRequestSchema>;
 
@@ -107,6 +115,13 @@ export const CaseSummarySchema = z.object({
   // cases and rows whose headline claim never reached
   // preauth/claim submit have no SLA to draw.
   sla: ClaimSlaSchema.optional(),
+  // T2-14 — room rent pre-warn fields captured at intake. Paise.
+  // Null when not captured (emergency intake / self-pay / data-not-
+  // available yet). Case-detail computes per-day + total liability
+  // on the client from these values.
+  roomDailyRate: z.number().int().nonnegative().nullable(),
+  policyRoomRentLimit: z.number().int().nonnegative().nullable(),
+  estimatedStayDays: z.number().int().positive().nullable(),
 });
 export type CaseSummary = z.infer<typeof CaseSummarySchema>;
 
