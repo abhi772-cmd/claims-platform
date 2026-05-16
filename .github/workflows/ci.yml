@@ -10,6 +10,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Opt into Node.js 24 for the JS-powered actions (actions/checkout,
+# actions/setup-node, pnpm/action-setup, etc.) ahead of the
+# 2026-06-02 forced flip. If any action breaks on Node 24 we find
+# out on the next CI run with weeks of headroom to fix, instead of
+# being surprised when the default changes. This does NOT change
+# the runtime that runs the app's own code (that's still pinned by
+# `node-version` on the setup-node steps below).
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   lint-typecheck:
     name: Lint and type-check
