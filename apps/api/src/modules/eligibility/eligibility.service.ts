@@ -1,14 +1,22 @@
+import { randomUUID } from 'node:crypto';
+
 import { type EligibilityResponse } from '@claims/contracts';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
+import { classifyAdapterError } from './transient-errors';
 import { CaseNotFoundError } from '../../common/errors/case-errors';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 import { ClaimService } from '../claim';
 import { ConsentService } from '../consent/consent.module';
-import { IntegrationMessageService } from '../integration';
+import { IntegrationMessageService, NhcxReplayWorker } from '../integration';
 import { type AdapterEligibilityPurpose, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 import { PatientService } from '../patient';
 import { TenantService } from '../tenant/tenant.service';
@@ -30,7 +38,7 @@ export interface RunEligibilityInput {
 }
 
 @Injectable()
-export class EligibilityService {
+export class EligibilityService implements OnApplicationBootstrap {
   private readonly log = new Logger(EligibilityService.name);
 
   constructor(
@@ -42,7 +50,18 @@ export class EligibilityService {
     private readonly config: ConfigService<AppConfig, true>,
     private readonly tenants: TenantService,
     private readonly consents: ConsentService,
+    private readonly replay: NhcxReplayWorker,
   ) {}
+
+  // T1-5 — register the replay handler at module bootstrap so the
+  // NhcxReplayWorker knows how to retry 'eligibility.verify' rows
+  // parked in the queue.
+  onApplicationBootstrap(): void {
+    this.replay.registerHandler({
+      operation: 'eligibility.verify',
+      handle: async (ctx) => this.replayQueuedEligibility(ctx),
+    });
+  }
 
   // Orchestration:
   //   1. tx-1: read case + claim, transition to ELIGIBILITY_CHECK_PENDING,
@@ -187,8 +206,32 @@ export class EligibilityService {
         : {}),
     };
 
-    // 2. Adapter call.
-    const result = await this.nhcx.verifyEligibility(adapterRequest);
+    // 2. Adapter call. Wrapped in classify-and-park (T1-5): a
+    // transient error (network / 5xx / timeout) parks an outbound
+    // row at status='queued_for_retry' so the NhcxReplayWorker
+    // re-issues the call once the gateway recovers. The claim stays
+    // at ELIGIBILITY_CHECK_PENDING in the meantime — the operator
+    // sees a "queued" pill rather than a hard failure.
+    //
+    // A permanent error (4xx / JWE decrypt / unknown shape) flows
+    // up unchanged; the existing ValidationFailedError /
+    // domain-error path applies.
+    let result;
+    try {
+      result = await this.nhcx.verifyEligibility(adapterRequest);
+    } catch (err) {
+      const classified = classifyAdapterError(err);
+      if (classified.classification === 'transient') {
+        return this.parkForReplay({
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          adapterRequest,
+          failureClass: classified.failureClass,
+          message: classified.message,
+        });
+      }
+      throw err;
+    }
     const correlationId = result.correlationId;
 
     // Outbound row (we couldn't write it before the call because we
@@ -334,5 +377,159 @@ export class EligibilityService {
       `eligibility ${input.parsed.verified ? 'verified' : 'failed'} via inbound claimId=${input.claimId} correlationId=${input.correlationId}`,
     );
     return { status: snap.status };
+  }
+
+  // T1-5 — park a transient-failed eligibility for the replay queue.
+  // The outbound row is written here with a server-generated
+  // correlationId so retries can be matched on the gateway side.
+  // Claim stays at ELIGIBILITY_CHECK_PENDING; the response shape
+  // mirrors the real-mode "awaiting callback" path so the UI sees
+  // the same waiting state for either situation.
+  private async parkForReplay(input: {
+    tenantId: string;
+    claimId: string;
+    adapterRequest: unknown;
+    failureClass:
+      | 'network'
+      | 'timeout'
+      | 'server_5xx'
+      | 'auth'
+      | 'validation'
+      | 'captcha'
+      | 'selector'
+      | 'unknown';
+    message: string;
+  }): Promise<EligibilityResponse> {
+    const correlationId = randomUUID();
+    const outboundId = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      async (tx) => {
+        const row = await this.integration.recordOutboundWithTx(tx, {
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          integration: 'nhcx',
+          operation: 'eligibility.verify',
+          correlationId,
+          rawRequest: input.adapterRequest,
+        });
+        return row.id;
+      },
+    );
+    await this.integration.markQueuedForRetry({
+      tenantId: input.tenantId,
+      outboundId,
+      failureClass: input.failureClass,
+      attemptsSoFar: 0,
+    });
+    this.log.warn(
+      `eligibility queued for replay claimId=${input.claimId} correlationId=${correlationId} reason=${input.message}`,
+    );
+    const pendingSnap = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'platform_admin',
+      async (tx) => tx.claim.findUniqueOrThrow({ where: { id: input.claimId } }),
+    );
+    return {
+      verified: false,
+      correlationId,
+      status: pendingSnap.status,
+    };
+  }
+
+  // T1-5 — replay handler invoked by NhcxReplayWorker on tick.
+  //
+  // The strategy here is deliberately conservative: we re-issue the
+  // adapter call ONLY if the claim is still at ELIGIBILITY_CHECK_PENDING.
+  // If the operator (or the inbound dispatcher) has already moved the
+  // claim forward, the replay is a no-op and we mark the row succeeded
+  // so the worker stops re-parking it.
+  //
+  // Successful replay marks the outbound row succeeded and drives the
+  // eligibility.verified / eligibility.failed transition. The adapter
+  // call uses a NEW correlationId — the gateway treats the retry as a
+  // fresh request. The original parked row holds the prior id for
+  // forensic correlation.
+  private async replayQueuedEligibility(ctx: {
+    outboundId: string;
+    tenantId: string;
+    claimId: string | null;
+    correlationId: string;
+  }): Promise<'succeeded' | 'transient' | 'permanent'> {
+    if (!ctx.claimId) return 'permanent';
+
+    // Re-derive the request from current persistent state. Claim row
+    // carries payerCode; case carries patient name + mrn; patient row
+    // carries decrypted PII. If any of these are missing, treat as
+    // permanent and let ops triage.
+    const ctxRow = await this.prisma.runInTenantContext(ctx.tenantId, 'tenant', async (tx) => {
+      const c = await tx.claim.findUnique({ where: { id: ctx.claimId! } });
+      if (!c) return null;
+      // Only retry if the claim is still waiting on the eligibility
+      // round-trip. Anything else (verified, failed, moved on) means
+      // the operator already acted.
+      if (c.status !== 'ELIGIBILITY_CHECK_PENDING') {
+        return { skip: true as const, status: c.status };
+      }
+      const cs = await tx.case.findUnique({ where: { id: c.caseId } });
+      if (!cs) return null;
+      return {
+        skip: false as const,
+        claim: c,
+        case: cs,
+      };
+    });
+    if (ctxRow === null) return 'permanent';
+    if (ctxRow.skip) {
+      await this.integration.markReplayExhausted({
+        tenantId: ctx.tenantId,
+        outboundId: ctx.outboundId,
+        failureClass: 'unknown',
+      });
+      this.log.log(
+        `eligibility replay skipped (claim already at ${ctxRow.status}) outboundId=${ctx.outboundId}`,
+      );
+      return 'succeeded';
+    }
+
+    const adapterRequest = {
+      tenantId: ctx.tenantId,
+      claimId: ctx.claimId,
+      hospitalMrn: ctxRow.case.hospitalMrn,
+      patientName: ctxRow.case.patientName,
+      ...(ctxRow.claim.payerCode !== null ? { payerCode: ctxRow.claim.payerCode } : {}),
+    };
+
+    let result;
+    try {
+      result = await this.nhcx.verifyEligibility(adapterRequest);
+    } catch (err) {
+      const classified = classifyAdapterError(err);
+      return classified.classification === 'transient' ? 'transient' : 'permanent';
+    }
+
+    await this.integration.markReplaySucceeded({
+      tenantId: ctx.tenantId,
+      outboundId: ctx.outboundId,
+      correlationId: result.correlationId,
+      integration: 'nhcx',
+      operation: 'eligibility.verify',
+      claimId: ctx.claimId,
+      rawResponse: result.rawResponse,
+    });
+    await this.claims.transition({
+      tenantId: ctx.tenantId,
+      claimId: ctx.claimId,
+      eventType: result.verified ? 'eligibility.verified' : 'eligibility.failed',
+      actorUserId: null,
+      correlationId: result.correlationId,
+      payload: result.verified
+        ? { planName: result.planName, sumInsured: result.sumInsured }
+        : { failureReason: result.failureReason },
+    });
+    this.log.log(
+      `eligibility replay succeeded claimId=${ctx.claimId} verified=${result.verified} correlationId=${result.correlationId}`,
+    );
+    return 'succeeded';
   }
 }
