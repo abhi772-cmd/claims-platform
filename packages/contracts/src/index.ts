@@ -27,5 +27,6 @@ export * from './compliance.schema';
 export * from './communication.schema';
 export * from './variance.schema';
 export * from './sla.schema';
+export * from './nhcx-status-search.schema';
 export * from './problem-details.schema';
 export { Permissions, ALL_PERMISSIONS, type Permission as AppPermission } from './permissions';

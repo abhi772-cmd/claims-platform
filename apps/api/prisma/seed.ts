@@ -47,6 +47,7 @@ const ROLE_SEEDS: RoleSeed[] = [
       'consent.view',
       'consent.manage',
       'tenant.comms_config.update',
+      'nhcx.status.search',
     ],
   },
   {
@@ -89,6 +90,7 @@ const ROLE_SEEDS: RoleSeed[] = [
       'consent.manage',
       'communication.send',
       'communication.view',
+      'nhcx.status.search',
     ],
   },
   {

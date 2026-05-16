@@ -93,6 +93,16 @@ export const Permissions = {
   // is still rate-limited at the adapter layer.
   COMMUNICATION_SEND: 'communication.send',
   COMMUNICATION_VIEW: 'communication.view',
+
+  // Stage 9 — cross-claim NHCX status search. Ops endpoint for
+  // tracing what happened to a correlationId / claimRefNum /
+  // preauthRefNum across the integration_message + claim_event
+  // ledgers. Distinct from the per-claim integration-messages
+  // endpoint (which is case-scoped read access) — this one is
+  // tenant-wide cross-cutting, hence its own permission. Granted
+  // to tenant_admin + platform_ops; not to ordinary operator
+  // roles (they don't need to triage gateway-level mysteries).
+  NHCX_STATUS_SEARCH: 'nhcx.status.search',
 } as const;
 
 export type Permission = (typeof Permissions)[keyof typeof Permissions];
