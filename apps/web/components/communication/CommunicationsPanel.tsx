@@ -18,9 +18,10 @@ import { CommunicationApi } from '../../lib/api/communication.api';
 interface Props {
   caseId: string;
   claimId: string | null;
+  onChanged: () => void;
 }
 
-export function CommunicationsPanel({ caseId, claimId }: Props): JSX.Element {
+export function CommunicationsPanel({ caseId, claimId, onChanged }: Props): JSX.Element {
   const { showApiError } = useErrorModal();
   const [entries, setEntries] = useState<CommunicationEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -52,6 +53,11 @@ export function CommunicationsPanel({ caseId, claimId }: Props): JSX.Element {
       await CommunicationApi.send(caseId, claimId, { text: trimmed });
       setText('');
       await reload();
+      // Bubble up so the parent page re-fetches the case timeline +
+      // integration logs. The send writes a claim_event and two
+      // integration_message rows that those panels need to see
+      // without forcing the operator to refresh.
+      onChanged();
     } catch (err) {
       showApiError(err);
     } finally {
