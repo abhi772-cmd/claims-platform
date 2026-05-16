@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 import { useErrorModal } from '../../../components/modals/ErrorModal/ErrorModalProvider';
+import { SlaPill } from '../../../components/sla/SlaPill';
 import { CaseApi } from '../../../lib/api/case.api';
 
 type Filter = 'all' | 'open' | 'closed' | 'abandoned';
@@ -148,7 +149,15 @@ export default function CasesListPage(): JSX.Element {
                       <StatusPill status={c.caseStatus} />
                     </td>
                     <td className="px-6 py-4 text-body-sm text-on-surface-variant">
-                      {c.headlineClaimStatus ?? '—'}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span>{c.headlineClaimStatus ?? '—'}</span>
+                        {/* T2-15 follow-up — compact IRDAI SLA pills next
+                            to the claim status when the headline claim has
+                            entered preauth / claim phase. The list
+                            endpoint precomputes these. */}
+                        {c.sla?.preauth ? <SlaPill sla={c.sla.preauth} compact /> : null}
+                        {c.sla?.claim ? <SlaPill sla={c.sla.claim} compact /> : null}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Link

@@ -11,6 +11,7 @@ import {
   ConsentTypeSchema,
   LawfulBasisSchema,
 } from './consent.schema';
+import { ClaimSlaSchema } from './sla.schema';
 
 // Encrypted PII payload attached to a new case. patientName + hospitalMrn
 // remain on Case for fast list-view rendering; everything else goes into
@@ -100,6 +101,12 @@ export const CaseSummarySchema = z.object({
   // Headline status of the most recently-active claim — what the list
   // page shows in the status column.
   headlineClaimStatus: ClaimStatusSchema.nullable(),
+  // T2-15 follow-up — IRDAI SLA state for the headline claim so the
+  // /cases list cards can show pre-auth + claim pills without having
+  // to fetch each case's detail. Optional because closed/abandoned
+  // cases and rows whose headline claim never reached
+  // preauth/claim submit have no SLA to draw.
+  sla: ClaimSlaSchema.optional(),
 });
 export type CaseSummary = z.infer<typeof CaseSummarySchema>;
 

@@ -302,6 +302,7 @@ export class CommunicationService implements OnApplicationBootstrap {
           direction?: 'outbound' | 'inbound';
           text?: string;
           inReplyToCorrelationId?: string;
+          queued?: boolean;
         };
         const direction: 'outbound' | 'inbound' =
           payload.direction ??
@@ -314,6 +315,8 @@ export class CommunicationService implements OnApplicationBootstrap {
           inReplyToCorrelationId: payload.inReplyToCorrelationId ?? null,
           occurredAt: row.occurredAt.toISOString(),
           recordedById: row.recordedById ?? null,
+          // Surface the replay-queue flag (only meaningful on outbound).
+          queued: direction === 'outbound' && payload.queued === true,
         };
       }),
     };

@@ -47,6 +47,11 @@ export const CommunicationEntrySchema = z.object({
   inReplyToCorrelationId: z.string().nullable(),
   occurredAt: z.string().datetime(),
   recordedById: z.string().uuid().nullable(),
+  // T1-5 — true when this outbound was parked by the replay queue
+  // (transient gateway failure) and is awaiting re-issue. Lets the
+  // UI distinguish "sent and acknowledged" from "sent and pending
+  // gateway recovery". Always false for inbound entries.
+  queued: z.boolean().default(false),
 });
 export type CommunicationEntry = z.infer<typeof CommunicationEntrySchema>;
 

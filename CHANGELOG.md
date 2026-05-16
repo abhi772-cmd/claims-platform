@@ -4,7 +4,74 @@ Notable changes to the DigiSparsh Claims Platform. The format is loosely
 [Keep a Changelog](https://keepachangelog.com/) but oriented around
 sprint slices rather than calendar releases.
 
-## Sprint 10 — TBD (May 2026)
+## Sprint 10 — closed (May 2026)
+
+**What shipped this sprint.** Sprint 10 was the resilience-and-finish
+sprint after the platform's first end-to-end NHCX walkthrough. Headline
+themes:
+
+- **Outbound NHCX resilience (T1-5).** The four primary outbound
+  services — eligibility, preauth, claim submit, and communications —
+  now park transient gateway failures on an in-process replay queue
+  and re-issue once the gateway recovers. Operators no longer see hard
+  errors for blips in NHCX availability. Foundation + four service
+  opt-ins shipped as PRs #98, #100, #101, #102, #103.
+- **CFO + finance views (T3-1, T3-2).** Variance dashboard with KPI
+  tiles, aging buckets, top-payer leakage, and a filterable drill-down
+  (#96). Lump-sum UTR allocation lets the CFO split a single bank
+  deposit across multiple settlements without losing the audit trail
+  (#95).
+- **Operator-floor UX (T2-15, Stage 5).** IRDAI SLA timers on the
+  case-detail patient hero (#97); list-card SLA pills follow-up below.
+  Stage 5 hospital-initiated communications panel that mirrors inbound
+  payer messages and writes both directions to the integration log
+  (#94).
+- **Smoke-test polish (this batch).** Three SMOKE_TEST.md §5 follow-ups
+  bundled here — queued-pip on the communications timeline, variance
+  empty-state copy, and the list-card SLA pills (CaseSummary now
+  carries `sla`). Plus #107's AbortError modal fix and PII KMS
+  onboarding clarity, and #108's auto-refresh-after-send wiring.
+
+Remaining edge cases meaningfully closed this sprint: T1-5, T2-6,
+T2-10, T2-15, T3-1, T3-2, T3-3 — seven of the original 31 from the
+MISSION brief.
+
+What's NOT in Sprint 10 (carried to Sprint 11):
+- T2-14 room-rent sub-limit pre-warn
+- T2-8 ICU upgrade auto-enhancement
+- T2-13 non-medical auto-strip
+- Stage 9 `/status/search`
+- Real NHCX sandbox integration (blocked on NHA credentials)
+
+---
+
+### Smoke-test polish — queued pip, variance empty-state, list-card SLA pills
+
+Three SMOKE_TEST.md §5 follow-ups bundled into one PR (this one).
+
+- **Queued pip on outbound communications.** When the replay queue
+  parks an outbound `communication/request` (transient gateway
+  failure), the operator now sees an amber "Queued" pill + amber dot
+  on the timeline row instead of an identical-to-confirmed-sent
+  entry. Surfaced by adding `queued: boolean` to `CommunicationEntry`
+  in `@claims/contracts` and propagating from the existing
+  `payload.queued` flag on the ClaimEvent.
+- **Variance dashboard empty-state.** When the tenant has zero
+  adjudicated claims, the page used to render five ₹0 KPI tiles with
+  no context — easy to read as a broken integration. A small amber
+  banner above the tiles now reassures that the numbers are accurate
+  and points at what populates them.
+- **List-card SLA pills.** `/cases` list cards now show compact
+  pre-auth + claim SLA pills next to the headline claim status. The
+  list endpoint precomputes `sla` on each `CaseSummary` using the
+  same `computeSlaForClaim()` already used by the case-detail page;
+  the schema marks `sla` optional so closed/abandoned cases and
+  pre-submit cases wire-skip cleanly.
+
+No new schema migration. No behaviour changes outside these three
+surfaces. Typecheck + lint clean.
+
+
 
 ### Smoke-test follow-up — Communications panel auto-refresh
 
