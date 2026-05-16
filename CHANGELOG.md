@@ -6,6 +6,56 @@ sprint slices rather than calendar releases.
 
 ## Sprint 10 — TBD (May 2026)
 
+### T1-5 follow-up — communication outbound wired to the replay queue
+
+Fourth and final outbound service opt-in for the
+NhcxReplayWorker. Same template as eligibility / preauth /
+claim-submit; the four highest-stakes outbound calls now all
+survive NHCX gateway downtime.
+
+- `CommunicationService.sendOutbound()` wraps the adapter call
+  in classify-and-park:
+  - **Transient** → server-gen correlationId, outbound row at
+    `queued_for_retry`, ClaimEvent (`communication.outbound_sent`)
+    is ALSO written so the case-detail timeline shows the message
+    as sent (with a `queued: true` payload flag distinguishing
+    parked from gateway-confirmed messages). Operator-facing:
+    same return shape as a normal send — no error surfaced.
+  - **Permanent** → bubbles up unchanged.
+- `replayQueuedCommunication()` handler registered at bootstrap
+  for operation `'communication.request'`:
+  - Lighter template than preauth/claim-submit because
+    communications are **non-transitioning** — no state machine
+    to coordinate. No claim-status idempotency guard needed.
+  - Re-reads the original message text + reply target from the
+    `communication.outbound_sent` ClaimEvent payload that
+    `parkCommunicationForReplay` wrote.
+  - On adapter success: `markReplaySucceeded`. No further
+    transitions or claim updates.
+  - Transient again → `'transient'`; Permanent → `'permanent'`.
+
+Edge case enabled: **T1-5** for the communication outbound flow.
+Gateway outages no longer cause the proactive hospital-to-payer
+messages from PR #94 to fail hard.
+
+### Outbound replay coverage
+
+| Service | Operation | PR |
+|---|---|---|
+| Eligibility | `eligibility.verify` | #100 |
+| Preauth | `preauth.submit` | #101 |
+| Claim submit | `claim.submit` | #102 |
+| Communication | `communication.request` | this PR |
+
+Discharge intentionally not wired — the discharge flow rides on
+top of `communication/request` via `buildCommunicationBundle`,
+so the communication wiring above covers its transient path.
+PMJAY task/submit (preauth-cancel, claim-reprocess) and
+insurance-plan lookup remain unwired; both are PMJAY-only and
+much lower frequency.
+
+
+
 ### T1-5 follow-up — claim-submit wired to the replay queue
 
 Third service opt-in to the NhcxReplayWorker. Same template as
