@@ -9,14 +9,17 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-import { classifyAdapterError } from './transient-errors';
 import { CaseNotFoundError } from '../../common/errors/case-errors';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 import { ClaimService } from '../claim';
 import { ConsentService } from '../consent/consent.module';
-import { IntegrationMessageService, NhcxReplayWorker } from '../integration';
+import {
+  classifyAdapterError,
+  IntegrationMessageService,
+  NhcxReplayWorker,
+} from '../integration';
 import { type AdapterEligibilityPurpose, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 import { PatientService } from '../patient';
 import { TenantService } from '../tenant/tenant.service';

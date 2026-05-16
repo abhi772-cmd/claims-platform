@@ -6,6 +6,48 @@ sprint slices rather than calendar releases.
 
 ## Sprint 10 — TBD (May 2026)
 
+### T1-5 follow-up — preauth wired to the replay queue
+
+Second service opt-in to the NhcxReplayWorker. Mirrors the
+eligibility template; same pattern remaining services will adopt.
+
+- Moved `transient-errors.{ts,spec.ts}` from `modules/eligibility/`
+  to `modules/integration/` so all services share the classifier.
+  `classifyAdapterError` re-exported from the integration barrel.
+  Eligibility import updated.
+- `PreauthService.submit()` wraps `this.nhcx.submitPreauth` in
+  classify-and-park:
+  - **Transient** → new outbound row at `status='queued_for_retry'`
+    (60s initial backoff). Claim stays at `PREAUTH_QUEUED`
+    (already set by the `preauth.submitted_internally` transition
+    earlier in the flow). Operator-facing response carries an
+    empty `payerRefNum` and the existing claim status — same
+    shape the real-mode "awaiting callback" path returns.
+  - **Permanent** → bubbles up unchanged.
+- `PreauthService.replayQueuedPreauth()` registered at module
+  bootstrap. Strategy:
+  - Idempotency guard: only retries while claim is at
+    `PREAUTH_QUEUED`. Acknowledged / approved / rejected / query
+    raised / cancelled → row marked exhausted, worker stops.
+  - Re-derives the adapter request from current persistent state
+    (PreauthDraft + Claim + FhirContext) — the saved draft snapshot
+    captures the clinical fields the operator submitted.
+  - On adapter success: `markReplaySucceeded` + (stub mode only)
+    drives the `preauth.acknowledged_by_payer` transition. Real
+    mode leaves the claim at `PREAUTH_QUEUED` for the inbound
+    `preauth/on_submit` callback to drive the ack.
+  - Transient again → `'transient'` (worker re-parks with new
+    backoff). Permanent → `'permanent'`.
+
+Edge case enabled: **T1-5** for the preauth flow. NHCX gateway
+outages no longer require operator intervention on the preauth
+submit step.
+
+Remaining T1-5 follow-ups (each ~3-5 files, same template):
+claim-submit, communication outbound, discharge.
+
+
+
 ### T1-5 follow-up — eligibility wired to the replay queue
 
 Activates the dormant T1-5 foundation for the first service. Pattern

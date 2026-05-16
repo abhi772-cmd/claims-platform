@@ -1,9 +1,16 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   type PreauthDecisionKind,
   type PreauthDraft,
   type PreauthDraftResponse,
 } from '@claims/contracts';
-import { Inject, Injectable } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { InvalidClaimTransitionError } from '../../common/errors/claim-errors';
@@ -12,7 +19,11 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 import { BiometricAuthService } from '../biometric-auth';
 import { ClaimService } from '../claim';
-import { IntegrationMessageService } from '../integration';
+import {
+  classifyAdapterError,
+  IntegrationMessageService,
+  NhcxReplayWorker,
+} from '../integration';
 import { FhirContextService, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 import { TenantService } from '../tenant/tenant.service';
 
@@ -64,7 +75,9 @@ export interface QueryResponseInput {
 }
 
 @Injectable()
-export class PreauthService {
+export class PreauthService implements OnApplicationBootstrap {
+  private readonly log = new Logger(PreauthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly claims: ClaimService,
@@ -74,7 +87,17 @@ export class PreauthService {
     private readonly tenants: TenantService,
     private readonly biometric: BiometricAuthService,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
+    private readonly replay: NhcxReplayWorker,
   ) {}
+
+  // T1-5 — register the replay handler for 'preauth.submit' so the
+  // NhcxReplayWorker knows how to retry rows we parked in the queue.
+  onApplicationBootstrap(): void {
+    this.replay.registerHandler({
+      operation: 'preauth.submit',
+      handle: async (ctx) => this.replayQueuedPreauth(ctx),
+    });
+  }
 
   // PUT preauth/draft — upsert. Also drives the eligibility-verified →
   // preauth-drafting transition the first time a draft is saved.
@@ -179,7 +202,7 @@ export class PreauthService {
       actorType: 'user',
       purpose: 'preauth.submit',
     });
-    const adapterResult = await this.nhcx.submitPreauth({
+    const adapterPayload = {
       tenantId: input.tenantId,
       claimId: input.claimId,
       requestedAmount: draft.requestedAmount,
@@ -197,7 +220,33 @@ export class PreauthService {
       ...(draft.clinicalJustification !== null
         ? { clinicalJustification: draft.clinicalJustification }
         : {}),
-    });
+    };
+    // T1-5 — classify-and-park around the adapter call. Transient
+    // adapter failures (network / 5xx / timeout) park an outbound
+    // row at status='queued_for_retry' so the NhcxReplayWorker
+    // re-issues the call once the gateway recovers. Claim stays at
+    // PREAUTH_QUEUED in the meantime (already set by the
+    // preauth.submitted_internally transition above). Operator-facing
+    // response mirrors the real-mode "awaiting callback" shape — no
+    // hard error surfaced.
+    //
+    // Permanent failures (4xx / JWE decrypt) bubble up unchanged.
+    let adapterResult;
+    try {
+      adapterResult = await this.nhcx.submitPreauth(adapterPayload);
+    } catch (err) {
+      const classified = classifyAdapterError(err);
+      if (classified.classification === 'transient') {
+        return this.parkPreauthForReplay({
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          adapterRequest: adapterPayload,
+          failureClass: classified.failureClass,
+          message: classified.message,
+        });
+      }
+      throw err;
+    }
 
     // 4. Ledger rows (outbound + inbound) + transition queued → submitted.
     const outboundId = await this.prisma.runInTenantContext(
@@ -623,6 +672,176 @@ export class PreauthService {
       ...(input.parsed.reason !== undefined ? { reason: input.parsed.reason } : {}),
       ...(input.parsed.queryText !== undefined ? { queryText: input.parsed.queryText } : {}),
     });
+  }
+
+  // T1-5 — park a transient-failed preauth submit. Outbound row
+  // carries a server-generated correlationId so the worker's retry
+  // can be matched on the gateway. Claim stays at PREAUTH_QUEUED;
+  // operator sees the same "submitted, awaiting payer" state shape
+  // they'd see in real mode.
+  private async parkPreauthForReplay(input: {
+    tenantId: string;
+    claimId: string;
+    adapterRequest: unknown;
+    failureClass:
+      | 'network'
+      | 'timeout'
+      | 'server_5xx'
+      | 'auth'
+      | 'validation'
+      | 'captcha'
+      | 'selector'
+      | 'unknown';
+    message: string;
+  }): Promise<{ status: string; payerRefNum: string; correlationId: string }> {
+    const correlationId = randomUUID();
+    const outboundId = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      async (tx) => {
+        const row = await this.integration.recordOutboundWithTx(tx, {
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          integration: 'nhcx',
+          operation: 'preauth.submit',
+          correlationId,
+          rawRequest: input.adapterRequest,
+        });
+        return row.id;
+      },
+    );
+    await this.integration.markQueuedForRetry({
+      tenantId: input.tenantId,
+      outboundId,
+      failureClass: input.failureClass,
+      attemptsSoFar: 0,
+    });
+    this.log.warn(
+      `preauth queued for replay claimId=${input.claimId} correlationId=${correlationId} reason=${input.message}`,
+    );
+    const pendingSnap = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'platform_admin',
+      (tx) => tx.claim.findUniqueOrThrow({ where: { id: input.claimId } }),
+    );
+    return {
+      status: pendingSnap.status,
+      // payerRefNum unknown until the replay succeeds — empty string
+      // is the same surface other "awaiting callback" paths return.
+      payerRefNum: '',
+      correlationId,
+    };
+  }
+
+  // T1-5 — replay handler for 'preauth.submit' rows. Mirrors the
+  // EligibilityService template:
+  //   * Idempotency guard: only retry while claim is still at
+  //     PREAUTH_QUEUED. Anything else (acknowledged, approved,
+  //     rejected, query received, cancelled) means the flow has
+  //     already moved on — mark exhausted so the worker stops.
+  //   * Re-derive the adapter request from current persistent state
+  //     (PreauthDraft + Claim + Case + Patient via fhirContext).
+  //   * On adapter success: markReplaySucceeded + (stub mode only)
+  //     drive the QUEUED → SUBMITTED ack transition. Real mode
+  //     leaves the claim at PREAUTH_QUEUED for the inbound dispatcher.
+  //   * Transient again → 'transient'; permanent → 'permanent'.
+  private async replayQueuedPreauth(ctx: {
+    outboundId: string;
+    tenantId: string;
+    claimId: string | null;
+    correlationId: string;
+  }): Promise<'succeeded' | 'transient' | 'permanent'> {
+    if (!ctx.claimId) return 'permanent';
+
+    const ctxRow = await this.prisma.runInTenantContext(
+      ctx.tenantId,
+      'tenant',
+      async (tx) => {
+        const c = await tx.claim.findUnique({ where: { id: ctx.claimId! } });
+        if (!c) return null;
+        if (c.status !== 'PREAUTH_QUEUED') {
+          return { skip: true as const, status: c.status };
+        }
+        const d = await tx.preauthDraft.findUnique({ where: { claimId: ctx.claimId! } });
+        if (!d) return null;
+        return { skip: false as const, claim: c, draft: d };
+      },
+    );
+    if (ctxRow === null) return 'permanent';
+    if (ctxRow.skip) {
+      await this.integration.markReplayExhausted({
+        tenantId: ctx.tenantId,
+        outboundId: ctx.outboundId,
+        failureClass: 'unknown',
+      });
+      this.log.log(
+        `preauth replay skipped (claim already at ${ctxRow.status}) outboundId=${ctx.outboundId}`,
+      );
+      return 'succeeded';
+    }
+
+    const { draft } = ctxRow;
+    const fhirCtx = await this.fhirContext.build(ctx.tenantId, ctx.claimId, {
+      actorUserId: null,
+      actorType: 'system',
+      purpose: 'preauth.submit',
+    });
+    const adapterPayload = {
+      tenantId: ctx.tenantId,
+      claimId: ctx.claimId,
+      requestedAmount: draft.requestedAmount,
+      ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
+      ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
+      ...(draft.diagnosisIcdCode !== null ? { diagnosisIcdCode: draft.diagnosisIcdCode } : {}),
+      ...(draft.diagnosisDescription !== null
+        ? { diagnosisDescription: draft.diagnosisDescription }
+        : {}),
+      ...(draft.plannedProcedure !== null ? { plannedProcedure: draft.plannedProcedure } : {}),
+      ...(draft.procedureCode !== null ? { procedureCode: draft.procedureCode } : {}),
+      ...(draft.estimatedLengthOfStayDays !== null
+        ? { estimatedLengthOfStayDays: draft.estimatedLengthOfStayDays }
+        : {}),
+      ...(draft.clinicalJustification !== null
+        ? { clinicalJustification: draft.clinicalJustification }
+        : {}),
+    };
+
+    let result;
+    try {
+      result = await this.nhcx.submitPreauth(adapterPayload);
+    } catch (err) {
+      const classified = classifyAdapterError(err);
+      return classified.classification === 'transient' ? 'transient' : 'permanent';
+    }
+
+    await this.integration.markReplaySucceeded({
+      tenantId: ctx.tenantId,
+      outboundId: ctx.outboundId,
+      correlationId: result.correlationId,
+      integration: 'nhcx',
+      operation: 'preauth.submit',
+      claimId: ctx.claimId,
+      rawResponse: result.rawResponse,
+    });
+    // Stub mode: drive the ack transition synchronously like the
+    // happy-path code does. Real mode: leave the claim at
+    // PREAUTH_QUEUED — the gateway's preauth/on_submit callback
+    // will run the QUEUED → SUBMITTED transition through
+    // PreauthService.handleInboundResponse.
+    if (this.config.get('NHCX_MODE', { infer: true }) !== 'real') {
+      await this.claims.transition({
+        tenantId: ctx.tenantId,
+        claimId: ctx.claimId,
+        eventType: 'preauth.acknowledged_by_payer',
+        actorUserId: null,
+        correlationId: result.correlationId,
+        patch: { payerRefNum: result.payerRefNum },
+      });
+    }
+    this.log.log(
+      `preauth replay succeeded claimId=${ctx.claimId} payerRefNum=${result.payerRefNum} correlationId=${result.correlationId}`,
+    );
+    return 'succeeded';
   }
 }
 
