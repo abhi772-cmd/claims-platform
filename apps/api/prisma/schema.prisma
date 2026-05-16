@@ -824,9 +824,16 @@ model IntegrationMessage {
   // Pairs an outbound row with the matching inbound response so a
   // retry doesn't double-charge / double-act.
   idempotencyKey String?
+  // Slice T1-5 adds 'queued_for_retry' to the existing values
+  // ('pending' | 'succeeded' | 'failed'). String column so the new
+  // value lands without a migration-required enum extension.
   status        String    @default("pending")
   failureClass  String?
   retryCount    Int       @default(0)
+  // Slice T1-5 — when status='queued_for_retry', the worker waits
+  // until nextRetryAt before re-issuing the outbound. Exponential
+  // backoff: 60s, 5m, 30m, 2h, 6h (capped). Null otherwise.
+  nextRetryAt   DateTime?
   rawRequest    Json?
   rawResponse   Json?
   createdAt     DateTime  @default(now())
@@ -836,6 +843,8 @@ model IntegrationMessage {
   @@index([tenantId, integration, status, createdAt])
   @@index([correlationId])
   @@index([claimId])
+  // Slice T1-5 — drives the replay worker poll query.
+  @@index([status, nextRetryAt])
   @@map("integration_message")
 }
 

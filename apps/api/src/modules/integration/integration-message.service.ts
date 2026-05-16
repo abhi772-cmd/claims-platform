@@ -128,6 +128,166 @@ export class IntegrationMessageService {
     });
   }
 
+  // T1-5 — replay queue helpers.
+  //
+  // Exponential backoff schedule (seconds): 60, 300, 1800, 7200, 21600.
+  // Steps land roughly at attempt boundaries 1..5; beyond 5 the row
+  // stays at 21600s (6h) until ops intervene. Worker treats the row
+  // as terminally failed once retryCount >= REPLAY_MAX_ATTEMPTS.
+  static readonly REPLAY_BACKOFF_SECONDS: readonly number[] = [
+    60,
+    300,
+    1800,
+    7200,
+    21600,
+  ];
+  static readonly REPLAY_MAX_ATTEMPTS = 5;
+
+  // Park a failed outbound for the NhcxReplayWorker. Increments
+  // retryCount, sets nextRetryAt, and updates status. The original
+  // outbound row stays in place — no duplicate row is written. The
+  // worker re-issues the same correlationId on retry so idempotency
+  // is preserved end-to-end.
+  async markQueuedForRetry(input: {
+    tenantId: string;
+    outboundId: string;
+    failureClass: IntegrationFailureClass;
+    attemptsSoFar: number;
+    now?: Date;
+  }): Promise<{ nextRetryAt: Date; retryCount: number }> {
+    const idx = Math.min(input.attemptsSoFar, IntegrationMessageService.REPLAY_BACKOFF_SECONDS.length - 1);
+    const backoffSeconds = IntegrationMessageService.REPLAY_BACKOFF_SECONDS[idx] ?? 21600;
+    const baseTime = (input.now ?? new Date()).getTime();
+    const nextRetryAt = new Date(baseTime + backoffSeconds * 1000);
+
+    const updated = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      async (tx) => {
+        return tx.integrationMessage.update({
+          where: { id: input.outboundId },
+          data: {
+            status: 'queued_for_retry',
+            failureClass: input.failureClass,
+            retryCount: { increment: 1 },
+            nextRetryAt,
+            lastAttemptAt: new Date(baseTime),
+          },
+          select: { retryCount: true, nextRetryAt: true },
+        });
+      },
+    );
+    return {
+      nextRetryAt: updated.nextRetryAt ?? nextRetryAt,
+      retryCount: updated.retryCount,
+    };
+  }
+
+  // Find replayable rows ready for re-issue across ALL tenants.
+  // Direct prisma access — bypasses runInTenantContext deliberately
+  // because the worker sweeps cross-tenant. Tenant boundaries are
+  // reasserted when the replay handler re-invokes the owning
+  // service (which sets its own tenant GUC). Mirrors the pattern
+  // in NotificationRetryWorker.runOnce.
+  async findReplayable(
+    options: { limit?: number; integration?: IntegrationName; now?: Date } = {},
+  ): Promise<
+    Array<{
+      id: string;
+      tenantId: string;
+      claimId: string | null;
+      integration: string;
+      operation: string;
+      correlationId: string;
+      retryCount: number;
+      idempotencyKey: string | null;
+    }>
+  > {
+    const limit = Math.min(options.limit ?? 25, 100);
+    const cutoff = options.now ?? new Date();
+    return this.prisma.integrationMessage.findMany({
+      where: {
+        status: 'queued_for_retry',
+        nextRetryAt: { lte: cutoff },
+        retryCount: { lt: IntegrationMessageService.REPLAY_MAX_ATTEMPTS },
+        ...(options.integration !== undefined
+          ? { integration: options.integration }
+          : {}),
+      },
+      orderBy: { nextRetryAt: 'asc' },
+      take: limit,
+      select: {
+        id: true,
+        tenantId: true,
+        claimId: true,
+        integration: true,
+        operation: true,
+        correlationId: true,
+        retryCount: true,
+        idempotencyKey: true,
+      },
+    });
+  }
+
+  // Called by a replay handler when re-issue succeeds. Flips status
+  // to 'succeeded', clears nextRetryAt, writes the inbound response
+  // mirror row.
+  async markReplaySucceeded(input: {
+    tenantId: string;
+    outboundId: string;
+    correlationId: string;
+    integration: IntegrationName;
+    operation: string;
+    claimId?: string;
+    rawResponse: unknown;
+  }): Promise<void> {
+    await this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
+      await tx.integrationMessage.update({
+        where: { id: input.outboundId },
+        data: {
+          status: 'succeeded',
+          rawResponse: input.rawResponse as never,
+          nextRetryAt: null,
+          completedAt: new Date(),
+        },
+      });
+      await tx.integrationMessage.create({
+        data: {
+          tenantId: input.tenantId,
+          ...(input.claimId !== undefined ? { claimId: input.claimId } : {}),
+          direction: 'inbound',
+          integration: input.integration,
+          operation: input.operation,
+          correlationId: input.correlationId,
+          status: 'succeeded',
+          rawResponse: input.rawResponse as never,
+          completedAt: new Date(),
+          lastAttemptAt: new Date(),
+        },
+      });
+    });
+  }
+
+  // Called when retries are exhausted or the failure has been
+  // re-classified as permanent. Flips to 'failed' so ops can triage.
+  async markReplayExhausted(input: {
+    tenantId: string;
+    outboundId: string;
+    failureClass: IntegrationFailureClass;
+  }): Promise<void> {
+    await this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
+      await tx.integrationMessage.update({
+        where: { id: input.outboundId },
+        data: {
+          status: 'failed',
+          failureClass: input.failureClass,
+          nextRetryAt: null,
+          completedAt: new Date(),
+        },
+      });
+    });
+  }
+
   async listForClaim(tenantId: string, claimId: string): Promise<IntegrationMessage[]> {
     const rows = await this.prisma.runInTenantContext(tenantId, 'tenant', (tx) =>
       tx.integrationMessage.findMany({
