@@ -55,6 +55,14 @@ export class CaseController {
       ...(body.treatingDoctorId !== undefined ? { treatingDoctorId: body.treatingDoctorId } : {}),
       ...(body.patient !== undefined ? { patient: body.patient } : {}),
       ...(body.consent !== undefined ? { consent: body.consent } : {}),
+      // T2-14 — forward the room-rent pre-warn fields if present.
+      ...(body.roomDailyRate !== undefined ? { roomDailyRate: body.roomDailyRate } : {}),
+      ...(body.policyRoomRentLimit !== undefined
+        ? { policyRoomRentLimit: body.policyRoomRentLimit }
+        : {}),
+      ...(body.estimatedStayDays !== undefined
+        ? { estimatedStayDays: body.estimatedStayDays }
+        : {}),
       ip: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,
     });

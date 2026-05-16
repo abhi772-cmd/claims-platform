@@ -99,6 +99,16 @@ export class CaseService {
           ...(input.treatingDoctorId !== undefined
             ? { treatingDoctorId: input.treatingDoctorId }
             : {}),
+          // T2-14 — room rent pre-warn fields captured at intake.
+          ...(input.roomDailyRate !== undefined
+            ? { roomDailyRate: input.roomDailyRate }
+            : {}),
+          ...(input.policyRoomRentLimit !== undefined
+            ? { policyRoomRentLimit: input.policyRoomRentLimit }
+            : {}),
+          ...(input.estimatedStayDays !== undefined
+            ? { estimatedStayDays: input.estimatedStayDays }
+            : {}),
           createdById: input.actorUserId,
         },
       });
@@ -328,6 +338,9 @@ export class CaseService {
       treatingDoctorId: string | null;
       createdAt: Date;
       closedAt: Date | null;
+      roomDailyRate: number | null;
+      policyRoomRentLimit: number | null;
+      estimatedStayDays: number | null;
     },
     headlineStatus: string | null,
     sla: ClaimSla | null = null,
@@ -349,6 +362,12 @@ export class CaseService {
       // claim submit yet, and matches how the schema marks sla as
       // optional rather than always-present.
       ...(sla && (sla.preauth || sla.claim) ? { sla } : {}),
+      // T2-14 — pass through whatever the operator captured at intake.
+      // Always present (nullable) so client can distinguish
+      // "captured & zero" from "not captured".
+      roomDailyRate: c.roomDailyRate,
+      policyRoomRentLimit: c.policyRoomRentLimit,
+      estimatedStayDays: c.estimatedStayDays,
     };
   }
 
@@ -364,6 +383,9 @@ export class CaseService {
       treatingDoctorId: string | null;
       createdAt: Date;
       closedAt: Date | null;
+      roomDailyRate: number | null;
+      policyRoomRentLimit: number | null;
+      estimatedStayDays: number | null;
     },
     claims: CaseDetail['claims'],
   ): CaseDetail {

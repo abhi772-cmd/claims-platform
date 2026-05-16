@@ -56,6 +56,13 @@ export default function NewCasePage(): JSX.Element {
   const [abhaId, setAbhaId] = useState('');
   const [mobile, setMobile] = useState('');
 
+  // T2-14 — room rent pre-warn (all optional). Operator enters
+  // rupees in the UI; we convert to paise at submit time to match
+  // the Int-paise wire format.
+  const [roomDailyRateRupees, setRoomDailyRateRupees] = useState('');
+  const [policyRoomRentLimitRupees, setPolicyRoomRentLimitRupees] = useState('');
+  const [estimatedStayDays, setEstimatedStayDays] = useState('');
+
   // Consent capture
   const [captureConsent, setCaptureConsent] = useState(true);
   const [acknowledgedVia, setAcknowledgedVia] = useState('in_person_signature');
@@ -97,6 +104,16 @@ export default function NewCasePage(): JSX.Element {
           }
         : undefined;
 
+    // T2-14 — convert rupee inputs to paise; leave fields out
+    // entirely (vs. sending 0) when the operator didn't type a number
+    // so the server stores NULL and the case-detail banner skips.
+    const rateRupees = roomDailyRateRupees.trim();
+    const limitRupees = policyRoomRentLimitRupees.trim();
+    const stayDays = estimatedStayDays.trim();
+    const roomDailyRate = rateRupees ? Math.round(Number(rateRupees) * 100) : undefined;
+    const policyRoomRentLimit = limitRupees ? Math.round(Number(limitRupees) * 100) : undefined;
+    const estimatedStayDaysNum = stayDays ? Number(stayDays) : undefined;
+
     const parsed = CreateCaseRequestSchema.safeParse({
       patientName,
       hospitalMrn,
@@ -105,6 +122,9 @@ export default function NewCasePage(): JSX.Element {
       primaryRail,
       ...(patient ? { patient } : {}),
       ...(consent ? { consent } : {}),
+      ...(roomDailyRate !== undefined ? { roomDailyRate } : {}),
+      ...(policyRoomRentLimit !== undefined ? { policyRoomRentLimit } : {}),
+      ...(estimatedStayDaysNum !== undefined ? { estimatedStayDays: estimatedStayDaysNum } : {}),
     });
     if (!parsed.success) {
       showError('VALIDATION_FAILED', parsed.error.issues[0]?.message);
@@ -224,6 +244,18 @@ export default function NewCasePage(): JSX.Element {
             </div>
           </div>
         </fieldset>
+
+        {/* T2-14 — Room & coverage pre-warn. All three inputs
+            optional; the live card materialises only when both
+            room rate AND policy limit are typed. */}
+        <RoomCoverageCard
+          roomDailyRateRupees={roomDailyRateRupees}
+          setRoomDailyRateRupees={setRoomDailyRateRupees}
+          policyRoomRentLimitRupees={policyRoomRentLimitRupees}
+          setPolicyRoomRentLimitRupees={setPolicyRoomRentLimitRupees}
+          estimatedStayDays={estimatedStayDays}
+          setEstimatedStayDays={setEstimatedStayDays}
+        />
 
         {/* Card 2: Identity & PII */}
         <fieldset className="glass rounded-xl p-6">
@@ -393,4 +425,140 @@ export default function NewCasePage(): JSX.Element {
       </form>
     </div>
   );
+}
+
+// ---------- T2-14 — Room & coverage card ----------
+
+interface RoomCoverageCardProps {
+  roomDailyRateRupees: string;
+  setRoomDailyRateRupees: (v: string) => void;
+  policyRoomRentLimitRupees: string;
+  setPolicyRoomRentLimitRupees: (v: string) => void;
+  estimatedStayDays: string;
+  setEstimatedStayDays: (v: string) => void;
+}
+
+function RoomCoverageCard({
+  roomDailyRateRupees,
+  setRoomDailyRateRupees,
+  policyRoomRentLimitRupees,
+  setPolicyRoomRentLimitRupees,
+  estimatedStayDays,
+  setEstimatedStayDays,
+}: RoomCoverageCardProps): JSX.Element {
+  const rate = roomDailyRateRupees.trim() ? Number(roomDailyRateRupees) : null;
+  const limit = policyRoomRentLimitRupees.trim() ? Number(policyRoomRentLimitRupees) : null;
+  const days = estimatedStayDays.trim() ? Number(estimatedStayDays) : null;
+  // Pre-warn only renders when both ends of the comparison are typed
+  // and parsed as finite non-negative numbers. Math mirrors the
+  // server-side helper apps/api/src/modules/case/room-rent-liability.ts.
+  const canCompute =
+    rate !== null && limit !== null && Number.isFinite(rate) && Number.isFinite(limit);
+  const perDayLiability = canCompute ? Math.max(0, rate - limit) : null;
+  const totalLiability =
+    perDayLiability !== null && days !== null && Number.isFinite(days)
+      ? perDayLiability * days
+      : null;
+  const isOverLimit = perDayLiability !== null && perDayLiability > 0;
+
+  return (
+    <fieldset className="glass rounded-xl p-6">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="material-symbols-outlined text-primary">bed</span>
+        <h3 className="text-h3 font-h3 text-on-surface">Room &amp; coverage</h3>
+      </div>
+      <p className="mb-4 text-body-sm text-on-surface-variant">
+        Optional, strongly recommended for planned admissions. Catches room-rent
+        sub-limit shortfalls so the family is told the out-of-pocket BEFORE
+        admission, not at discharge.
+      </p>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="room-rate" className={LABEL_CLS}>
+            Room daily rate (₹)
+          </label>
+          <input
+            id="room-rate"
+            inputMode="numeric"
+            value={roomDailyRateRupees}
+            onChange={(e) => setRoomDailyRateRupees(e.target.value.replace(/[^0-9.]/g, ''))}
+            placeholder="e.g. 8000"
+            className={`${INPUT_CLS} font-mono tabular-nums`}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="policy-limit" className={LABEL_CLS}>
+            Policy room-rent cap (₹/day)
+          </label>
+          <input
+            id="policy-limit"
+            inputMode="numeric"
+            value={policyRoomRentLimitRupees}
+            onChange={(e) =>
+              setPolicyRoomRentLimitRupees(e.target.value.replace(/[^0-9.]/g, ''))
+            }
+            placeholder="e.g. 5000"
+            className={`${INPUT_CLS} font-mono tabular-nums`}
+          />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="stay-days" className={LABEL_CLS}>
+            Estimated stay (days)
+          </label>
+          <input
+            id="stay-days"
+            inputMode="numeric"
+            value={estimatedStayDays}
+            onChange={(e) => setEstimatedStayDays(e.target.value.replace(/[^0-9]/g, ''))}
+            placeholder="e.g. 5"
+            className={`${INPUT_CLS} font-mono tabular-nums`}
+          />
+        </div>
+      </div>
+
+      {/* Live pre-warn — only when both rate + limit typed */}
+      {canCompute ? (
+        isOverLimit ? (
+          <div
+            className="mt-5 rounded-lg border border-amber-200 bg-amber-50/80 p-4"
+            role="alert"
+            aria-live="polite"
+          >
+            <div className="flex items-start gap-3">
+              <span className="material-symbols-outlined mt-0.5 text-amber-700">warning</span>
+              <div className="flex-1 text-body-sm text-on-surface">
+                <p className="font-medium">
+                  Room rate exceeds policy cap by ₹{fmtINR(perDayLiability!)}/day.
+                </p>
+                <p className="mt-1 text-on-surface-variant">
+                  Family is liable for the differential each day
+                  {totalLiability !== null ? (
+                    <>
+                      {' '}
+                      — projected total over {days} day{days === 1 ? '' : 's'}:{' '}
+                      <span className="font-bold text-on-surface">
+                        ₹{fmtINR(totalLiability)}
+                      </span>
+                    </>
+                  ) : null}
+                  . Most Indian policies also apply a proportionate deduction on
+                  associated services. Obtain explicit acceptance (or move to a
+                  cheaper room) before admission.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 text-body-sm text-emerald-800">
+            <span className="material-symbols-outlined text-emerald-700">check_circle</span>
+            <span>Room rate is within the policy cap. No room-rent shortfall.</span>
+          </div>
+        )
+      ) : null}
+    </fieldset>
+  );
+}
+
+function fmtINR(rupees: number): string {
+  return rupees.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }

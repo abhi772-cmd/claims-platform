@@ -107,6 +107,15 @@ model Case {
   updatedAt       DateTime  @updatedAt
   closedAt        DateTime?
 
+  // T2-14 — room rent sub-limit pre-warn captured at intake.
+  // All three nullable: emergency intake / self-pay rows where
+  // no policy cap exists keep these as NULL and the UI skips
+  // the warning entirely. Paise convention matches Claim's
+  // money columns.
+  roomDailyRate        Int?
+  policyRoomRentLimit  Int?
+  estimatedStayDays    Int?
+
   claims                 Claim[]
   patient                Patient?                @relation(fields: [patientId], references: [id], onDelete: SetNull)
   biometricVerifications BiometricVerification[]

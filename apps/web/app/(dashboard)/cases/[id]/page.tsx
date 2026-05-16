@@ -77,8 +77,56 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
   }
   const claim = detail.claims[0];
 
+  // T2-14 — room-rent pre-warn banner. Computes liability from
+  // the three fields the operator captured at intake. Skip the
+  // banner entirely when either rate or limit is null (we have
+  // no information to warn about). Math mirrors the server-side
+  // helper apps/api/src/modules/case/room-rent-liability.ts.
+  const roomRate = detail.roomDailyRate;
+  const roomLimit = detail.policyRoomRentLimit;
+  const stayDays = detail.estimatedStayDays;
+  const perDayLiabilityPaise =
+    roomRate !== null && roomLimit !== null ? Math.max(0, roomRate - roomLimit) : null;
+  const totalLiabilityPaise =
+    perDayLiabilityPaise !== null && stayDays !== null
+      ? perDayLiabilityPaise * stayDays
+      : null;
+
   return (
     <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6">
+      {perDayLiabilityPaise !== null && perDayLiabilityPaise > 0 ? (
+        <section
+          className="glass rounded-xl border border-amber-300 bg-amber-50/70 p-5"
+          role="alert"
+        >
+          <div className="flex items-start gap-3">
+            <span className="material-symbols-outlined mt-0.5 text-amber-700">warning</span>
+            <div className="flex-1 text-body-sm">
+              <p className="text-h3 font-h3 text-on-surface">
+                Room rent exceeds policy cap by ₹{fmtINR(perDayLiabilityPaise / 100)}/day
+              </p>
+              <p className="mt-1 text-on-surface-variant">
+                Captured at intake: room ₹{fmtINR((roomRate ?? 0) / 100)}/day vs policy cap ₹
+                {fmtINR((roomLimit ?? 0) / 100)}/day.
+                {totalLiabilityPaise !== null ? (
+                  <>
+                    {' '}
+                    Projected out-of-pocket over {stayDays} day{stayDays === 1 ? '' : 's'}:{' '}
+                    <span className="font-bold text-on-surface">
+                      ₹{fmtINR(totalLiabilityPaise / 100)}
+                    </span>
+                    .
+                  </>
+                ) : null}{' '}
+                Verify the family has acknowledged the differential, and remember
+                that most Indian policies apply a proportionate deduction on
+                associated services on top of this room-rent shortfall.
+              </p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       {/* HEADER ROW — patient hero + financial summary */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         {/* Patient hero */}
@@ -332,6 +380,10 @@ function fmtAmount(v: number | string | null | undefined): string {
   const n = typeof v === 'string' ? Number(v) : v;
   if (!Number.isFinite(n)) return String(v);
   return `₹${n.toLocaleString('en-IN')}`;
+}
+
+function fmtINR(rupees: number): string {
+  return rupees.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
 interface MiniStatProps {
