@@ -6,6 +6,59 @@ sprint slices rather than calendar releases.
 
 ## Sprint 10 — TBD (May 2026)
 
+### T1-5 follow-up — eligibility wired to the replay queue
+
+Activates the dormant T1-5 foundation for the first service. Pattern
+established here is what every subsequent service (preauth,
+claim-submit, communication outbound, payment notice) will copy.
+
+- New `apps/api/src/modules/eligibility/transient-errors.ts` —
+  pure classifier that distinguishes transient adapter errors
+  (network / 5xx / timeout) from permanent (4xx / JWE decrypt /
+  unknown). Unknown shapes are conservatively treated as
+  permanent so the worker doesn't loop on something we don't
+  recognise. 13-case unit spec covers JWE adapter's actual error
+  formats + boundary patterns.
+- `EligibilityService.run()` wraps `this.nhcx.verifyEligibility`
+  in try/catch:
+  - On **transient** error → server-generated correlationId,
+    new outbound row at `status='queued_for_retry'` (initial
+    backoff 60s), claim stays at `ELIGIBILITY_CHECK_PENDING`.
+    Operator-facing response mirrors the real-mode
+    "awaiting callback" shape — no error surfaced to the UI.
+  - On **permanent** error → bubbles up unchanged.
+- `EligibilityService.replayQueuedEligibility()` — replay
+  handler registered via `NhcxReplayWorker.registerHandler()` at
+  module bootstrap. Strategy:
+  - Re-derives the adapter request from CURRENT persistent
+    state (claim row + case row + patient row). The original
+    `rawRequest` is forensic only; replay reflects whatever
+    the operator's done since.
+  - **Idempotency guard**: if the claim has moved past
+    `ELIGIBILITY_CHECK_PENDING` (operator manually transitioned,
+    or an inbound callback already landed), the replay is a
+    no-op and the row is marked exhausted so the worker stops
+    re-parking it.
+  - On adapter success: marks the queued row succeeded + drives
+    the `eligibility.verified` / `eligibility.failed`
+    transition. The replay uses a NEW correlationId; gateway
+    treats it as a fresh request.
+  - On transient again: returns `'transient'` to the worker
+    which re-parks with new backoff.
+  - On permanent: returns `'permanent'` to mark the row failed.
+- No new schema. No new permission.
+
+Edge case enabled (depends on PR #98 foundation):
+**T1-5** for the eligibility flow. NHCX gateway outages no
+longer require operator action on the eligibility step — the
+worker drains the queue once the gateway recovers.
+
+Follow-ups: same pattern applied to PreauthService,
+ClaimSubmitService, CommunicationService outbound, payment
+notice. Each is ~3-5 files.
+
+
+
 ### T1-5 — NHCX outbound replay queue (foundation)
 
 - New status value `queued_for_retry` on
