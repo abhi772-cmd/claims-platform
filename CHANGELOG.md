@@ -6,6 +6,30 @@ sprint slices rather than calendar releases.
 
 ## Sprint 10 — TBD (May 2026)
 
+### Smoke-test follow-up — Communications panel auto-refresh
+
+Third polish item from the SMOKE_TEST.md walk. After sending a
+proactive communication the case timeline + integration logs
+panels stayed at their pre-send state until the operator hit a
+manual reload. The data was correct on the server — the rows
+just weren't fetched.
+
+CommunicationsPanel now accepts an `onChanged: () => void` prop
+(the same shape PreauthPanel / ClaimPhasePanel / SettlementPanel /
+AppealPanel already used) and calls it after a successful send,
+right after the local communications list refreshes. The case
+page passes `() => void reload()`, which re-fetches the case
+detail + claim events + integration messages in a single round
+trip — same code path the four other panels already use.
+
+Single visible change for the operator: the new
+`communication.outbound_sent` event and the two
+`nhcx communication.request` rows (outbound + inbound) appear
+in the bottom-row timeline + integration-logs panels
+immediately, without a refresh.
+
+
+
 ### Smoke-test follow-ups — AbortError modal + PII KMS onboarding
 
 Two polish items surfaced while walking `SMOKE_TEST.md` against a

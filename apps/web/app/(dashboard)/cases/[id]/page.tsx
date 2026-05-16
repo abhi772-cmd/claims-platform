@@ -235,7 +235,11 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
       {/* Stage 5 — case-level communications timeline. Sits ABOVE
           the bottom-row timeline so the conversation is visible
           without scrolling past the entire case audit. */}
-      <CommunicationsPanel caseId={detail.id} claimId={claim?.id ?? null} />
+      <CommunicationsPanel
+        caseId={detail.id}
+        claimId={claim?.id ?? null}
+        onChanged={() => void reload()}
+      />
 
       {/* Bottom row: timeline + integration logs */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
