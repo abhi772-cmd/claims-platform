@@ -1,10 +1,21 @@
+import { randomUUID } from 'node:crypto';
+
 import { type CommunicationEntry } from '@claims/contracts';
-import { Inject, Injectable } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+} from '@nestjs/common';
 
 import { ClaimNotFoundError } from '../../common/errors/claim-errors';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { IntegrationMessageService } from '../integration';
+import {
+  classifyAdapterError,
+  IntegrationMessageService,
+  NhcxReplayWorker,
+} from '../integration';
 import { FhirContextService, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 
 // Stage 5 — hospital-initiated communication/request.
@@ -35,13 +46,25 @@ export interface SendOutboundResult {
 }
 
 @Injectable()
-export class CommunicationService {
+export class CommunicationService implements OnApplicationBootstrap {
+  private readonly log = new Logger(CommunicationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
     private readonly integration: IntegrationMessageService,
     private readonly fhirContext: FhirContextService,
+    private readonly replay: NhcxReplayWorker,
   ) {}
+
+  // T1-5 — register replay handler for 'communication.request' so
+  // the NhcxReplayWorker knows how to retry parked messages.
+  onApplicationBootstrap(): void {
+    this.replay.registerHandler({
+      operation: 'communication.request',
+      handle: async (ctx) => this.replayQueuedCommunication(ctx),
+    });
+  }
 
   async sendOutbound(input: SendOutboundInput): Promise<SendOutboundResult> {
     const trimmed = input.text.trim();
@@ -89,14 +112,44 @@ export class CommunicationService {
       purpose: 'communication.send',
     });
 
-    const adapterResult = await this.nhcx.sendCommunication({
+    const adapterPayload = {
       tenantId: input.tenantId,
       claimId: input.claimId,
       text: trimmed,
       ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
       ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
       ...(inReplyToRefNum !== null ? { inReplyToRefNum } : {}),
-    });
+    };
+    // T1-5 — classify-and-park. Transient adapter failure parks an
+    // outbound row at status='queued_for_retry'; the
+    // NhcxReplayWorker re-issues once the gateway recovers. The
+    // ClaimEvent timeline entry is also written here so the case-
+    // detail panel shows the message as sent (it just hasn't been
+    // confirmed by the gateway yet). Operator-facing: same shape
+    // as a normal send — no error surfaced.
+    //
+    // Permanent failures bubble up.
+    let adapterResult;
+    try {
+      adapterResult = await this.nhcx.sendCommunication(adapterPayload);
+    } catch (err) {
+      const classified = classifyAdapterError(err);
+      if (classified.classification === 'transient') {
+        return this.parkCommunicationForReplay({
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          claimStatus: claim.status,
+          text: trimmed,
+          inReplyToCorrelationId: input.inReplyToCorrelationId,
+          inReplyToRefNum,
+          actorUserId: input.actorUserId,
+          adapterRequest: adapterPayload,
+          failureClass: classified.failureClass,
+          message: classified.message,
+        });
+      }
+      throw err;
+    }
 
     const outboundId = await this.prisma.runInTenantContext(
       input.tenantId,
@@ -264,5 +317,181 @@ export class CommunicationService {
         };
       }),
     };
+  }
+
+  // T1-5 — park a transient-failed communication send. Writes the
+  // outbound integration_message row at status='queued_for_retry'
+  // AND appends the ClaimEvent timeline entry so the operator sees
+  // their message in the case-detail panel right away (rather than
+  // a hard error). When the worker re-issues and the gateway accepts,
+  // the inbound row is written normally; the ClaimEvent already in
+  // place doesn't need updating — correlationId stays consistent.
+  private async parkCommunicationForReplay(input: {
+    tenantId: string;
+    claimId: string;
+    claimStatus: string;
+    text: string;
+    inReplyToCorrelationId?: string;
+    inReplyToRefNum: string | null;
+    actorUserId: string;
+    adapterRequest: unknown;
+    failureClass:
+      | 'network'
+      | 'timeout'
+      | 'server_5xx'
+      | 'auth'
+      | 'validation'
+      | 'captcha'
+      | 'selector'
+      | 'unknown';
+    message: string;
+  }): Promise<SendOutboundResult> {
+    const correlationId = randomUUID();
+    const outboundId = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      async (tx) => {
+        const row = await this.integration.recordOutboundWithTx(tx, {
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          integration: 'nhcx',
+          operation: 'communication.request',
+          correlationId,
+          rawRequest: input.adapterRequest,
+        });
+        return row.id;
+      },
+    );
+    await this.integration.markQueuedForRetry({
+      tenantId: input.tenantId,
+      outboundId,
+      failureClass: input.failureClass,
+      attemptsSoFar: 0,
+    });
+    this.log.warn(
+      `communication queued for replay claimId=${input.claimId} correlationId=${correlationId} reason=${input.message}`,
+    );
+
+    // Write the ClaimEvent so the case-detail timeline reflects the
+    // operator's intent. resultingStatus stays at the claim's current
+    // status (communication is non-transitioning).
+    const occurredAt = new Date();
+    await this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
+      const prevEvent = await tx.claimEvent.findFirst({
+        where: { claimId: input.claimId, tenantId: input.tenantId },
+        orderBy: { occurredAt: 'desc' },
+        select: { id: true },
+      });
+      await tx.claimEvent.create({
+        data: {
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          eventType: 'communication.outbound_sent',
+          resultingStatus: input.claimStatus,
+          occurredAt,
+          recordedById: input.actorUserId,
+          payload: {
+            direction: 'outbound',
+            text: input.text,
+            queued: true,
+            ...(input.inReplyToCorrelationId
+              ? { inReplyToCorrelationId: input.inReplyToCorrelationId }
+              : {}),
+            ...(input.inReplyToRefNum ? { inReplyToRefNum: input.inReplyToRefNum } : {}),
+          } as never,
+          correlationId,
+          prevEventId: prevEvent?.id ?? null,
+        },
+      });
+    });
+    return {
+      correlationId,
+      sentAt: occurredAt.toISOString(),
+    };
+  }
+
+  // T1-5 — replay handler for 'communication.request' rows. Lighter
+  // template than preauth/claim-submit because communications are
+  // non-transitioning — there's no state machine to coordinate. We
+  // just re-derive the text + recipient from the original ClaimEvent
+  // payload, re-call the adapter with the SAME correlationId so the
+  // gateway can dedup, and mark the row succeeded.
+  //
+  // Idempotency: communications don't have a "this conversation
+  // already moved on" guard like preauth/claim do — every
+  // communication is a one-shot send. The retry attempt is safe to
+  // re-issue without checking claim state because the message itself
+  // doesn't change the state machine.
+  private async replayQueuedCommunication(ctx: {
+    outboundId: string;
+    tenantId: string;
+    claimId: string | null;
+    correlationId: string;
+  }): Promise<'succeeded' | 'transient' | 'permanent'> {
+    if (!ctx.claimId) return 'permanent';
+
+    const original = await this.prisma.runInTenantContext(
+      ctx.tenantId,
+      'tenant',
+      async (tx) => {
+        const event = await tx.claimEvent.findFirst({
+          where: {
+            tenantId: ctx.tenantId,
+            claimId: ctx.claimId!,
+            eventType: 'communication.outbound_sent',
+            correlationId: ctx.correlationId,
+          },
+        });
+        if (!event) return null;
+        return {
+          payload: event.payload as Record<string, unknown> | null,
+        };
+      },
+    );
+    if (original === null) return 'permanent';
+    const text =
+      original.payload && typeof original.payload['text'] === 'string'
+        ? (original.payload['text'] as string)
+        : null;
+    const inReplyToRefNum =
+      original.payload && typeof original.payload['inReplyToRefNum'] === 'string'
+        ? (original.payload['inReplyToRefNum'] as string)
+        : null;
+    if (!text) return 'permanent';
+
+    const fhirCtx = await this.fhirContext.build(ctx.tenantId, ctx.claimId, {
+      actorUserId: null,
+      actorType: 'system',
+      purpose: 'communication.send',
+    });
+
+    let result;
+    try {
+      result = await this.nhcx.sendCommunication({
+        tenantId: ctx.tenantId,
+        claimId: ctx.claimId,
+        text,
+        ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
+        ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
+        ...(inReplyToRefNum !== null ? { inReplyToRefNum } : {}),
+      });
+    } catch (err) {
+      const classified = classifyAdapterError(err);
+      return classified.classification === 'transient' ? 'transient' : 'permanent';
+    }
+
+    await this.integration.markReplaySucceeded({
+      tenantId: ctx.tenantId,
+      outboundId: ctx.outboundId,
+      correlationId: result.correlationId,
+      integration: 'nhcx',
+      operation: 'communication.request',
+      claimId: ctx.claimId,
+      rawResponse: result.rawResponse,
+    });
+    this.log.log(
+      `communication replay succeeded claimId=${ctx.claimId} correlationId=${result.correlationId}`,
+    );
+    return 'succeeded';
   }
 }
