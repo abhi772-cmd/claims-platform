@@ -2,6 +2,7 @@ import {
   type CaseDetail,
   type CaseSummary,
   type ClaimRail,
+  type ClaimSla,
   type ClaimStatus,
   type CreateCaseRequest,
   type ListCasesResponse,
@@ -192,14 +193,38 @@ export class CaseService {
             claims: {
               orderBy: { initiatedAt: 'desc' },
               take: 1,
-              select: { status: true },
+              select: {
+                status: true,
+                // T2-15 follow-up — load the events for the headline
+                // claim so we can compute IRDAI SLA state and surface
+                // pre-auth + claim pills on the list cards.
+                events: {
+                  orderBy: { occurredAt: 'asc' },
+                  select: { eventType: true, occurredAt: true },
+                },
+              },
             },
           },
         }),
         tx.case.count({ where }),
       ]);
+      const now = new Date();
       return {
-        cases: rows.map((r) => this.toSummary(r, r.claims[0]?.status ?? null)),
+        cases: rows.map((r) => {
+          const headline = r.claims[0];
+          const sla = headline
+            ? computeSlaForClaim(
+                headline.events.map(
+                  (e): SlaEvent => ({
+                    eventType: e.eventType as SlaEvent['eventType'],
+                    occurredAt: e.occurredAt,
+                  }),
+                ),
+                now,
+              )
+            : null;
+          return this.toSummary(r, headline?.status ?? null, sla);
+        }),
         total,
         limit: input.limit,
         offset: input.offset,
@@ -305,6 +330,7 @@ export class CaseService {
       closedAt: Date | null;
     },
     headlineStatus: string | null,
+    sla: ClaimSla | null = null,
   ): CaseSummary {
     return {
       id: c.id,
@@ -318,6 +344,11 @@ export class CaseService {
       createdAt: c.createdAt.toISOString(),
       closedAt: c.closedAt ? c.closedAt.toISOString() : null,
       headlineClaimStatus: (headlineStatus as ClaimStatus | null) ?? null,
+      // Only attach when at least one phase has timer data — keeps the
+      // wire footprint small for cases that haven't reached preauth /
+      // claim submit yet, and matches how the schema marks sla as
+      // optional rather than always-present.
+      ...(sla && (sla.preauth || sla.claim) ? { sla } : {}),
     };
   }
 

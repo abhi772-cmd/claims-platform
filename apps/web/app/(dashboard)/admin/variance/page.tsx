@@ -125,18 +125,34 @@ export default function VariancePage(): JSX.Element {
       {loading && !summary ? (
         <p className="text-body-sm text-on-surface-variant">Loading…</p>
       ) : summary ? (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-          <KpiTile label="Total billed" value={rupees(summary.totalBilled)} />
-          <KpiTile label="Total approved" value={rupees(summary.totalApproved)} tone="primary" />
-          <KpiTile label="Total paid" value={rupees(summary.totalPaid)} />
-          <KpiTile
-            label="Billed variance"
-            value={rupees(summary.totalBilledVariance)}
-            tone="amber"
-            hint={`${summary.contributingClaimCount} claims`}
-          />
-          <KpiTile label="Short-pay" value={rupees(summary.totalShortPay)} tone="error" />
-        </div>
+        <>
+          {/* When the tenant has zero adjudicated claims, all five
+              KPIs are ₹0. Without context the page reads like a
+              broken integration; this banner reassures that the
+              numbers are accurate and points at what populates them. */}
+          {summary.contributingClaimCount === 0 ? (
+            <div className="glass flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+              <span className="material-symbols-outlined mt-0.5 text-amber-700">info</span>
+              <p className="text-body-sm text-on-surface">
+                <span className="font-medium text-on-surface">No adjudicated claims yet.</span>{' '}
+                Variance figures populate after the first claim is approved or paid.
+                Aging buckets, top payers, and the drill-down below will also fill in then.
+              </p>
+            </div>
+          ) : null}
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+            <KpiTile label="Total billed" value={rupees(summary.totalBilled)} />
+            <KpiTile label="Total approved" value={rupees(summary.totalApproved)} tone="primary" />
+            <KpiTile label="Total paid" value={rupees(summary.totalPaid)} />
+            <KpiTile
+              label="Billed variance"
+              value={rupees(summary.totalBilledVariance)}
+              tone="amber"
+              hint={`${summary.contributingClaimCount} claims`}
+            />
+            <KpiTile label="Short-pay" value={rupees(summary.totalShortPay)} tone="error" />
+          </div>
+        </>
       ) : null}
 
       {/* Aging + top payers row */}

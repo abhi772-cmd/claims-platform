@@ -149,16 +149,26 @@ export function CommunicationsPanel({ caseId, claimId, onChanged }: Props): JSX.
 
 function TimelineRow({ entry }: { entry: CommunicationEntry }): JSX.Element {
   const isOutbound = entry.direction === 'outbound';
+  const isQueued = isOutbound && entry.queued;
   const time = new Date(entry.occurredAt).toLocaleTimeString('en-IN', {
     hour: '2-digit',
     minute: '2-digit',
   });
+  // Queued outbounds are drawn with an amber dot to match the
+  // inbound colour family — operator reads it as "not finished
+  // yet" rather than "confirmed sent." Inbounds remain amber as
+  // before; confirmed outbounds stay teal.
+  const dotColor = isQueued
+    ? '#FAA719'
+    : isOutbound
+      ? 'var(--mat-sys-primary)'
+      : '#FAA719';
   return (
     <li className="flex gap-3">
       <span
         aria-hidden
         className="mt-1 inline-flex h-2.5 w-2.5 shrink-0 rounded-full"
-        style={{ background: isOutbound ? 'var(--mat-sys-primary)' : '#FAA719' }}
+        style={{ background: dotColor }}
       />
       <div className="flex-1">
         <div className="flex items-center gap-2 text-body-sm text-on-surface-variant">
@@ -167,6 +177,20 @@ function TimelineRow({ entry }: { entry: CommunicationEntry }): JSX.Element {
           </span>
           <span>·</span>
           <span>{time}</span>
+          {isQueued ? (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700"
+              title="Parked by the NHCX replay queue — awaiting gateway recovery"
+            >
+              <span
+                className="material-symbols-outlined text-[12px]"
+                style={{ fontVariationSettings: "'FILL' 1" }}
+              >
+                schedule
+              </span>
+              Queued
+            </span>
+          ) : null}
         </div>
         <p className="mt-1 whitespace-pre-wrap text-body text-on-surface">{entry.text}</p>
       </div>
