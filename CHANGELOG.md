@@ -6,6 +6,47 @@ sprint slices rather than calendar releases.
 
 ## Sprint 10 — TBD (May 2026)
 
+### T1-5 follow-up — claim-submit wired to the replay queue
+
+Third service opt-in to the NhcxReplayWorker. Same template as
+the preauth wiring; claim-submit is the highest-stakes adapter
+call on the platform — final claim, irrecoverable on permanent
+gateway loss.
+
+- `ClaimSubmitService.submit()` wraps `this.nhcx.submitClaim` in
+  classify-and-park:
+  - **Transient** → server-gen correlationId, outbound row at
+    `status='queued_for_retry'`, claim stays at `CLAIM_QUEUED`,
+    response carries empty `claimRefNum` (matches real-mode
+    "awaiting callback" shape until replay succeeds).
+  - **Permanent** → bubbles up unchanged.
+- `replayQueuedClaim()` handler registered at module bootstrap
+  for operation `'claim.submit'`:
+  - **Idempotency guard**: retries only while claim at
+    `CLAIM_QUEUED`. Acknowledged / approved / rejected / query
+    raised / closed → `markReplayExhausted`.
+  - Re-derives adapter request from current state
+    (`PreauthDraft` for clinical fields, `Document.list` for
+    attached docs, `Claim.claimAmount` for finalAmount,
+    `fhirContext.build` for patient + coverage).
+  - **Success path**: `markReplaySucceeded` + stamps `claimRefNum`
+    on the claim row + (stub mode only) drives `claim.acknowledged`
+    transition. Real mode leaves the claim at `CLAIM_QUEUED` for
+    the inbound `claim/on_submit` callback to drive the ack.
+  - Transient again → `'transient'`. Permanent → `'permanent'`.
+- No schema changes, no new permission.
+
+Edge case enabled: **T1-5** for the claim submit flow. NHCX
+gateway outages no longer require operator intervention on the
+final claim — the worker re-issues once the gateway recovers,
+the gateway's idempotency at the claimRefNum boundary prevents
+double-acts.
+
+Remaining T1-5 follow-ups (each ~3-5 files, same template):
+communication outbound, discharge.
+
+
+
 ### T1-5 follow-up — preauth wired to the replay queue
 
 Second service opt-in to the NhcxReplayWorker. Mirrors the

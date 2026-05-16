@@ -1,9 +1,16 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   type ClaimDecisionKind,
   type ClaimSubmissionResponse,
   type ReprocessReasonCode,
 } from '@claims/contracts';
-import { Inject, Injectable } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { ValidationFailedError } from '../../common/errors/validation-errors';
@@ -12,7 +19,11 @@ import { type AppConfig } from '../../config/configuration';
 import { BiometricAuthService } from '../biometric-auth';
 import { ClaimService } from '../claim';
 import { DocumentService } from '../document';
-import { IntegrationMessageService } from '../integration';
+import {
+  classifyAdapterError,
+  IntegrationMessageService,
+  NhcxReplayWorker,
+} from '../integration';
 import { FhirContextService, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 import { TenantService } from '../tenant/tenant.service';
 
@@ -53,7 +64,9 @@ export interface ReprocessClaimInput {
 }
 
 @Injectable()
-export class ClaimSubmitService {
+export class ClaimSubmitService implements OnApplicationBootstrap {
+  private readonly log = new Logger(ClaimSubmitService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly claims: ClaimService,
@@ -64,7 +77,17 @@ export class ClaimSubmitService {
     private readonly tenants: TenantService,
     private readonly biometric: BiometricAuthService,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
+    private readonly replay: NhcxReplayWorker,
   ) {}
+
+  // T1-5 — register replay handler for 'claim.submit' rows so the
+  // NhcxReplayWorker knows how to retry parked submissions.
+  onApplicationBootstrap(): void {
+    this.replay.registerHandler({
+      operation: 'claim.submit',
+      handle: async (ctx) => this.replayQueuedClaim(ctx),
+    });
+  }
 
   async start(input: StartInput): Promise<{ status: string }> {
     const snap = await this.claims.transition({
@@ -121,7 +144,7 @@ export class ClaimSubmitService {
       tx.preauthDraft.findUnique({ where: { claimId: input.claimId } }),
     );
     const docs = await this.documents.list(input.tenantId, input.claimId);
-    const adapter = await this.nhcx.submitClaim({
+    const adapterPayload = {
       tenantId: input.tenantId,
       claimId: input.claimId,
       finalAmount: input.finalAmount,
@@ -135,7 +158,28 @@ export class ClaimSubmitService {
       ...(draft?.clinicalJustification
         ? { clinicalJustification: draft.clinicalJustification }
         : {}),
-    });
+    };
+    // T1-5 — classify-and-park around the adapter call. Transient
+    // adapter failures park an outbound row at status='queued_for_retry';
+    // the NhcxReplayWorker re-issues once the gateway recovers. Claim
+    // stays at CLAIM_QUEUED (set by the claim.submitted_internally
+    // transition above). Permanent failures bubble up unchanged.
+    let adapter;
+    try {
+      adapter = await this.nhcx.submitClaim(adapterPayload);
+    } catch (err) {
+      const classified = classifyAdapterError(err);
+      if (classified.classification === 'transient') {
+        return this.parkClaimForReplay({
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          adapterRequest: adapterPayload,
+          failureClass: classified.failureClass,
+          message: classified.message,
+        });
+      }
+      throw err;
+    }
 
     // Ledger rows + transition queued → submitted.
     const outboundId = await this.prisma.runInTenantContext(
@@ -430,5 +474,182 @@ export class ClaimSubmitService {
       ...(input.parsed.reason !== undefined ? { reason: input.parsed.reason } : {}),
       ...(input.parsed.queryText !== undefined ? { queryText: input.parsed.queryText } : {}),
     });
+  }
+
+  // T1-5 — park a transient-failed claim submit. Outbound row carries
+  // a server-generated correlationId so the worker's retry can be
+  // matched on the gateway. Claim stays at CLAIM_QUEUED; operator
+  // sees the same "submitted, awaiting payer" surface they'd see in
+  // real mode. claimRefNum is unknown until replay succeeds.
+  private async parkClaimForReplay(input: {
+    tenantId: string;
+    claimId: string;
+    adapterRequest: unknown;
+    failureClass:
+      | 'network'
+      | 'timeout'
+      | 'server_5xx'
+      | 'auth'
+      | 'validation'
+      | 'captcha'
+      | 'selector'
+      | 'unknown';
+    message: string;
+  }): Promise<ClaimSubmissionResponse> {
+    const correlationId = randomUUID();
+    const outboundId = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'tenant',
+      async (tx) => {
+        const row = await this.integration.recordOutboundWithTx(tx, {
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          integration: 'nhcx',
+          operation: 'claim.submit',
+          correlationId,
+          rawRequest: input.adapterRequest,
+        });
+        return row.id;
+      },
+    );
+    await this.integration.markQueuedForRetry({
+      tenantId: input.tenantId,
+      outboundId,
+      failureClass: input.failureClass,
+      attemptsSoFar: 0,
+    });
+    this.log.warn(
+      `claim queued for replay claimId=${input.claimId} correlationId=${correlationId} reason=${input.message}`,
+    );
+    const pendingSnap = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'platform_admin',
+      (tx) => tx.claim.findUniqueOrThrow({ where: { id: input.claimId } }),
+    );
+    return {
+      status: pendingSnap.status,
+      claimRefNum: '',
+      correlationId,
+    };
+  }
+
+  // T1-5 — replay handler for 'claim.submit' rows. Mirrors the
+  // preauth template:
+  //   * Idempotency guard: only retry while claim is at CLAIM_QUEUED.
+  //     Acknowledged / approved / rejected / query raised / closed
+  //     means the flow has already moved on — mark exhausted.
+  //   * Re-derive the adapter request from current state
+  //     (PreauthDraft for clinical fields, Document list for the
+  //     attached EOB-able docs, Claim row for finalAmount via
+  //     claimAmount, FhirContext for patient + coverage).
+  //   * On adapter success: markReplaySucceeded + stamp claimRefNum
+  //     on the claim row + (stub mode only) drive the QUEUED →
+  //     ACKNOWLEDGED transition. Real mode waits for the gateway's
+  //     claim/on_submit callback (matches happy-path code).
+  //   * Transient again → 'transient'; permanent → 'permanent'.
+  private async replayQueuedClaim(ctx: {
+    outboundId: string;
+    tenantId: string;
+    claimId: string | null;
+    correlationId: string;
+  }): Promise<'succeeded' | 'transient' | 'permanent'> {
+    if (!ctx.claimId) return 'permanent';
+
+    const ctxRow = await this.prisma.runInTenantContext(
+      ctx.tenantId,
+      'tenant',
+      async (tx) => {
+        const c = await tx.claim.findUnique({ where: { id: ctx.claimId! } });
+        if (!c) return null;
+        if (c.status !== 'CLAIM_QUEUED') {
+          return { skip: true as const, status: c.status };
+        }
+        if (c.claimAmount === null) {
+          // Defensive: claim was queued without a finalAmount set,
+          // which the state machine shouldn't allow. Mark permanent.
+          return { skip: true as const, status: c.status };
+        }
+        const d = await tx.preauthDraft.findUnique({ where: { claimId: ctx.claimId! } });
+        return { skip: false as const, claim: c, draft: d };
+      },
+    );
+    if (ctxRow === null) return 'permanent';
+    if (ctxRow.skip) {
+      await this.integration.markReplayExhausted({
+        tenantId: ctx.tenantId,
+        outboundId: ctx.outboundId,
+        failureClass: 'unknown',
+      });
+      this.log.log(
+        `claim replay skipped (claim already at ${ctxRow.status}) outboundId=${ctx.outboundId}`,
+      );
+      return 'succeeded';
+    }
+
+    const { claim, draft } = ctxRow;
+    const fhirCtx = await this.fhirContext.build(ctx.tenantId, ctx.claimId, {
+      actorUserId: null,
+      actorType: 'system',
+      purpose: 'claim.submit',
+    });
+    const docs = await this.documents.list(ctx.tenantId, ctx.claimId);
+    const adapterPayload = {
+      tenantId: ctx.tenantId,
+      claimId: ctx.claimId,
+      finalAmount: claim.claimAmount!,
+      ...(fhirCtx.patient !== undefined ? { patient: fhirCtx.patient } : {}),
+      ...(fhirCtx.coverage !== undefined ? { coverage: fhirCtx.coverage } : {}),
+      documentIds: docs.map((d) => d.id),
+      ...(draft?.diagnosisIcdCode ? { diagnosisIcdCode: draft.diagnosisIcdCode } : {}),
+      ...(draft?.diagnosisDescription
+        ? { diagnosisDescription: draft.diagnosisDescription }
+        : {}),
+      ...(draft?.plannedProcedure ? { plannedProcedure: draft.plannedProcedure } : {}),
+      ...(draft?.procedureCode ? { procedureCode: draft.procedureCode } : {}),
+      ...(draft?.clinicalJustification
+        ? { clinicalJustification: draft.clinicalJustification }
+        : {}),
+    };
+
+    let result;
+    try {
+      result = await this.nhcx.submitClaim(adapterPayload);
+    } catch (err) {
+      const classified = classifyAdapterError(err);
+      return classified.classification === 'transient' ? 'transient' : 'permanent';
+    }
+
+    await this.integration.markReplaySucceeded({
+      tenantId: ctx.tenantId,
+      outboundId: ctx.outboundId,
+      correlationId: result.correlationId,
+      integration: 'nhcx',
+      operation: 'claim.submit',
+      claimId: ctx.claimId,
+      rawResponse: result.rawResponse,
+    });
+    // Stamp claimRefNum on the claim row regardless of mode so ops
+    // sees the gateway-assigned id immediately.
+    await this.prisma.runInTenantContext(ctx.tenantId, 'tenant', async (tx) => {
+      await tx.claim.update({
+        where: { id: ctx.claimId! },
+        data: { claimRefNum: result.claimRefNum },
+      });
+    });
+    // Stub mode: drive ack transition. Real mode: let the inbound
+    // dispatcher's claim/on_submit handler do it.
+    if (this.config.get('NHCX_MODE', { infer: true }) !== 'real') {
+      await this.claims.transition({
+        tenantId: ctx.tenantId,
+        claimId: ctx.claimId,
+        eventType: 'claim.acknowledged',
+        actorUserId: null,
+        correlationId: result.correlationId,
+      });
+    }
+    this.log.log(
+      `claim replay succeeded claimId=${ctx.claimId} claimRefNum=${result.claimRefNum} correlationId=${result.correlationId}`,
+    );
+    return 'succeeded';
   }
 }
