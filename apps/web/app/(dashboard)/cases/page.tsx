@@ -157,6 +157,13 @@ export default function CasesListPage(): JSX.Element {
                             endpoint precomputes these. */}
                         {c.sla?.preauth ? <SlaPill sla={c.sla.preauth} compact /> : null}
                         {c.sla?.claim ? <SlaPill sla={c.sla.claim} compact /> : null}
+                        {/* T2-14 follow-up — surface a room-rent shortfall
+                            pill at the triage level so the case is visibly
+                            flagged in the list, not just on its detail. */}
+                        <RoomRentShortfallPill
+                          roomDailyRate={c.roomDailyRate}
+                          policyRoomRentLimit={c.policyRoomRentLimit}
+                        />
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -233,6 +240,34 @@ function RailPill({ rail }: { rail: string }): JSX.Element {
     >
       <span className="material-symbols-outlined text-[14px]">{icon}</span>
       {rail}
+    </span>
+  );
+}
+
+// T2-14 follow-up — compact list-card pill that materialises only when
+// both rate + cap were captured at intake AND the rate exceeds the
+// cap. The math mirrors the case-detail banner; the wire shape
+// (nullable Int paise) comes straight from CaseSummary.
+function RoomRentShortfallPill({
+  roomDailyRate,
+  policyRoomRentLimit,
+}: {
+  roomDailyRate: number | null;
+  policyRoomRentLimit: number | null;
+}): JSX.Element | null {
+  if (roomDailyRate === null || policyRoomRentLimit === null) return null;
+  const perDayPaise = Math.max(0, roomDailyRate - policyRoomRentLimit);
+  if (perDayPaise <= 0) return null;
+  const perDayRupees = (perDayPaise / 100).toLocaleString('en-IN', {
+    maximumFractionDigits: 0,
+  });
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-mono text-[11px] tabular-nums text-amber-700"
+      title={`Room rent exceeds policy cap by ₹${perDayRupees}/day — captured at intake`}
+    >
+      <span className="material-symbols-outlined text-[14px]">bed</span>
+      +₹{perDayRupees}/day
     </span>
   );
 }
