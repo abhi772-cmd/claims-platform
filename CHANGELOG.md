@@ -6,6 +6,54 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### T2-13 — non-medical auto-strip bill classifier
+
+Indian health policies routinely exclude a long list of non-medical
+items from cashless reimbursement: toiletries, attendant meals,
+registration fees, transport, TV / phone / newspaper rentals, etc.
+When the hospital submits a claim that includes them, the payer
+strips them on the EOB and the family finds out at discharge. T2-13
+catches the strip BEFORE the claim is submitted so the operator
+can either exclude the items from `finalAmount` or get explicit
+acceptance from the family for the differential.
+
+Operator-aid only — pure utility, no schema, no persistence. The
+operator pastes the hospital bill (one line per row, tab- or
+comma-separated description and rupee amount) into the new
+`<NonMedicalStripCalculator>` on the case-detail page (above
+ClaimPhasePanel); the component POSTs to a new stateless endpoint
+and renders per-line tagging, totals, and by-category breakdown.
+
+Implementation:
+- `packages/contracts/src/non-medical-classifier.schema.ts` —
+  `BillLine`, `ClassifyNonMedicalRequest/Response`, 9-category enum
+- `apps/api/src/modules/discharge/non-medical-classifier.ts` —
+  pure-function classifier over a comprehensive Indian-hospital
+  keyword catalog (~55 rules across 9 categories, sourced from
+  the IRDAI list + cross-payer signals already detected by the
+  EOB extractors)
+- 44-case unit spec — every catalog rule + false-positive guards
+  ("Medical registration number — Dr. Sharma" must stay medical)
+  + totals math + by-category aggregation
+- `apps/api/src/modules/discharge/non-medical-classifier.controller.ts`
+  — POST /discharge/classify-non-medical, gated on claim.draft,
+  stateless (no DB, no tenant data), bundled into the existing
+  DischargeModule
+- `apps/web/components/discharge/NonMedicalStripCalculator.tsx`
+  — debounced classify-on-edit, 4 summary tiles (medical /
+  non-medical / grand total / suggested final), by-category
+  breakdown card, per-line table with matched-term transparency
+- `apps/web/lib/api/discharge.api.ts` — thin client wrapper
+- Placed on `apps/web/app/(dashboard)/cases/[id]/page.tsx`
+  immediately above `<ClaimPhasePanel>` so the operator sees the
+  strip math right before they enter the final claim amount
+
+Edge case enabled: **T2-13**. Highest discharge-time UX win
+remaining; takes the second-biggest source of surprise-deduction
+out of the family conversation.
+
+
+
 ### Stage 9 — cross-claim NHCX status search ops endpoint
 
 New ops-only endpoint:

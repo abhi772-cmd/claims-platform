@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { AppealPanel } from '../../../../components/appeal/AppealPanel';
 import { ClaimPhasePanel } from '../../../../components/claim-phase/ClaimPhasePanel';
 import { CommunicationsPanel } from '../../../../components/communication/CommunicationsPanel';
+import { NonMedicalStripCalculator } from '../../../../components/discharge/NonMedicalStripCalculator';
 import { PlanPreviewCard } from '../../../../components/insurance-plan/PlanPreviewCard';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { PreauthPanel } from '../../../../components/preauth/PreauthPanel';
@@ -252,6 +253,11 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
           onChanged={() => void reload()}
         />
       ) : null}
+
+      {/* T2-13 — non-medical strip calculator sits just above the
+          ClaimPhasePanel so the operator can decide the right
+          finalAmount before typing it into the panel below. */}
+      {claim ? <NonMedicalStripCalculator /> : null}
 
       {claim ? (
         <ClaimPhasePanel
