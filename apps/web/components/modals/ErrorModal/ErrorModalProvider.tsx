@@ -30,6 +30,11 @@ export function ErrorModalProvider({ children }: { children: ReactNode }): JSX.E
 
   const showApiError = useCallback(
     (err: unknown) => {
+      // Swallow fetch aborts — they come from React StrictMode's dev-mode
+      // double-fetch, component unmount, or in-flight navigation, none of
+      // which represent a real error worth surfacing to the operator.
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (err instanceof Error && err.name === 'AbortError') return;
       if (err instanceof ApiError) {
         const code = err.problem.code as ErrorCode;
         const presentation = errorMap[code] ?? errorMap.INTERNAL_ERROR;
