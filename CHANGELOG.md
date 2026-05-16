@@ -6,6 +6,25 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### T2-14 follow-up — list-card shortfall pill
+
+Surfaces the room-rent pre-warn at the triage level too. `/cases`
+list cards now render a compact amber `bed +₹X/day` pill next to
+the headline claim status whenever the case has both `roomDailyRate`
+and `policyRoomRentLimit` captured AND the rate exceeds the cap.
+Click-through still goes to case-detail, which has the full banner.
+
+Same wire-up pattern as the SLA pills in PR #109 — `CaseSummary`
+already returns the two fields (they were added in PR #110), so
+this is a UI-only change. New `RoomRentShortfallPill` component
+inlined on the cases page mirrors the case-detail math (one
+`Math.max(0, rate - cap)` line) so the two surfaces never disagree.
+
+Operators triaging the case list can now see at a glance which
+admissions have a captured shortfall, without opening every case.
+
+
+
 ### T2-14 — room rent sub-limit pre-warn
 
 First edge case closed in Sprint 11. The single biggest source of
