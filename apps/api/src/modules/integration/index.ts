@@ -6,3 +6,4 @@ export {
   type ReplayHandler,
   type ReplayOutcome,
 } from './nhcx-replay.worker';
+export { classifyAdapterError, type ClassifiedError } from './transient-errors';
