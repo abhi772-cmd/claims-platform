@@ -6,6 +6,53 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Stage 9 — cross-claim NHCX status search ops endpoint
+
+New ops-only endpoint:
+```
+GET /admin/nhcx/status-search
+  ?correlationId=X
+  [&claimRefNum=Y]
+  [&preauthRefNum=Z]
+```
+
+Used when an operator gets a phone call from a payer with a
+correlation ID (or a payer ref number) and needs to know what's
+on our side — was the request sent, did the inbound arrive, what
+state is the claim in. The per-claim integration-messages endpoint
+already exists; this one is the missing capability of *finding*
+the claim from a correlation when you don't know which case the
+ID belongs to.
+
+Strictly read-only and tenant-scoped (RLS enforces). Returns
+three slices:
+
+- `integrationMessages` — every outbound/inbound row that matches
+- `claimEvents` — every ClaimEvent that carries the matching
+  correlationId
+- `claims` — distinct claims touched by the above, with current
+  status + ref nums so the operator can decide whether to drive a
+  manual transition or wait
+
+Implementation:
+- New `nhcx.status.search` permission, seeded onto `tenant_admin`
+  and `platform_admin` only (intentionally not the ordinary
+  operator roles — they don't triage gateway-level mysteries)
+- New `NhcxStatusSearchService` in `modules/integration/` with
+  9-case unit spec covering the schema refinement, the candidate-
+  short-circuit when ref-num matches no claim, the local-only
+  state case (claim exists, no gateway traffic), and the
+  correlation-AND-refnum intersection
+- New `NhcxStatusSearchController` at `/admin/nhcx` registered
+  in the existing `IntegrationModule`
+- Contract schema in `@claims/contracts/nhcx-status-search.schema`
+
+No NHCX gateway call — this is a local audit lookup over what
+we've already recorded. Future slice can layer a real-mode
+`/status/search` round-trip on top.
+
+
+
 ### T2-14 follow-up — list-card shortfall pill
 
 Surfaces the room-rent pre-warn at the triage level too. `/cases`
