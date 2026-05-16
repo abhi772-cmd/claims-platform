@@ -270,6 +270,44 @@ export interface AdapterCommunicationSendResult {
   rawResponse: Record<string, unknown>;
 }
 
+// T2-8 — preauth enhancement. At the wire level NHCX treats this as a
+// follow-up `preauth/submit` referencing the original preauthRefNum
+// with a revised total amount; the payer recognises the
+// enhancement by the back-reference. We expose it as a distinct
+// adapter method so the EnhancementService stays typed honestly
+// and so future rail-specific quirks (PMJAY uses different
+// `task/submit` shapes for some enhancement classes) live in
+// one place.
+export interface AdapterEnhancementSubmitInput {
+  tenantId: string;
+  claimId: string;
+  // The gateway-issued reference number from the original preauth.
+  // Used by the payer to thread the enhancement onto the prior
+  // approval. Service layer guards against null before calling.
+  priorPreauthRefNum: string;
+  // The new TOTAL amount the hospital is requesting (not the
+  // delta) — same convention as the original submitPreauth
+  // `requestedAmount`.
+  revisedAmount: number;
+  // Operator-supplied free-form justification. Surfaced on the
+  // FHIR Communication side note attached to the bundle.
+  reason: string;
+  patient?: AdapterPatientFields;
+  coverage?: AdapterCoverageFields;
+}
+
+export interface AdapterEnhancementSubmitResult {
+  acknowledged: boolean;
+  // Echo of the prior preauth ref num so callers can match the
+  // ack to the originating claim. Some payers issue a fresh
+  // enhancement ref num here; we surface that separately if /
+  // when it appears on the wire.
+  payerRefNum: string;
+  correlationId: string;
+  rawRequest: Record<string, unknown>;
+  rawResponse: Record<string, unknown>;
+}
+
 export interface NhcxAdapter {
   verifyEligibility(input: AdapterEligibilityRequest): Promise<AdapterEligibilityResponse>;
   submitPreauth(input: AdapterPreauthSubmitInput): Promise<AdapterPreauthSubmitResult>;
@@ -286,4 +324,7 @@ export interface NhcxAdapter {
   sendCommunication(
     input: AdapterCommunicationSendInput,
   ): Promise<AdapterCommunicationSendResult>;
+  submitEnhancement(
+    input: AdapterEnhancementSubmitInput,
+  ): Promise<AdapterEnhancementSubmitResult>;
 }

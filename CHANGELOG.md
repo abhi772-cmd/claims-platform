@@ -6,6 +6,98 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### T2-8 — ICU upgrade auto-enhancement (ward tier tracker)
+
+When a patient is moved to a higher-tier ward mid-stay (most
+commonly: ward → ICU) the original preauth amount is no longer
+sufficient and the hospital needs to submit an enhancement
+preauth before discharge. T2-8 closes the gap between "patient
+deteriorates" and "claim ready to submit" by giving the operator:
+
+1. A **ward tier tracker** on case-detail that records the current
+   room daily rate (PATCH /cases/:id with `currentRoomDailyRate`)
+   and shows an amber **auto-suggest banner** when the current
+   rate exceeds the admission-time rate. The banner surfaces the
+   per-day differential and the projected delta over the planned
+   stay, then points the operator at the enhancement panel below.
+
+2. A **preauth enhancement panel** (driving the existing
+   ENHANCEMENT_DRAFTING → ENHANCEMENT_QUEUED → ENHANCEMENT_SUBMITTED
+   state machine — already defined in claim.state-machine.ts since
+   sprint 7, just no service backing it). Five visible phases keyed
+   off the claim status: eligible-to-start, drafting form, awaiting
+   payer decision, terminal approved, terminal rejected. The
+   revised-amount input pre-fills with priorPreauthAmount + the
+   suggested top-up so the operator's default is one click away.
+
+Implementation:
+
+- **Migration `20260603000000_case_current_room_rate`** — additive
+  nullable `currentRoomDailyRate INTEGER` column on `case` (paise).
+  Operator-updated, NULL = not tracked.
+- **Contracts:**
+  - `UpdateCaseRequestSchema` adds `currentRoomDailyRate` (capped
+    at ₹100k/day, nullable so the operator can clear it).
+  - `CaseSummary` always returns it.
+  - New `enhancement.schema.ts` with start/submit request +
+    response shapes.
+- **NHCX adapter:**
+  - `NhcxAdapter.submitEnhancement(input)` — at the wire level this
+    is a `preauth/submit` referencing the prior `preauthRefNum`.
+  - Stub adapter echoes the input back as a flat object.
+  - JWE adapter explicitly throws "not implemented in real mode
+    yet" — the full FHIR enhancement bundle lands when we have an
+    NHA sandbox to validate against.
+- **EnhancementService + Controller:** start() flips into
+  ENHANCEMENT_DRAFTING via the existing state machine;
+  submit({revisedAmount, reason}) flips to ENHANCEMENT_QUEUED,
+  writes the integration_message ledger, calls the adapter, on
+  ack flips to ENHANCEMENT_SUBMITTED. Service guards against the
+  missing `preauthRefNum` precondition with a clear 422. New
+  module registered in app.module.
+- **Case PATCH** now forwards `currentRoomDailyRate`; `case.service`
+  audit-logs the before/after value so the ward-transfer history
+  is reconstructable from `audit_log`.
+- **Web:**
+  - `<WardTrackerCard>` inline on case-detail (above the existing
+    T2-14 room-rent banner). Always renders when admission room
+    rate is captured; switches to amber upgrade-detected styling
+    when current > admission.
+  - `<EnhancementPanel>` placed between PreauthPanel and the
+    NonMedicalStripCalculator. Five-state component;
+    self-hides when claim status doesn't qualify.
+  - `EnhancementApi` client wrapping the two endpoints.
+
+Permission reuses `preauth.submit` — enhancement IS a preauth
+follow-up at the wire level. No new permission needed.
+
+Verified end-to-end:
+- WardTrackerCard renders the empty-state ("current not yet
+  recorded") on the T2-14 Verify case (which has roomDailyRate
+  ₹8000 captured).
+- Operator records ₹15000 current rate → PATCH persists →
+  re-render shows the amber upgrade banner with
+  "Admission ₹8000/day · current ₹15000/day · +₹7000/day differential
+  ≈ +₹35000 over 5 days".
+- POST /enhancement/start on a claim at INITIATED correctly
+  returns 422 VALIDATION_FAILED (state machine guard fires).
+- EnhancementPanel correctly hides on non-qualifying statuses
+  (the smoke test case is at INITIATED).
+
+Edge case enabled: **T2-8**. Recommended next step is to walk a
+case all the way to PREAUTH_APPROVED + observe the panel's
+happy-path interaction; the wiring is mechanical so this is
+verification rather than discovery.
+
+What this doesn't do (intentionally):
+- No HMIS webhook — the design call for an external HMIS auto-detect
+  layer is deferred to a real HMIS conversation. The operator
+  drives currentRoomDailyRate updates manually for now.
+- No real-mode FHIR enhancement bundle — JWE adapter throws
+  "not implemented yet" until an NHA sandbox is available.
+
+
+
 ### T2-13 — non-medical auto-strip bill classifier
 
 Indian health policies routinely exclude a long list of non-medical

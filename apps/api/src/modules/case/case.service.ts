@@ -305,6 +305,13 @@ export class CaseService {
       if (input.treatingDoctorId !== undefined) {
         data['treatingDoctorId'] = input.treatingDoctorId;
       }
+      // T2-8 — operator updates current room rate (paise) when the
+      // patient is moved to a higher-tier ward. The audit_log row
+      // below carries the before/after so the trail shows the
+      // ward-transfer history without us adding a new audit type.
+      if (input.currentRoomDailyRate !== undefined) {
+        data['currentRoomDailyRate'] = input.currentRoomDailyRate;
+      }
       const after = await tx.case.update({
         where: { id: input.caseId },
         data,
@@ -316,7 +323,11 @@ export class CaseService {
         action: AuditEvents.TENANT_UPDATED,
         resourceType: 'case',
         resourceId: input.caseId,
-        before: { caseStatus: before.caseStatus, treatingDoctorId: before.treatingDoctorId },
+        before: {
+          caseStatus: before.caseStatus,
+          treatingDoctorId: before.treatingDoctorId,
+          currentRoomDailyRate: before.currentRoomDailyRate,
+        },
         after: data,
         ipAddress: input.ip,
         userAgent: input.userAgent,
@@ -341,6 +352,7 @@ export class CaseService {
       roomDailyRate: number | null;
       policyRoomRentLimit: number | null;
       estimatedStayDays: number | null;
+      currentRoomDailyRate: number | null;
     },
     headlineStatus: string | null,
     sla: ClaimSla | null = null,
@@ -368,6 +380,9 @@ export class CaseService {
       roomDailyRate: c.roomDailyRate,
       policyRoomRentLimit: c.policyRoomRentLimit,
       estimatedStayDays: c.estimatedStayDays,
+      // T2-8 — current room rate (operator-updated). When > roomDailyRate
+      // the case-detail page auto-suggests a preauth enhancement.
+      currentRoomDailyRate: c.currentRoomDailyRate,
     };
   }
 
@@ -386,6 +401,7 @@ export class CaseService {
       roomDailyRate: number | null;
       policyRoomRentLimit: number | null;
       estimatedStayDays: number | null;
+      currentRoomDailyRate: number | null;
     },
     claims: CaseDetail['claims'],
   ): CaseDetail {

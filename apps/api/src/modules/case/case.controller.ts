@@ -109,6 +109,11 @@ export class CaseController {
       actorUserId: user.userId,
       ...(body.caseStatus !== undefined ? { caseStatus: body.caseStatus } : {}),
       ...(body.treatingDoctorId !== undefined ? { treatingDoctorId: body.treatingDoctorId } : {}),
+      // T2-8 — operator-driven ward-tier change. Forwarded as-is
+      // (the service writes both the field + an audit row).
+      ...(body.currentRoomDailyRate !== undefined
+        ? { currentRoomDailyRate: body.currentRoomDailyRate }
+        : {}),
       ip: req.ip ?? null,
       userAgent: req.get('user-agent') ?? null,
     });

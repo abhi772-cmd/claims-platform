@@ -116,6 +116,13 @@ model Case {
   policyRoomRentLimit  Int?
   estimatedStayDays    Int?
 
+  // T2-8 — ICU upgrade tracker. Operator updates this when the
+  // patient moves to a higher-tier ward mid-stay. When > the
+  // admission-time roomDailyRate, case-detail auto-suggests a
+  // preauth enhancement. Nullable: NULL = not yet tracked (the
+  // UI falls back to assuming the room hasn't changed).
+  currentRoomDailyRate Int?
+
   claims                 Claim[]
   patient                Patient?                @relation(fields: [patientId], references: [id], onDelete: SetNull)
   biometricVerifications BiometricVerification[]
