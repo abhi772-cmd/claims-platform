@@ -89,9 +89,16 @@ export type CreateCaseRequest = z.infer<typeof CreateCaseRequestSchema>;
 // PATCH /cases/:id — limited mutations: close, abandon, change assignee
 // on the first claim. Status transitions on the claim itself go through
 // the manual-transition endpoint (which delegates to ClaimService).
+//
+// T2-8 — also surfaces a single new field, currentRoomDailyRate, so
+// the operator can record an ICU / higher-tier ward transfer
+// mid-stay. Capped at the same ₹100k/day ceiling as the admission-
+// time roomDailyRate. Nullable so the operator can clear it back to
+// "not tracked" if the patient is moved back down.
 export const UpdateCaseRequestSchema = z.object({
   caseStatus: z.enum(['open', 'closed', 'abandoned']).optional(),
   treatingDoctorId: z.string().uuid().nullable().optional(),
+  currentRoomDailyRate: z.number().int().nonnegative().max(10_000_000).nullable().optional(),
 });
 export type UpdateCaseRequest = z.infer<typeof UpdateCaseRequestSchema>;
 
@@ -122,6 +129,11 @@ export const CaseSummarySchema = z.object({
   roomDailyRate: z.number().int().nonnegative().nullable(),
   policyRoomRentLimit: z.number().int().nonnegative().nullable(),
   estimatedStayDays: z.number().int().positive().nullable(),
+  // T2-8 — operator-updated current room rate (paise). When
+  // higher than roomDailyRate the case-detail page auto-suggests
+  // a preauth enhancement. Null = not yet tracked / unchanged
+  // since admission.
+  currentRoomDailyRate: z.number().int().nonnegative().nullable(),
 });
 export type CaseSummary = z.infer<typeof CaseSummarySchema>;
 

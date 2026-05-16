@@ -12,6 +12,7 @@ import { AppealPanel } from '../../../../components/appeal/AppealPanel';
 import { ClaimPhasePanel } from '../../../../components/claim-phase/ClaimPhasePanel';
 import { CommunicationsPanel } from '../../../../components/communication/CommunicationsPanel';
 import { NonMedicalStripCalculator } from '../../../../components/discharge/NonMedicalStripCalculator';
+import { EnhancementPanel } from '../../../../components/enhancement/EnhancementPanel';
 import { PlanPreviewCard } from '../../../../components/insurance-plan/PlanPreviewCard';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { PreauthPanel } from '../../../../components/preauth/PreauthPanel';
@@ -93,6 +94,17 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
       ? perDayLiabilityPaise * stayDays
       : null;
 
+  // T2-8 — auto-suggest enhancement when current room > admission room.
+  const currentRoomRate = detail.currentRoomDailyRate;
+  const wardUpgradedPaise =
+    currentRoomRate !== null && roomRate !== null && currentRoomRate > roomRate
+      ? currentRoomRate - roomRate
+      : null;
+  const suggestedTopUpPaise =
+    wardUpgradedPaise !== null && stayDays !== null
+      ? wardUpgradedPaise * stayDays
+      : null;
+
   return (
     <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6">
       {perDayLiabilityPaise !== null && perDayLiabilityPaise > 0 ? (
@@ -126,6 +138,22 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
             </div>
           </div>
         </section>
+      ) : null}
+
+      {/* T2-8 — ICU upgrade tracker + auto-suggest. Always visible
+          when we have the admission room rate captured; lets the
+          operator record the current ward AND surfaces a CTA when
+          the current rate has risen above admission. */}
+      {roomRate !== null ? (
+        <WardTrackerCard
+          caseId={detail.id}
+          admissionRate={roomRate}
+          currentRate={currentRoomRate}
+          wardUpgradedPaise={wardUpgradedPaise}
+          suggestedTopUpPaise={suggestedTopUpPaise}
+          stayDays={stayDays}
+          onChanged={() => void reload()}
+        />
       ) : null}
 
       {/* HEADER ROW — patient hero + financial summary */}
@@ -254,6 +282,21 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
         />
       ) : null}
 
+      {/* T2-8 — preauth enhancement panel. Self-hides for statuses
+          that don't qualify (pre-approval / post-discharge). The
+          panel itself is the operator action surface; the
+          WardTrackerCard above is the auto-suggest. */}
+      {claim ? (
+        <EnhancementPanel
+          caseId={detail.id}
+          claimId={claim.id}
+          status={claim.status as ClaimStatus}
+          priorPreauthAmount={claim.preauthAmount}
+          suggestedTopUpPaise={suggestedTopUpPaise}
+          onChanged={() => void reload()}
+        />
+      ) : null}
+
       {/* T2-13 — non-medical strip calculator sits just above the
           ClaimPhasePanel so the operator can decide the right
           finalAmount before typing it into the panel below. */}
@@ -376,6 +419,178 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
         </section>
       </div>
     </div>
+  );
+}
+
+// ---- T2-8 ward tracker card ----
+//
+// Inline operator-facing card that:
+//   * records the current room daily rate (PATCH /cases/:id with
+//     currentRoomDailyRate)
+//   * auto-suggests a preauth enhancement when current rate >
+//     admission rate, with the delta + projected total
+//
+// Uses the existing CaseApi.update path; the audit_log row is
+// written server-side. Renders inside the case-detail page so the
+// banner sits near the T2-14 room-rent banner.
+
+interface WardTrackerCardProps {
+  caseId: string;
+  admissionRate: number;
+  currentRate: number | null;
+  wardUpgradedPaise: number | null;
+  suggestedTopUpPaise: number | null;
+  stayDays: number | null;
+  onChanged: () => void;
+}
+
+function WardTrackerCard({
+  caseId,
+  admissionRate,
+  currentRate,
+  wardUpgradedPaise,
+  suggestedTopUpPaise,
+  stayDays,
+  onChanged,
+}: WardTrackerCardProps): JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [draftRupees, setDraftRupees] = useState(
+    currentRate !== null ? Math.round(currentRate / 100).toString() : '',
+  );
+  const [working, setWorking] = useState(false);
+  const isUpgraded = wardUpgradedPaise !== null && wardUpgradedPaise > 0;
+
+  const save = async (): Promise<void> => {
+    const rupees = draftRupees.trim() === '' ? null : Number(draftRupees);
+    if (rupees !== null && (!Number.isFinite(rupees) || rupees < 0)) return;
+    setWorking(true);
+    try {
+      await CaseApi.update(caseId, {
+        currentRoomDailyRate: rupees === null ? null : Math.round(rupees * 100),
+      });
+      setEditing(false);
+      onChanged();
+    } catch (err) {
+      // ErrorModal surfaces the failure; close the editor regardless.
+      setEditing(false);
+      void err;
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  return (
+    <section
+      className={
+        isUpgraded
+          ? 'glass rounded-xl border border-amber-300 bg-amber-50/70 p-5'
+          : 'glass rounded-xl p-5'
+      }
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span
+            className={
+              isUpgraded
+                ? 'material-symbols-outlined mt-0.5 text-amber-700'
+                : 'material-symbols-outlined mt-0.5 text-primary'
+            }
+          >
+            {isUpgraded ? 'trending_up' : 'bed'}
+          </span>
+          <div>
+            <h3 className="text-h3 font-h3 text-on-surface">
+              {isUpgraded
+                ? 'Ward upgrade detected — consider preauth enhancement'
+                : 'Current ward tracker'}
+            </h3>
+            <p className="mt-1 text-body-sm text-on-surface-variant">
+              Admission room rate ₹{fmtINR(admissionRate / 100)}/day
+              {currentRate !== null ? (
+                <>
+                  {' '}
+                  · current ₹{fmtINR(currentRate / 100)}/day
+                  {isUpgraded && wardUpgradedPaise !== null ? (
+                    <>
+                      {' '}
+                      ·{' '}
+                      <span className="font-bold text-amber-700">
+                        +₹{fmtINR(wardUpgradedPaise / 100)}/day differential
+                      </span>
+                      {suggestedTopUpPaise !== null && stayDays !== null ? (
+                        <>
+                          {' '}
+                          ≈ +₹{fmtINR(suggestedTopUpPaise / 100)} over {stayDays} day
+                          {stayDays === 1 ? '' : 's'}
+                        </>
+                      ) : null}
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                ' · current not yet recorded'
+              )}
+            </p>
+          </div>
+        </div>
+        {!editing ? (
+          <button
+            type="button"
+            onClick={() => {
+              setDraftRupees(currentRate !== null ? Math.round(currentRate / 100).toString() : '');
+              setEditing(true);
+            }}
+            className="text-body-sm text-primary hover:underline"
+          >
+            {currentRate !== null ? 'Update' : 'Record current ward rate'}
+          </button>
+        ) : null}
+      </div>
+
+      {editing ? (
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <div className="flex flex-col gap-1">
+            <label
+              htmlFor="ward-rate"
+              className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant"
+            >
+              Current room daily rate (₹)
+            </label>
+            <input
+              id="ward-rate"
+              inputMode="numeric"
+              value={draftRupees}
+              onChange={(e) => setDraftRupees(e.target.value.replace(/[^0-9]/g, ''))}
+              placeholder="e.g. 15000 (ICU)"
+              className="w-56 rounded-lg border border-white bg-surface-container-lowest/50 px-4 py-2 font-mono text-body text-on-surface placeholder:text-outline-variant shadow-sm outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={working}
+            className="btn-primary"
+            style={{ padding: '10px 18px', fontSize: '13px' }}
+          >
+            {working ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="text-body-sm text-on-surface-variant hover:text-primary"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : null}
+
+      {isUpgraded ? (
+        <p className="mt-3 text-body-sm text-on-surface-variant">
+          Scroll to the &ldquo;Pre-auth enhancement&rdquo; panel below to start the
+          enhancement request with this delta pre-filled.
+        </p>
+      ) : null}
+    </section>
   );
 }
 

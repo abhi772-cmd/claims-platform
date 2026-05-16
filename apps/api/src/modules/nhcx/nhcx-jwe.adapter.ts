@@ -25,6 +25,8 @@ import {
   type AdapterDischargeSubmitInput,
   type AdapterEligibilityRequest,
   type AdapterEligibilityResponse,
+  type AdapterEnhancementSubmitInput,
+  type AdapterEnhancementSubmitResult,
   type AdapterEnvelopedResult,
   type AdapterPatientFields,
   type AdapterPmjayPolicyLookupInput,
@@ -375,6 +377,23 @@ export class NhcxJweAdapter implements NhcxAdapter {
       rawRequest: op.request as unknown as Record<string, unknown>,
       rawResponse: op.response as unknown as Record<string, unknown>,
     };
+  }
+
+  // T2-8 — preauth enhancement at the wire level is a `preauth/submit`
+  // referencing the prior approval. The full FHIR Bundle shape for
+  // enhancement (Claim.use=preauthorization + Claim.related[]
+  // referencing the original) is a follow-up slice tied to the NHA
+  // sandbox observation; in the meantime real-mode callers get a
+  // clear "not implemented" rather than an opaque malformed bundle.
+  async submitEnhancement(
+    input: AdapterEnhancementSubmitInput,
+  ): Promise<AdapterEnhancementSubmitResult> {
+    void input;
+    throw new Error(
+      'submitEnhancement is not implemented in real-mode yet. Set NHCX_MODE=stub for ' +
+        'development; the FHIR enhancement bundle wiring lands when we have an NHA ' +
+        'sandbox to validate against.',
+    );
   }
 
   private actors(payerCode: string): FhirActorIds {

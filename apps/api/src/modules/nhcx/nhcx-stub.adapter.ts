@@ -13,6 +13,8 @@ import {
   type AdapterDischargeSubmitInput,
   type AdapterEligibilityRequest,
   type AdapterEligibilityResponse,
+  type AdapterEnhancementSubmitInput,
+  type AdapterEnhancementSubmitResult,
   type AdapterEnvelopedResult,
   type AdapterPmjayPolicy,
   type AdapterPmjayPolicyLookupInput,
@@ -281,6 +283,40 @@ export class NhcxStubAdapter implements NhcxAdapter {
       rawResponse: {
         bundleType: 'CommunicationResponse',
         outcome: 'acknowledged',
+        correlationId,
+        timestamp: new Date().toISOString(),
+      },
+    };
+  }
+
+  // T2-8 — enhancement is a follow-up preauth/submit referencing the
+  // prior preauthRefNum. Stub echoes the input back as a flat object
+  // and returns an acknowledged outcome; the JWE adapter will
+  // materialise this as a FHIR Claim bundle with `use=preauthorization`
+  // + a `related[].claim` reference to the prior approval.
+  async submitEnhancement(
+    input: AdapterEnhancementSubmitInput,
+  ): Promise<AdapterEnhancementSubmitResult> {
+    const correlationId = randomUUID();
+    return {
+      acknowledged: true,
+      // Stub echoes the prior ref num back; real payers either echo
+      // or issue a fresh enhancement ref (the wire shape allows both).
+      payerRefNum: input.priorPreauthRefNum,
+      correlationId,
+      rawRequest: {
+        bundleType: 'Claim',
+        use: 'preauthorization',
+        kind: 'enhancement',
+        priorPreauthRefNum: input.priorPreauthRefNum,
+        revisedAmount: input.revisedAmount,
+        reason: input.reason,
+        ...(input.coverage !== undefined ? { payerCode: input.coverage.payerCode } : {}),
+      },
+      rawResponse: {
+        bundleType: 'ClaimResponse',
+        outcome: 'queued',
+        payerRefNum: input.priorPreauthRefNum,
         correlationId,
         timestamp: new Date().toISOString(),
       },
