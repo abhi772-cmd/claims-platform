@@ -3,11 +3,15 @@
 import { type TrustedDeviceListItem } from '@claims/contracts';
 import { useEffect, useState } from 'react';
 
+import { useConfirm } from '../../../../components/modals/ConfirmDialog/ConfirmDialogProvider';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
+import { useToast } from '../../../../components/toast/ToastProvider';
 import { AuthApi } from '../../../../lib/api/auth.api';
 
 export default function TrustedDevicesPage(): JSX.Element {
   const { showApiError } = useErrorModal();
+  const confirm = useConfirm();
+  const showToast = useToast();
   const [devices, setDevices] = useState<TrustedDeviceListItem[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -26,9 +30,26 @@ export default function TrustedDevicesPage(): JSX.Element {
   }, []);
 
   async function revoke(id: string): Promise<void> {
+    const target = devices?.find((d) => d.id === id);
+    const label = target?.userAgent ?? 'this device';
+    const ok = await confirm({
+      title: 'Remove trust from this device?',
+      body: (
+        <>
+          <span className="font-semibold">{label}</span> will be prompted for
+          the full MFA challenge on its next sign-in. Your active sessions
+          are not affected — use the Active sessions page to sign devices
+          out immediately.
+        </>
+      ),
+      tone: 'warning',
+      confirmLabel: 'Remove trust',
+    });
+    if (!ok) return;
     setBusy(id);
     try {
       await AuthApi.revokeTrustedDevice(id);
+      showToast({ tone: 'success', message: 'Device trust removed.' });
       await load();
     } catch (err) {
       showApiError(err);

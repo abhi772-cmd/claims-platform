@@ -6,6 +6,52 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Admin polish round 2 — confirms on destructive actions, success toasts
+
+Audit-grepped the rest of the app for destructive / serious
+actions that didn't go through the new ConfirmDialog +
+PromptDialog infrastructure shipped in PR #121. Found four
+high-value targets:
+
+**SettlementPanel — Write off.** TERMINAL FINANCIAL ACTION
+("we'll never collect ₹X"). The old UX was an inline text field
++ a one-click red button — too easy to fat-finger past the point
+of no return. Replaced with a single "Write off settlement…"
+button that opens a multiline PromptDialog (min 10 chars,
+mandatory reason captured in audit log). Followed by a success
+toast confirming the write-off landed.
+
+**AppealPanel — Resolve appeal.** Records the payer's BINDING
+decision (approved / partially_approved / rejected) with the
+money amount. Now opens a ConfirmDialog summarising the outcome
+about to be recorded — including the amount — with a tone keyed
+to the decision (danger for rejection, warning otherwise). Once
+recorded the claim moves to a terminal appeal state, which the
+dialog spells out. Followed by a success toast. Start-appeal and
+submit-appeal also gained success toasts.
+
+**me/sessions — Revoke session** + **me/trusted-devices — Remove
+trust.** Both were one-click destructive without confirmation.
+The session revoke can sign somebody out of an active workflow;
+the device-trust removal forces full MFA on next sign-in. Both
+now use ConfirmDialog with a warning tone and copy that names
+the affected device (user-agent). Both emit a success toast.
+
+Success-toast follow-throughs:
+
+* Compliance: notify-DPB and dismiss-incident actions now show
+  a confirming toast.
+* Consents: withdraw action now shows a confirming toast.
+
+These complete the action → feedback loop the dialog
+infrastructure was missing. Reviewer clicks Confirm, the API
+call lands, and the toast confirms it landed — no more
+"did that actually go through?" silence.
+
+Verified: web typecheck + lint clean.
+
+
+
 ### Admin polish — replace browser alert / confirm / prompt with styled dialogs
 
 CLAUDE.md rule #6 is explicit: "No browser `alert()`, `confirm()`,

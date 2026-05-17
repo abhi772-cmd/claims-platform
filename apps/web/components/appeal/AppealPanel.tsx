@@ -8,7 +8,9 @@ import {
 } from '@claims/contracts';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { useConfirm } from '../modals/ConfirmDialog/ConfirmDialogProvider';
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
+import { useToast } from '../toast/ToastProvider';
 import { CaseApi } from '../../lib/api/case.api';
 import { EobLineMatcherApi } from '../../lib/api/eob-line-matcher.api';
 
@@ -101,6 +103,8 @@ export function AppealPanel({
   onChanged,
 }: Props): JSX.Element | null {
   const { showApiError } = useErrorModal();
+  const confirm = useConfirm();
+  const showToast = useToast();
   const [appeal, setAppeal] = useState<AppealSummary | null>(null);
   const [reason, setReason] = useState('');
   const [resolutionKind, setResolutionKind] = useState<AppealResolutionKind>('approved');
@@ -161,16 +165,77 @@ export function AppealPanel({
   const historical = APPEAL_HISTORICAL_FROM.has(status) && appeal !== null;
   if (!eligible && !live && !historical) return null;
 
-  async function action(name: string, fn: () => Promise<unknown>): Promise<void> {
+  async function action(
+    name: string,
+    fn: () => Promise<unknown>,
+    successToast?: string,
+  ): Promise<void> {
     setBusy(name);
     try {
       await fn();
+      if (successToast) showToast({ tone: 'success', message: successToast });
       onChanged();
     } catch (err) {
       showApiError(err);
     } finally {
       setBusy(null);
     }
+  }
+
+  // Resolving an appeal records the payer's binding decision
+  // (approved / partially_approved / rejected) with the approved
+  // money amount. Once written the claim's terminal state is
+  // locked in — there's no inline edit affordance afterwards.
+  // The ConfirmDialog summarises what's about to be recorded so
+  // the reviewer can spot a typo before it sticks.
+  async function onResolveAppeal(): Promise<void> {
+    const amount =
+      resolutionKind !== 'rejected' && approvedAmount
+        ? Number.parseInt(approvedAmount, 10)
+        : null;
+    const ok = await confirm({
+      title: 'Record this appeal resolution?',
+      body: (
+        <>
+          <p>
+            Outcome:{' '}
+            <span className="font-semibold">{resolutionKind}</span>
+            {amount !== null ? (
+              <>
+                {' '}with approved amount{' '}
+                <span className="font-mono tabular-nums">
+                  ₹{amount.toLocaleString('en-IN')}
+                </span>
+              </>
+            ) : null}
+            .
+          </p>
+          <p className="mt-2 text-on-surface-variant">
+            The claim moves to a terminal appeal state — this decision can&apos;t
+            be edited from this panel afterwards. Reviewer history is
+            preserved in the audit log.
+          </p>
+        </>
+      ),
+      tone: resolutionKind === 'rejected' ? 'danger' : 'warning',
+      confirmLabel:
+        resolutionKind === 'rejected'
+          ? 'Record rejection'
+          : resolutionKind === 'partially_approved'
+            ? 'Record partial approval'
+            : 'Record approval',
+    });
+    if (!ok) return;
+    await action(
+      'resolve',
+      () =>
+        CaseApi.resolveAppeal(caseId, claimId, {
+          kind: resolutionKind,
+          ...(amount !== null ? { approvedAmount: amount } : {}),
+          ...(resolutionNote ? { note: resolutionNote } : {}),
+        }),
+      `Appeal recorded as ${resolutionKind}.`,
+    );
   }
 
   const appealStatusPill = (() => {
@@ -307,7 +372,11 @@ export function AppealPanel({
           />
           <button
             onClick={() =>
-              action('start', () => CaseApi.startAppeal(caseId, claimId, { reason }))
+              action(
+                'start',
+                () => CaseApi.startAppeal(caseId, claimId, { reason }),
+                'Appeal started — attach supporting documents below.',
+              )
             }
             disabled={busy === 'start' || reason.trim().length === 0}
             className="btn-primary"
@@ -333,8 +402,11 @@ export function AppealPanel({
           </p>
           <button
             onClick={() =>
-              action('submit', () =>
-                CaseApi.submitAppeal(caseId, claimId, { supportingDocumentIds: [] }),
+              action(
+                'submit',
+                () =>
+                  CaseApi.submitAppeal(caseId, claimId, { supportingDocumentIds: [] }),
+                'Appeal package frozen — awaiting payer decision.',
               )
             }
             disabled={busy === 'submit'}
@@ -389,17 +461,7 @@ export function AppealPanel({
               className="glass-input glass-input--sm flex-1"
             />
             <button
-              onClick={() =>
-                action('resolve', () =>
-                  CaseApi.resolveAppeal(caseId, claimId, {
-                    kind: resolutionKind,
-                    ...(resolutionKind !== 'rejected' && approvedAmount
-                      ? { approvedAmount: Number.parseInt(approvedAmount, 10) }
-                      : {}),
-                    ...(resolutionNote ? { note: resolutionNote } : {}),
-                  }),
-                )
-              }
+              onClick={() => void onResolveAppeal()}
               disabled={
                 busy === 'resolve' || (resolutionKind !== 'rejected' && !approvedAmount)
               }
@@ -407,7 +469,7 @@ export function AppealPanel({
               style={{ padding: '8px 18px', fontSize: '13px' }}
             >
               <span className="material-symbols-outlined text-[18px]">check_circle</span>
-              {busy === 'resolve' ? '…' : 'Record resolution'}
+              {busy === 'resolve' ? '…' : 'Record resolution…'}
             </button>
           </div>
         </div>

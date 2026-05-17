@@ -10,7 +10,9 @@ import {
 } from '@claims/contracts';
 import { useEffect, useState } from 'react';
 
+import { usePrompt } from '../modals/ConfirmDialog/ConfirmDialogProvider';
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
+import { useToast } from '../toast/ToastProvider';
 import { CaseApi } from '../../lib/api/case.api';
 
 const SETTLEMENT_VISIBLE_FROM: ReadonlySet<ClaimStatus> = new Set([
@@ -41,13 +43,14 @@ export function SettlementPanel({
   onChanged,
 }: Props): JSX.Element | null {
   const { showApiError } = useErrorModal();
+  const prompt = usePrompt();
+  const showToast = useToast();
   const [settlement, setSettlement] = useState<Settlement | null>(null);
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('cashless_tpa');
   const [receivedAmount, setReceivedAmount] = useState('');
   const [bankTxnId, setBankTxnId] = useState('');
   const [shortPaymentReasons, setShortPaymentReasons] = useState('');
   const [deductions, setDeductions] = useState<DeductionLine[]>([]);
-  const [writeOffReason, setWriteOffReason] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
 
   // Slice AY — EOB OCR extraction inputs.
@@ -126,6 +129,44 @@ export function SettlementPanel({
     setBusy(name);
     try {
       await fn();
+      onChanged();
+    } catch (err) {
+      showApiError(err);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Write-off is a TERMINAL FINANCIAL ACTION ("we'll never
+  // collect this"). The previous UX was an inline text field +
+  // one-click button — too easy to fat-finger past the point of
+  // no return. The PromptDialog flow forces the operator to
+  // (a) open the dialog, (b) enter a reason of at least 10
+  // chars, (c) click the explicit "Write off settlement" button.
+  // Each step is reversible until the last click.
+  async function onWriteOff(): Promise<void> {
+    const reason = await prompt({
+      title: 'Write off this settlement?',
+      body: (
+        <>
+          The settlement will be marked <span className="font-semibold">written off</span> —
+          the platform stops expecting payment and the claim moves to a terminal
+          state. The reason you enter is recorded in the audit log so finance
+          can later see why this was closed without full recovery.
+        </>
+      ),
+      label: 'Reason for write-off',
+      placeholder: 'e.g. Payer denied appeal; recovery effort exhausted; further escalation not economical.',
+      minLength: 10,
+      maxLength: 2000,
+      multiline: true,
+      confirmLabel: 'Write off settlement',
+    });
+    if (reason === null) return;
+    setBusy('writeoff');
+    try {
+      await CaseApi.writeOffSettlement(caseId, claimId, { reason });
+      showToast({ tone: 'success', message: 'Settlement written off.' });
       onChanged();
     } catch (err) {
       showApiError(err);
@@ -383,27 +424,24 @@ export function SettlementPanel({
             </div>
           ) : null}
 
-          {/* SHORT_PAID — write off */}
+          {/* SHORT_PAID — write off. Two-step: button opens a
+              PromptDialog where the operator captures the reason
+              (min 10 chars). Single-click write-off was too easy
+              to fat-finger past the point of no return. */}
           {status === 'SHORT_PAID' ? (
-            <div className="flex flex-wrap items-end gap-2 border-t border-surface-variant/50 pt-4">
-              <input
-                type="text"
-                placeholder="Write-off reason"
-                value={writeOffReason}
-                onChange={(e) => setWriteOffReason(e.target.value)}
-                className="glass-input glass-input--sm flex-1"
-              />
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-surface-variant/50 pt-4">
+              <p className="text-body-sm text-on-surface-variant">
+                Recovery exhausted? Mark this settlement as written off — the
+                claim moves to a terminal state and the audit log captures the
+                reason you enter.
+              </p>
               <button
-                onClick={() =>
-                  action('writeoff', () =>
-                    CaseApi.writeOffSettlement(caseId, claimId, { reason: writeOffReason }),
-                  )
-                }
-                disabled={busy === 'writeoff' || !writeOffReason}
+                onClick={() => void onWriteOff()}
+                disabled={busy === 'writeoff'}
                 className="inline-flex items-center gap-2 rounded-full bg-error px-5 py-2.5 text-body-sm font-semibold text-on-error shadow-[0_4px_14px_rgba(186,26,26,0.25)] transition hover:bg-[#93000a] disabled:opacity-60"
               >
                 <span className="material-symbols-outlined text-[18px]">remove_circle</span>
-                {busy === 'writeoff' ? '…' : 'Write off'}
+                {busy === 'writeoff' ? '…' : 'Write off settlement…'}
               </button>
             </div>
           ) : null}
