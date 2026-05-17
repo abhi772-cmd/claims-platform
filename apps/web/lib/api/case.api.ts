@@ -53,6 +53,9 @@ export const CaseApi = {
     sla?: 'breached' | 'at_risk' | 'any';
     appeals?: boolean;
     dischargeDue?: boolean;
+    // Tier 2 — filter to cases whose headline claim is assigned to
+    // this userId. "Mine" chip resolves via /me before passing.
+    assignedTo?: string;
   }): Promise<ListCasesResponse> => {
     const qs = new URLSearchParams();
     if (params?.limit !== undefined) qs.set('limit', String(params.limit));
@@ -63,6 +66,7 @@ export const CaseApi = {
     if (params?.sla) qs.set('sla', params.sla);
     if (params?.appeals === true) qs.set('appeals', 'true');
     if (params?.dischargeDue === true) qs.set('dischargeDue', 'true');
+    if (params?.assignedTo) qs.set('assignedTo', params.assignedTo);
     const query = qs.toString();
     return apiRequest<ListCasesResponse>(`/cases${query ? `?${query}` : ''}`);
   },
@@ -79,6 +83,18 @@ export const CaseApi = {
   listClaimEvents: (caseId: string, claimId: string): Promise<ClaimEventListResponse> =>
     apiRequest<ClaimEventListResponse>(
       `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/events`,
+    ),
+
+  // Tier 2 — assign or unassign the claim. userId === null clears
+  // the assignment.
+  assignClaim: (
+    caseId: string,
+    claimId: string,
+    userId: string | null,
+  ): Promise<{ assignedToUserId: string | null }> =>
+    apiRequest<{ assignedToUserId: string | null }>(
+      `/cases/${encodeURIComponent(caseId)}/claims/${encodeURIComponent(claimId)}/assign`,
+      { method: 'POST', body: { userId } },
     ),
 
   manualTransition: (

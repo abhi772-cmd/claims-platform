@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useErrorModal } from '../../../components/modals/ErrorModal/ErrorModalProvider';
 import { SlaPill } from '../../../components/sla/SlaPill';
+import { AuthApi } from '../../../lib/api/auth.api';
 import { CaseApi } from '../../../lib/api/case.api';
 
 // Case-status filter (broadest axis — open/closed/abandoned).
@@ -88,6 +89,24 @@ export default function CasesListPage(): JSX.Element {
   const [dischargeDue, setDischargeDue] = useState<boolean>(
     searchParams.get('dischargeDue') === 'true',
   );
+  const [mine, setMine] = useState<boolean>(searchParams.get('mine') === 'true');
+  // Current operator's userId, used when `mine` is on. Fetched
+  // once on mount; cached for the page's lifetime. Falls back to
+  // null if /me fails (the filter then silently does nothing).
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    AuthApi.me()
+      .then((me) => {
+        if (!cancelled) setMyUserId(me.id);
+      })
+      .catch(() => {
+        // ignore — filter chip stays inert
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   // Search input — held separately from `debouncedQ` so typing
   // doesn't fire a request on every keystroke.
   const [searchInput, setSearchInput] = useState<string>(searchParams.get('q') ?? '');
@@ -110,13 +129,14 @@ export default function CasesListPage(): JSX.Element {
     if (sla !== 'all') qs.set('sla', sla);
     if (appeals) qs.set('appeals', 'true');
     if (dischargeDue) qs.set('dischargeDue', 'true');
+    if (mine) qs.set('mine', 'true');
     if (debouncedQ.trim().length > 0) qs.set('q', debouncedQ.trim());
     const next = qs.toString();
     const current = window.location.search.replace(/^\?/, '');
     if (next !== current) {
       router.replace(`/cases${next ? `?${next}` : ''}`, { scroll: false });
     }
-  }, [status, phase, sla, appeals, dischargeDue, debouncedQ, router]);
+  }, [status, phase, sla, appeals, dischargeDue, mine, debouncedQ, router]);
 
   const [cases, setCases] = useState<CaseSummary[] | null>(null);
 
@@ -129,6 +149,7 @@ export default function CasesListPage(): JSX.Element {
       ...(sla !== 'all' ? { sla } : {}),
       ...(appeals ? { appeals: true } : {}),
       ...(dischargeDue ? { dischargeDue: true } : {}),
+      ...(mine && myUserId ? { assignedTo: myUserId } : {}),
       ...(debouncedQ.trim().length > 0 ? { q: debouncedQ.trim() } : {}),
     })
       .then((r) => {
@@ -140,7 +161,7 @@ export default function CasesListPage(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [status, phase, sla, appeals, dischargeDue, debouncedQ, showApiError]);
+  }, [status, phase, sla, appeals, dischargeDue, mine, myUserId, debouncedQ, showApiError]);
 
   const activeFilterCount = useMemo(() => {
     let n = 0;
@@ -149,9 +170,10 @@ export default function CasesListPage(): JSX.Element {
     if (sla !== 'all') n += 1;
     if (appeals) n += 1;
     if (dischargeDue) n += 1;
+    if (mine) n += 1;
     if (debouncedQ.trim().length > 0) n += 1;
     return n;
-  }, [status, phase, sla, appeals, dischargeDue, debouncedQ]);
+  }, [status, phase, sla, appeals, dischargeDue, mine, debouncedQ]);
 
   const clearAll = useCallback(() => {
     setStatus('open');
@@ -159,6 +181,7 @@ export default function CasesListPage(): JSX.Element {
     setSla('all');
     setAppeals(false);
     setDischargeDue(false);
+    setMine(false);
     setSearchInput('');
   }, []);
 
@@ -299,6 +322,12 @@ export default function CasesListPage(): JSX.Element {
             active={appeals}
             tone="warning"
             onClick={() => setAppeals((v) => !v)}
+          />
+          <FilterChip
+            icon="person"
+            label="Mine"
+            active={mine}
+            onClick={() => setMine((v) => !v)}
           />
         </div>
       </section>

@@ -84,6 +84,7 @@ export class CaseController {
     @Query('sla') sla?: 'breached' | 'at_risk' | 'any',
     @Query('appeals') appealsRaw?: string,
     @Query('dischargeDue') dischargeDueRaw?: string,
+    @Query('assignedTo') assignedTo?: string,
   ): Promise<ListCasesResponse> {
     const limit = clamp(parseInt(limitRaw ?? '50', 10) || 50, 1, 200);
     const offset = Math.max(parseInt(offsetRaw ?? '0', 10) || 0, 0);
@@ -99,6 +100,7 @@ export class CaseController {
       ...(sla ? { sla } : {}),
       ...(appeals !== undefined ? { appeals } : {}),
       ...(dischargeDue !== undefined ? { dischargeDue } : {}),
+      ...(assignedTo && assignedTo.length > 0 ? { assignedTo } : {}),
     });
   }
 

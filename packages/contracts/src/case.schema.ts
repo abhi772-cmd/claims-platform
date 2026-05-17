@@ -134,6 +134,11 @@ export const CaseSummarySchema = z.object({
   // a preauth enhancement. Null = not yet tracked / unchanged
   // since admission.
   currentRoomDailyRate: z.number().int().nonnegative().nullable(),
+  // Tier 2 — assignee of the most recently-active claim. Null
+  // when unassigned OR when the headline claim hasn't been
+  // claimed by any operator yet. Surfaced on the list cards so
+  // a billing manager can scan team allocation at a glance.
+  assignedToUserId: z.string().uuid().nullable(),
 });
 export type CaseSummary = z.infer<typeof CaseSummarySchema>;
 

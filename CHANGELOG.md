@@ -6,6 +6,64 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Claim assignment — owners + "Mine" filter for multi-operator teams
+
+Tier 2 #6 from the operator UX audit. Claims have an
+`assignedToUserId` column (it's been on the Claim model since
+sprint 7, with a `(tenantId, assignedToUserId, status)` index)
+but no UI to set or filter on it. Multi-operator billing-desk
+teams had no way to divide the queue. This slice wires the
+existing column end-to-end.
+
+No schema migration — the column was already there.
+
+Backend:
+
+* `ClaimService.assign({ tenantId, claimId, userId, actorUserId })`
+  — direct UPDATE on `claim.assignedToUserId` (null clears).
+  Writes a `claim.assigned` claim_event with payload
+  `{ previousAssignedToUserId, newAssignedToUserId }` so the
+  audit trail captures who was the owner at each step (and the
+  re-assignment history) even after later changes.
+* Idempotent — re-confirming the same assignee short-circuits
+  without polluting the event log.
+* New `claim.assigned` event type added to `ClaimEventTypeSchema`.
+  Non-transitioning (resultingStatus = currentStatus) like the
+  Stage 5 communication events.
+* `POST /cases/:c/claims/:cl/assign` gated on `case.assign`
+  (existing permission, already in the seed).
+* `GET /cases` accepts a new `assignedTo` query param (uuid)
+  that filters via `claims: { some: { assignedToUserId } }`.
+  Composes with the existing status / phase / sla / appeals /
+  dischargeDue filters.
+* `ClaimSchema` and `CaseSummarySchema` extended with
+  `assignedToUserId`. Case-detail responses populate per-claim;
+  list responses populate from the headline claim.
+
+Web:
+
+* New `<AssigneeWidget>` on case detail — pill next to the
+  status pill showing initials + name when assigned, or
+  "Unassigned" otherwise. Click opens an inline searchable
+  picker over `TenantUsersApi.list` (lazy-loaded on first
+  click). Active users only; explicit "Unassign" affordance
+  when an assignment exists. Success toast on every change.
+* Permission UX: dropdown is shown to everyone — the server
+  returns 403 for callers without `case.assign` and the error
+  modal surfaces it. Matches the rest of the app's pattern; a
+  proper client-side permission gate is a separate slice.
+* `<CasesListPage>` gains a "Mine" filter chip in the Quick
+  row. On enable, fetches `/me` once, passes the user's id as
+  `assignedTo` on every list request. Composable with all
+  other filters. URL deep-link via `?mine=true`.
+* Both the URL and the active-filter-count helpers updated to
+  include `mine`.
+
+Verified: all 6 workspace projects typecheck clean; web lint
+clean.
+
+
+
 ### Audit log — row expansion with full payload + actor names
 
 Tier 2 #5 from the operator UX audit. The audit log table had

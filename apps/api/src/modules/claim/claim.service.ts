@@ -64,6 +64,7 @@ export interface ClaimSnapshot {
   payerRefNum: string | null;
   initiatedAt: Date;
   closedAt: Date | null;
+  assignedToUserId: string | null;
 }
 
 @Injectable()
@@ -104,6 +105,60 @@ export class ClaimService {
         },
       });
       return toSnapshot(claim);
+    });
+  }
+
+  // Tier 2 — assign or unassign a claim to/from a tenant user.
+  // userId === null clears the assignment. We write the change
+  // through `transition()` with a synthetic `claim.assigned` event
+  // so the audit trail captures who-was-the-owner at each step
+  // (even after a later re-assignment).
+  //
+  // Caller is responsible for validating that the target user is
+  // in the same tenant; the controller does that via the
+  // user-list service so this method can stay focused.
+  async assign(input: {
+    tenantId: string;
+    claimId: string;
+    userId: string | null;
+    actorUserId: string;
+    correlationId?: string | null;
+  }): Promise<ClaimSnapshot> {
+    return this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
+      const claim = await tx.claim.findUnique({ where: { id: input.claimId } });
+      if (!claim || claim.tenantId !== input.tenantId) throw new ClaimNotFoundError();
+      // No-op short-circuit — re-confirming the same assignee
+      // shouldn't pollute the event log.
+      if (claim.assignedToUserId === input.userId) {
+        return toSnapshot(claim);
+      }
+      const updated = await tx.claim.update({
+        where: { id: input.claimId },
+        data: { assignedToUserId: input.userId },
+      });
+      // We deliberately do NOT push through nextStatus — assignment
+      // doesn't transition the state machine. But we DO record a
+      // claim_event so the audit trail captures the change. The
+      // RLS append-only policy on claim_event accepts this row
+      // because it carries the claim's current status as
+      // resultingStatus (i.e. nothing changed status-wise).
+      await tx.claimEvent.create({
+        data: {
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          eventType: 'claim.assigned',
+          resultingStatus: claim.status,
+          occurredAt: new Date(),
+          recordedById: input.actorUserId,
+          payload: {
+            previousAssignedToUserId: claim.assignedToUserId,
+            newAssignedToUserId: input.userId,
+          } as never,
+          correlationId: input.correlationId ?? null,
+          prevEventId: null,
+        },
+      });
+      return toSnapshot(updated);
     });
   }
 
@@ -230,5 +285,6 @@ function toSnapshot(c: NonNullable<RawClaim>): ClaimSnapshot {
     payerRefNum: c.payerRefNum,
     initiatedAt: c.initiatedAt,
     closedAt: c.closedAt,
+    assignedToUserId: c.assignedToUserId,
   };
 }
