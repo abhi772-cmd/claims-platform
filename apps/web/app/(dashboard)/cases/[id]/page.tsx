@@ -15,6 +15,7 @@ import { NonMedicalStripCalculator } from '../../../../components/discharge/NonM
 import { EnhancementPanel } from '../../../../components/enhancement/EnhancementPanel';
 import { PlanPreviewCard } from '../../../../components/insurance-plan/PlanPreviewCard';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
+import { useToast } from '../../../../components/toast/ToastProvider';
 import { PreauthPanel } from '../../../../components/preauth/PreauthPanel';
 import { EobLineMatchesPanel } from '../../../../components/settlement/EobLineMatchesPanel';
 import { SettlementPanel } from '../../../../components/settlement/SettlementPanel';
@@ -27,6 +28,7 @@ interface PageProps {
 
 export default function CaseDetailPage({ params }: PageProps): JSX.Element {
   const { showApiError } = useErrorModal();
+  const showToast = useToast();
   const [detail, setDetail] = useState<CaseDetail | null>(null);
   const [events, setEvents] = useState<ClaimEventListItem[]>([]);
   const [messages, setMessages] = useState<IntegrationMessage[]>([]);
@@ -55,9 +57,27 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
     if (!detail || !detail.claims[0]) return;
     setRunning(true);
     try {
-      await CaseApi.runEligibility(detail.id, detail.claims[0].id, {
+      const out = await CaseApi.runEligibility(detail.id, detail.claims[0].id, {
         ...(policyNumber ? { policyNumber } : {}),
       });
+      // Eligibility returns a verified flag — toast accordingly so
+      // the operator sees the outcome of the call, not just an
+      // implicit panel rerender.
+      if (out.verified) {
+        showToast({
+          tone: 'success',
+          message: out.planName
+            ? `Coverage verified: ${out.planName}.`
+            : 'Coverage verified by payer.',
+        });
+      } else {
+        showToast({
+          tone: 'warning',
+          message: out.failureReason
+            ? `Coverage check failed: ${out.failureReason}`
+            : 'Coverage check failed — retry from the eligibility section.',
+        });
+      }
       await reload();
     } catch (err) {
       showApiError(err);

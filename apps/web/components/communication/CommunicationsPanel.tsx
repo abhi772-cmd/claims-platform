@@ -4,6 +4,7 @@ import { type CommunicationEntry } from '@claims/contracts';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
+import { useToast } from '../toast/ToastProvider';
 import { CommunicationApi } from '../../lib/api/communication.api';
 
 // Stage 5 — case-detail communications timeline.
@@ -23,6 +24,7 @@ interface Props {
 
 export function CommunicationsPanel({ caseId, claimId, onChanged }: Props): JSX.Element {
   const { showApiError } = useErrorModal();
+  const showToast = useToast();
   const [entries, setEntries] = useState<CommunicationEntry[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [text, setText] = useState('');
@@ -52,6 +54,7 @@ export function CommunicationsPanel({ caseId, claimId, onChanged }: Props): JSX.
     try {
       await CommunicationApi.send(caseId, claimId, { text: trimmed });
       setText('');
+      showToast({ tone: 'success', message: 'Message sent to payer.' });
       await reload();
       // Bubble up so the parent page re-fetches the case timeline +
       // integration logs. The send writes a claim_event and two

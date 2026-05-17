@@ -4,6 +4,7 @@ import { type ClaimStatus, type PreauthDraft } from '@claims/contracts';
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
+import { useToast } from '../toast/ToastProvider';
 import { CaseApi } from '../../lib/api/case.api';
 
 const EDITABLE_STATUSES: ReadonlySet<ClaimStatus> = new Set([
@@ -23,6 +24,7 @@ interface Props {
 
 export function PreauthPanel({ caseId, claimId, status, onChanged }: Props): JSX.Element | null {
   const { showApiError } = useErrorModal();
+  const showToast = useToast();
   const [draft, setDraft] = useState<PreauthDraft>({});
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -60,6 +62,7 @@ export function PreauthPanel({ caseId, claimId, status, onChanged }: Props): JSX
     try {
       const out = await CaseApi.savePreauthDraft(caseId, claimId, draft);
       setDraft(out.draft);
+      showToast({ tone: 'success', message: 'Pre-auth draft saved.' });
       onChanged();
     } catch (err) {
       showApiError(err);
@@ -72,6 +75,10 @@ export function PreauthPanel({ caseId, claimId, status, onChanged }: Props): JSX
     setSubmitting(true);
     try {
       await CaseApi.submitPreauth(caseId, claimId);
+      showToast({
+        tone: 'success',
+        message: 'Pre-auth submitted to payer — IRDAI 1-hour timer started.',
+      });
       onChanged();
     } catch (err) {
       showApiError(err);
