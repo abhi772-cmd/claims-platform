@@ -75,14 +75,30 @@ export class CaseController {
     @Query('limit') limitRaw?: string,
     @Query('offset') offsetRaw?: string,
     @Query('status') status?: 'open' | 'closed' | 'abandoned',
+    // Tier 1 #4 — search + claim-phase + SLA filters. The
+    // dashboard tiles deep-link via these params. Each is
+    // optional + independently composable.
+    @Query('q') q?: string,
+    @Query('phase')
+    phase?: 'drafting' | 'awaitingPayer' | 'approved' | 'paymentPending',
+    @Query('sla') sla?: 'breached' | 'at_risk' | 'any',
+    @Query('appeals') appealsRaw?: string,
+    @Query('dischargeDue') dischargeDueRaw?: string,
   ): Promise<ListCasesResponse> {
     const limit = clamp(parseInt(limitRaw ?? '50', 10) || 50, 1, 200);
     const offset = Math.max(parseInt(offsetRaw ?? '0', 10) || 0, 0);
+    const appeals = appealsRaw === 'true' ? true : undefined;
+    const dischargeDue = dischargeDueRaw === 'true' ? true : undefined;
     return this.cases.list({
       tenantId: user.tenantId,
       limit,
       offset,
       ...(status ? { status } : {}),
+      ...(q && q.trim().length > 0 ? { q: q.trim() } : {}),
+      ...(phase ? { phase } : {}),
+      ...(sla ? { sla } : {}),
+      ...(appeals !== undefined ? { appeals } : {}),
+      ...(dischargeDue !== undefined ? { dischargeDue } : {}),
     });
   }
 

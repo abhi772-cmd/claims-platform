@@ -2,32 +2,135 @@
 
 import { type CaseSummary } from '@claims/contracts';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useErrorModal } from '../../../components/modals/ErrorModal/ErrorModalProvider';
 import { SlaPill } from '../../../components/sla/SlaPill';
 import { CaseApi } from '../../../lib/api/case.api';
 
-type Filter = 'all' | 'open' | 'closed' | 'abandoned';
-
-const FILTER_LABEL: Record<Filter, string> = {
-  all: 'All Cases',
+// Case-status filter (broadest axis — open/closed/abandoned).
+type StatusFilter = 'all' | 'open' | 'closed' | 'abandoned';
+const STATUS_LABEL: Record<StatusFilter, string> = {
+  all: 'All',
   open: 'Open',
   closed: 'Closed',
   abandoned: 'Abandoned',
 };
+const STATUS_FILTERS: StatusFilter[] = ['all', 'open', 'closed', 'abandoned'];
 
-const FILTERS: Filter[] = ['all', 'open', 'closed', 'abandoned'];
+// Claim-phase filter (orthogonal to case status; matches the
+// dashboard tile bucketing one-to-one).
+type PhaseFilter = 'all' | 'drafting' | 'awaitingPayer' | 'approved' | 'paymentPending';
+const PHASE_LABEL: Record<PhaseFilter, string> = {
+  all: 'Any phase',
+  drafting: 'Drafting',
+  awaitingPayer: 'Awaiting payer',
+  approved: 'Approved',
+  paymentPending: 'Payment pending',
+};
+const PHASE_FILTERS: PhaseFilter[] = [
+  'all',
+  'drafting',
+  'awaitingPayer',
+  'approved',
+  'paymentPending',
+];
+
+// SLA quick filter — matches the dashboard "SLA at risk" tile.
+type SlaFilter = 'all' | 'any' | 'breached' | 'at_risk';
+const SLA_LABEL: Record<SlaFilter, string> = {
+  all: 'All',
+  any: 'At risk + breached',
+  breached: 'Breached',
+  at_risk: 'At risk',
+};
+
+function isStatusFilter(v: string | null): v is StatusFilter {
+  return v === 'all' || v === 'open' || v === 'closed' || v === 'abandoned';
+}
+function isPhaseFilter(v: string | null): v is PhaseFilter {
+  return (
+    v === 'all' ||
+    v === 'drafting' ||
+    v === 'awaitingPayer' ||
+    v === 'approved' ||
+    v === 'paymentPending'
+  );
+}
+function isSlaFilter(v: string | null): v is SlaFilter {
+  return v === 'all' || v === 'any' || v === 'breached' || v === 'at_risk';
+}
 
 export default function CasesListPage(): JSX.Element {
   const { showApiError } = useErrorModal();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Initial state hydrates from URL params so deep-links from the
+  // dashboard tiles (/cases?phase=drafting, /cases?sla=any, etc.)
+  // land on the right view without an extra render.
+  const [status, setStatus] = useState<StatusFilter>(() => {
+    const s = searchParams.get('status');
+    return isStatusFilter(s) ? s : 'open';
+  });
+  const [phase, setPhase] = useState<PhaseFilter>(() => {
+    const p = searchParams.get('phase');
+    return isPhaseFilter(p) ? p : 'all';
+  });
+  const [sla, setSla] = useState<SlaFilter>(() => {
+    const v = searchParams.get('sla');
+    return isSlaFilter(v) ? v : 'all';
+  });
+  const [appeals, setAppeals] = useState<boolean>(
+    searchParams.get('appeals') === 'true',
+  );
+  const [dischargeDue, setDischargeDue] = useState<boolean>(
+    searchParams.get('dischargeDue') === 'true',
+  );
+  // Search input — held separately from `debouncedQ` so typing
+  // doesn't fire a request on every keystroke.
+  const [searchInput, setSearchInput] = useState<string>(searchParams.get('q') ?? '');
+  const [debouncedQ, setDebouncedQ] = useState<string>(searchInput);
+
+  // 300 ms debounce on the search input so the cases call fires
+  // once after the operator stops typing.
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedQ(searchInput), 300);
+    return () => window.clearTimeout(id);
+  }, [searchInput]);
+
+  // Push the current filter state back into the URL so links are
+  // bookmarkable AND browser back/forward works. Replace not push
+  // so the operator's history isn't polluted by every chip click.
+  useEffect(() => {
+    const qs = new URLSearchParams();
+    if (status !== 'open') qs.set('status', status);
+    if (phase !== 'all') qs.set('phase', phase);
+    if (sla !== 'all') qs.set('sla', sla);
+    if (appeals) qs.set('appeals', 'true');
+    if (dischargeDue) qs.set('dischargeDue', 'true');
+    if (debouncedQ.trim().length > 0) qs.set('q', debouncedQ.trim());
+    const next = qs.toString();
+    const current = window.location.search.replace(/^\?/, '');
+    if (next !== current) {
+      router.replace(`/cases${next ? `?${next}` : ''}`, { scroll: false });
+    }
+  }, [status, phase, sla, appeals, dischargeDue, debouncedQ, router]);
+
   const [cases, setCases] = useState<CaseSummary[] | null>(null);
-  const [filter, setFilter] = useState<Filter>('open');
 
   useEffect(() => {
     let cancelled = false;
     setCases(null);
-    CaseApi.list(filter === 'all' ? {} : { status: filter })
+    CaseApi.list({
+      ...(status !== 'all' ? { status } : {}),
+      ...(phase !== 'all' ? { phase } : {}),
+      ...(sla !== 'all' ? { sla } : {}),
+      ...(appeals ? { appeals: true } : {}),
+      ...(dischargeDue ? { dischargeDue: true } : {}),
+      ...(debouncedQ.trim().length > 0 ? { q: debouncedQ.trim() } : {}),
+    })
       .then((r) => {
         if (!cancelled) setCases(r.cases);
       })
@@ -37,7 +140,27 @@ export default function CasesListPage(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [filter, showApiError]);
+  }, [status, phase, sla, appeals, dischargeDue, debouncedQ, showApiError]);
+
+  const activeFilterCount = useMemo(() => {
+    let n = 0;
+    if (status !== 'open') n += 1;
+    if (phase !== 'all') n += 1;
+    if (sla !== 'all') n += 1;
+    if (appeals) n += 1;
+    if (dischargeDue) n += 1;
+    if (debouncedQ.trim().length > 0) n += 1;
+    return n;
+  }, [status, phase, sla, appeals, dischargeDue, debouncedQ]);
+
+  const clearAll = useCallback(() => {
+    setStatus('open');
+    setPhase('all');
+    setSla('all');
+    setAppeals(false);
+    setDischargeDue(false);
+    setSearchInput('');
+  }, []);
 
   return (
     <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-6">
@@ -60,28 +183,125 @@ export default function CasesListPage(): JSX.Element {
         </Link>
       </div>
 
-      {/* Filter bar */}
-      <div className="glass inline-flex self-start rounded-xl p-2 shadow-[0_2px_12px_rgba(0,102,110,0.03)]">
-        {FILTERS.map((s) => {
-          const active = filter === s;
-          return (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={
-                active
-                  ? 'rounded-lg border border-white bg-white/80 px-5 py-1.5 text-body font-bold text-primary shadow-sm'
-                  : 'rounded-lg px-5 py-1.5 text-body text-on-surface-variant transition-colors hover:bg-white/40'
-              }
+      {/* Search + filter rail */}
+      <section className="glass space-y-4 rounded-xl p-4 shadow-[0_2px_12px_rgba(0,102,110,0.03)]">
+        {/* Search row */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="relative flex-1 min-w-[260px] max-w-2xl">
+            <span
+              aria-hidden
+              className="material-symbols-outlined pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[20px] text-on-surface-variant"
             >
-              {FILTER_LABEL[s]}
-            </button>
-          );
-        })}
-        <div className="ml-3 flex items-center pr-3 text-body-sm text-on-surface-variant">
-          {cases === null ? '…' : `${cases.length} ${cases.length === 1 ? 'case' : 'cases'}`}
+              search
+            </span>
+            <input
+              type="search"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search patient name, MRN, preauth or claim ref…"
+              className="glass-input glass-input--sm w-full pl-10"
+              aria-label="Search cases"
+            />
+            {searchInput.length > 0 && searchInput !== debouncedQ ? (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-on-surface-variant">
+                searching…
+              </span>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-3 text-body-sm text-on-surface-variant">
+            <span>
+              {cases === null
+                ? 'loading…'
+                : `${cases.length} ${cases.length === 1 ? 'case' : 'cases'}`}
+            </span>
+            {activeFilterCount > 0 ? (
+              <button
+                type="button"
+                onClick={clearAll}
+                className="text-[12px] text-primary hover:underline"
+                title="Reset all filters"
+              >
+                Clear all ({activeFilterCount})
+              </button>
+            ) : null}
+          </div>
         </div>
-      </div>
+
+        {/* Status row — broadest axis, top-of-mind */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+            Status
+          </span>
+          {STATUS_FILTERS.map((s) => {
+            const active = status === s;
+            return (
+              <FilterChip
+                key={s}
+                label={STATUS_LABEL[s]}
+                active={active}
+                onClick={() => setStatus(s)}
+              />
+            );
+          })}
+        </div>
+
+        {/* Claim-phase row — same buckets as dashboard tiles */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+            Phase
+          </span>
+          {PHASE_FILTERS.map((p) => {
+            const active = phase === p;
+            return (
+              <FilterChip
+                key={p}
+                label={PHASE_LABEL[p]}
+                active={active}
+                onClick={() => setPhase(p)}
+              />
+            );
+          })}
+        </div>
+
+        {/* Quick filters — SLA + appeals + discharge-due, the
+            dashboard-tile deep-link targets */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+            Quick
+          </span>
+          <FilterChip
+            icon="timer"
+            label={`SLA: ${SLA_LABEL[sla]}`}
+            active={sla !== 'all'}
+            tone="warning"
+            onClick={() => {
+              // Cycle through: all → any → breached → at_risk → all
+              setSla((cur) =>
+                cur === 'all'
+                  ? 'any'
+                  : cur === 'any'
+                    ? 'breached'
+                    : cur === 'breached'
+                      ? 'at_risk'
+                      : 'all',
+              );
+            }}
+          />
+          <FilterChip
+            icon="logout"
+            label="Discharges due"
+            active={dischargeDue}
+            onClick={() => setDischargeDue((v) => !v)}
+          />
+          <FilterChip
+            icon="gavel"
+            label="In appeal"
+            active={appeals}
+            tone="warning"
+            onClick={() => setAppeals((v) => !v)}
+          />
+        </div>
+      </section>
 
       {/* Body */}
       {cases === null ? (
@@ -89,7 +309,7 @@ export default function CasesListPage(): JSX.Element {
           <p className="text-body text-on-surface-variant">Loading…</p>
         </div>
       ) : cases.length === 0 ? (
-        <EmptyState filter={filter} />
+        <EmptyState activeFilters={activeFilterCount} onClearAll={clearAll} />
       ) : (
         <div className="glass flex flex-1 flex-col overflow-hidden rounded-xl shadow-[0_8px_32px_rgba(0,102,110,0.05)]">
           <div className="overflow-x-auto">
@@ -195,32 +415,87 @@ function initials(name: string): string {
   return (a + b).toUpperCase();
 }
 
-function EmptyState({ filter }: { filter: Filter }): JSX.Element {
-  const copy: Record<Filter, string> = {
-    open: 'No open cases right now. Create one to start a new claim.',
-    closed: 'No closed cases yet.',
-    abandoned: 'No abandoned cases.',
-    all: 'No cases for this tenant yet.',
-  };
+function FilterChip({
+  label,
+  active,
+  onClick,
+  icon,
+  tone = 'primary',
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  icon?: string;
+  tone?: 'primary' | 'warning';
+}): JSX.Element {
+  const activeCls =
+    tone === 'warning'
+      ? 'border-amber-300 bg-amber-50 text-amber-700'
+      : 'border-primary bg-primary/10 text-primary';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        active
+          ? `inline-flex items-center gap-1 rounded-full border px-3 py-1 text-body-sm font-medium ${activeCls}`
+          : 'inline-flex items-center gap-1 rounded-full border border-outline-variant/40 bg-surface-container-lowest/60 px-3 py-1 text-body-sm text-on-surface-variant hover:border-primary/40 hover:text-on-surface'
+      }
+      aria-pressed={active}
+    >
+      {icon ? (
+        <span className="material-symbols-outlined text-[14px]">{icon}</span>
+      ) : null}
+      {label}
+    </button>
+  );
+}
+
+function EmptyState({
+  activeFilters,
+  onClearAll,
+}: {
+  activeFilters: number;
+  onClearAll: () => void;
+}): JSX.Element {
   return (
     <div className="glass flex flex-col items-center gap-3 rounded-xl py-12 text-center">
       <div
         className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-fixed/30 text-primary"
         aria-hidden
       >
-        <span className="material-symbols-outlined">folder_open</span>
-      </div>
-      <div className="text-h3 font-h3 text-on-surface">Nothing here yet</div>
-      <p className="max-w-sm text-body-sm text-on-surface-variant">{copy[filter]}</p>
-      <Link href="/cases/new" className="btn-cta mt-2" style={{ padding: '10px 24px' }}>
-        <span
-          className="material-symbols-outlined"
-          style={{ fontSize: 18, fontVariationSettings: "'FILL' 1" }}
-        >
-          add
+        <span className="material-symbols-outlined">
+          {activeFilters > 0 ? 'filter_alt_off' : 'folder_open'}
         </span>
-        Create new case
-      </Link>
+      </div>
+      <div className="text-h3 font-h3 text-on-surface">
+        {activeFilters > 0 ? 'No cases match the filters' : 'Nothing here yet'}
+      </div>
+      <p className="max-w-sm text-body-sm text-on-surface-variant">
+        {activeFilters > 0
+          ? 'Try clearing one or more filters to broaden the result set.'
+          : 'No open cases right now. Create one to start a new claim.'}
+      </p>
+      {activeFilters > 0 ? (
+        <button
+          type="button"
+          onClick={onClearAll}
+          className="btn-outline mt-2"
+          style={{ padding: '10px 24px', fontSize: '13px' }}
+        >
+          Clear all filters
+        </button>
+      ) : (
+        <Link href="/cases/new" className="btn-cta mt-2" style={{ padding: '10px 24px' }}>
+          <span
+            className="material-symbols-outlined"
+            style={{ fontSize: 18, fontVariationSettings: "'FILL' 1" }}
+          >
+            add
+          </span>
+          Create new case
+        </Link>
+      )}
     </div>
   );
 }

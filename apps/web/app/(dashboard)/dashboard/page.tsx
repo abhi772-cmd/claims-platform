@@ -101,7 +101,7 @@ export default function DashboardPage(): JSX.Element {
             }
             icon="folder_open"
             tone="success"
-            href="/cases"
+            href="/cases?status=open"
           />
           <OperationalTile
             label="SLA at risk"
@@ -123,7 +123,11 @@ export default function DashboardPage(): JSX.Element {
                   ? 'warning'
                   : 'neutral'
             }
-            href="/cases"
+            href={
+              (operational.data?.slaAtRisk.breached ?? 0) > 0
+                ? '/cases?status=open&sla=breached'
+                : '/cases?status=open&sla=any'
+            }
           />
           <OperationalTile
             label="Discharges due"
@@ -133,7 +137,7 @@ export default function DashboardPage(): JSX.Element {
             tone={
               (operational.data?.dischargesDueToday ?? 0) > 0 ? 'success' : 'neutral'
             }
-            href="/cases"
+            href="/cases?status=open&dischargeDue=true"
           />
           <OperationalTile
             label="Pending appeals"
@@ -143,7 +147,7 @@ export default function DashboardPage(): JSX.Element {
             tone={
               (operational.data?.pendingAppeals ?? 0) > 0 ? 'warning' : 'neutral'
             }
-            href="/cases"
+            href="/cases?status=open&appeals=true"
           />
         </div>
       </section>

@@ -34,11 +34,71 @@ export interface UpdateCaseInput extends UpdateCaseRequest {
   userAgent: string | null;
 }
 
+// Phase buckets — same status sets the operational dashboard
+// uses. Defined here too so the cases-list filter chips align
+// one-to-one with the dashboard tiles. Updating the dashboard's
+// bucketing means updating this enum.
+export type CaseListPhase = 'drafting' | 'awaitingPayer' | 'approved' | 'paymentPending';
+
+const PHASE_STATUSES: Record<CaseListPhase, readonly string[]> = {
+  drafting: [
+    'ELIGIBILITY_PENDING',
+    'ELIGIBILITY_VERIFIED',
+    'ELIGIBILITY_FAILED',
+    'PREAUTH_DRAFTING',
+    'CLAIM_DRAFTING',
+    'DISCHARGE_PENDING',
+  ],
+  awaitingPayer: [
+    'PREAUTH_QUEUED',
+    'PREAUTH_SUBMITTED',
+    'PREAUTH_QUERY_RAISED',
+    'PREAUTH_QUERY_RESPONDED',
+    'ENHANCEMENT_QUEUED',
+    'ENHANCEMENT_SUBMITTED',
+    'CLAIM_QUEUED',
+    'CLAIM_SUBMITTED',
+    'CLAIM_QUERY_RAISED',
+    'CLAIM_QUERY_RESPONDED',
+    'DISCHARGE_SUBMITTED',
+  ],
+  approved: [
+    'PREAUTH_APPROVED',
+    'PREAUTH_PARTIALLY_APPROVED',
+    'ENHANCEMENT_APPROVED',
+    'CLAIM_APPROVED',
+    'CLAIM_PARTIALLY_APPROVED',
+  ],
+  paymentPending: [
+    'PAYMENT_PENDING',
+    'PAYMENT_RECEIVED',
+    'SHORT_PAID',
+  ],
+};
+
+const APPEAL_STATUSES = ['APPEAL_INITIATED', 'APPEAL_SUBMITTED'];
+
 export interface ListCasesInput {
   tenantId: string;
   limit: number;
   offset: number;
   status?: 'open' | 'closed' | 'abandoned';
+  // Free-text search across patientName, hospitalMrn, and the
+  // headline claim's preauthRefNum / claimRefNum. Case-insensitive.
+  q?: string;
+  // Filter cases whose headline claim falls in this phase bucket.
+  phase?: CaseListPhase;
+  // Filter to cases whose headline claim has a breached or at-risk
+  // SLA timer (either preauth or claim phase). Applied post-load
+  // because SLA state is computed from the event stream at read
+  // time and can't be expressed as a Prisma where-clause.
+  sla?: 'breached' | 'at_risk' | 'any';
+  // Filter to cases in active appeal states.
+  appeals?: boolean;
+  // Filter to cases whose admission + estimatedStayDays lands
+  // within today ± 1 day AND whose claim is in the approved-but-
+  // not-discharged window.
+  dischargeDue?: boolean;
 }
 
 @Injectable()
@@ -189,25 +249,100 @@ export class CaseService {
 
   async list(input: ListCasesInput): Promise<ListCasesResponse> {
     return this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
+      // Build the Prisma where clause. Server-side filterable
+      // bits go here; SLA + dischargeDue need post-load filtering
+      // because they depend on computed values.
+      const statusFilter = (() => {
+        if (input.appeals === true) return { in: [...APPEAL_STATUSES] };
+        if (input.phase) return { in: [...PHASE_STATUSES[input.phase]] };
+        return undefined;
+      })();
+
+      // Free-text search — patientName / hospitalMrn / headline-
+      // claim ref numbers. Each is `contains` insensitive so the
+      // operator can type fragments.
+      const searchClause = input.q
+        ? {
+            OR: [
+              { patientName: { contains: input.q, mode: 'insensitive' as const } },
+              { hospitalMrn: { contains: input.q, mode: 'insensitive' as const } },
+              {
+                claims: {
+                  some: {
+                    OR: [
+                      {
+                        preauthRefNum: {
+                          contains: input.q,
+                          mode: 'insensitive' as const,
+                        },
+                      },
+                      {
+                        claimRefNum: {
+                          contains: input.q,
+                          mode: 'insensitive' as const,
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          }
+        : {};
+
+      // Discharge-due candidate set — restrict at the SQL level
+      // to cases with estimatedStayDays AND a claim in the right
+      // status set. Final ± 1 day filtering happens client-side
+      // (Prisma can't express admission + stayDays = today).
+      const dischargeDueClause = input.dischargeDue
+        ? {
+            estimatedStayDays: { not: null },
+            claims: {
+              some: {
+                status: {
+                  in: [
+                    'PREAUTH_APPROVED',
+                    'PREAUTH_PARTIALLY_APPROVED',
+                    'ENHANCEMENT_APPROVED',
+                    'DISCHARGE_PENDING',
+                  ],
+                },
+              },
+            },
+          }
+        : {};
+
       const where = {
         tenantId: input.tenantId,
         ...(input.status ? { caseStatus: input.status } : {}),
-      } as const;
+        ...(statusFilter
+          ? { claims: { some: { status: statusFilter } } }
+          : {}),
+        ...searchClause,
+        ...dischargeDueClause,
+      };
+
+      // For filters that need post-load evaluation (sla,
+      // dischargeDue), we can't honour limit/offset at the DB
+      // level — we'd undercount. Load a wider page and filter,
+      // then apply offset/limit in TS. For pure DB-filterable
+      // queries we use the indexed limit/offset directly.
+      const needsPostFilter = input.sla !== undefined || input.dischargeDue === true;
+      const dbLimit = needsPostFilter ? Math.min(input.limit + input.offset + 200, 500) : input.limit;
+      const dbOffset = needsPostFilter ? 0 : input.offset;
+
       const [rows, total] = await Promise.all([
         tx.case.findMany({
           where,
           orderBy: { createdAt: 'desc' },
-          skip: input.offset,
-          take: input.limit,
+          skip: dbOffset,
+          take: dbLimit,
           include: {
             claims: {
               orderBy: { initiatedAt: 'desc' },
               take: 1,
               select: {
                 status: true,
-                // T2-15 follow-up — load the events for the headline
-                // claim so we can compute IRDAI SLA state and surface
-                // pre-auth + claim pills on the list cards.
                 events: {
                   orderBy: { occurredAt: 'asc' },
                   select: { eventType: true, occurredAt: true },
@@ -218,24 +353,73 @@ export class CaseService {
         }),
         tx.case.count({ where }),
       ]);
+
       const now = new Date();
+      const today = new Date(
+        Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+      );
+      const oneDayMs = 24 * 60 * 60 * 1000;
+
+      // Hydrate each row with SLA, then run post-load filters.
+      const hydrated = rows.map((r) => {
+        const headline = r.claims[0];
+        const sla = headline
+          ? computeSlaForClaim(
+              headline.events.map(
+                (e): SlaEvent => ({
+                  eventType: e.eventType as SlaEvent['eventType'],
+                  occurredAt: e.occurredAt,
+                }),
+              ),
+              now,
+            )
+          : null;
+        return { row: r, headline, sla };
+      });
+
+      const filtered = hydrated.filter((h) => {
+        if (input.sla !== undefined) {
+          if (!h.sla) return false;
+          const phases = [h.sla.preauth, h.sla.claim].filter(
+            (p): p is NonNullable<typeof p> => p !== null,
+          );
+          if (input.sla === 'breached') {
+            if (!phases.some((p) => p.status === 'breached')) return false;
+          } else if (input.sla === 'at_risk') {
+            if (!phases.some((p) => p.status === 'at_risk')) return false;
+          } else {
+            // 'any' — at least one phase is breached OR at_risk
+            if (!phases.some((p) => p.status === 'breached' || p.status === 'at_risk')) {
+              return false;
+            }
+          }
+        }
+        if (input.dischargeDue === true) {
+          if (h.row.estimatedStayDays === null) return false;
+          const admissionMs = h.row.admissionDate.getTime();
+          const expectedMs = admissionMs + h.row.estimatedStayDays * oneDayMs;
+          if (Math.abs(expectedMs - today.getTime()) > oneDayMs) return false;
+        }
+        return true;
+      });
+
+      // Apply offset/limit AFTER filtering so the page is the
+      // operator-facing page, not the pre-filter SQL page.
+      const paginated = needsPostFilter
+        ? filtered.slice(input.offset, input.offset + input.limit)
+        : filtered;
+
       return {
-        cases: rows.map((r) => {
-          const headline = r.claims[0];
-          const sla = headline
-            ? computeSlaForClaim(
-                headline.events.map(
-                  (e): SlaEvent => ({
-                    eventType: e.eventType as SlaEvent['eventType'],
-                    occurredAt: e.occurredAt,
-                  }),
-                ),
-                now,
-              )
-            : null;
-          return this.toSummary(r, headline?.status ?? null, sla);
-        }),
-        total,
+        cases: paginated.map((h) =>
+          this.toSummary(h.row, h.headline?.status ?? null, h.sla),
+        ),
+        // When post-filtering, the SQL total is wrong (it counts
+        // pre-filter). Use the filtered length as the honest total
+        // for the visible page. Note: this caps at dbLimit (500)
+        // — tenants with very large open-claim queues + tight
+        // filters would see undercounts, addressed in a follow-up
+        // if needed.
+        total: needsPostFilter ? filtered.length : total,
         limit: input.limit,
         offset: input.offset,
       };
