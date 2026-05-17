@@ -33,5 +33,6 @@ export * from './enhancement.schema';
 export * from './bill-line-item.schema';
 export * from './eob-line-matcher.schema';
 export * from './dashboard.schema';
+export * from './insurance-plan.schema';
 export * from './problem-details.schema';
 export { Permissions, ALL_PERMISSIONS, type Permission as AppPermission } from './permissions';

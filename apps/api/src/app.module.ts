@@ -27,6 +27,7 @@ import { DocumentModule } from './modules/document';
 import { VirusScanModule } from './modules/document/scan';
 import { EligibilityModule } from './modules/eligibility';
 import { EnhancementModule } from './modules/enhancement';
+import { InsurancePlanModule } from './modules/insurance-plan';
 import { EobLineMatcherModule } from './modules/eob-line-matcher';
 import { EobOcrModule } from './modules/eob-ocr';
 import { ErasureModule } from './modules/erasure/erasure.module';
@@ -115,6 +116,7 @@ import { UserModule } from './modules/user/user.module';
     EligibilityModule,
     PreauthModule,
     EnhancementModule,
+    InsurancePlanModule,
     PmjayPoliciesModule,
     DocumentModule,
     DischargeModule,

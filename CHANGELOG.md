@@ -6,6 +6,79 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### PlanPreviewCard — real insurance-plan summary on case detail
+
+Closes Tier 1 #1 from the operator UX audit. Before this slice,
+`apps/web/components/insurance-plan/PlanPreviewCard.tsx` was a
+literal `return null` stub with the comment *"Stub placeholder
+so the dev build compiles."* The case-detail page imported and
+rendered it, so the slot where the insurance plan summary should
+appear was **always blank**.
+
+This is the third Tier 1 gap to close in this Sprint and
+**clean-sweeps Tier 1**.
+
+Pragmatic scope decision: rather than blocking on a full FHIR
+`Coverage.benefit[]` parser (deductible + co-pay extraction —
+gateway-specific quirks, fragile), this slice composes the card
+from data we already have:
+
+* `eligibility.verified` ClaimEvent payload → `planName`,
+  `sumInsured`
+* Case row (T2-14 columns) → `policyRoomRentLimit`
+* Claim row → `approvedAmount` (sum-to-date)
+
+A richer FHIR parser drops in later without breaking the
+contract.
+
+Backend:
+
+* New `InsurancePlanModule` + `InsurancePlanService.getForClaim()`
+  reads the three sources in parallel inside one tenant-scoped
+  tx. Returns `InsurancePlanResponse` keyed on a 3-state
+  `EligibilityVerificationStatus` enum (`not_run | verified |
+  failed`).
+* `GET /cases/:c/claims/:cl/insurance-plan` gated on
+  `case.view`. Tenant-owned by the existing
+  `CaseService.assertOwns` pattern.
+* No persistence — the response is a read-side projection.
+
+Contract (`InsurancePlanResponse`):
+
+* `status`, `planName`, `sumInsured` (gateway's number,
+  RUPEES not paise — matches what the eligibility event
+  carries), `policyRoomRentLimitPaise`, `approvedToDatePaise`,
+  `verifiedAt`, `failureReason`.
+
+Web:
+
+* `<PlanPreviewCard>` is now a real component. Three states:
+  * **not_run** — muted hint pointing at the eligibility action
+    on the case-detail page.
+  * **failed** — amber banner with the verification failure
+    reason from the eligibility event.
+  * **verified** — full happy path: status pill with the verify
+    timestamp, plan name, four mini-stat tiles
+    (Plan / Sum insured / Room rent cap / Approved to date),
+    and a coverage-hint bar showing sum-insured usage % +
+    headroom (tones from primary → amber at 60% → red at 90%).
+* The card now renders content under every claim status — case
+  detail no longer has a blank slot.
+
+Deliberately deferred:
+
+* Full FHIR `Coverage.benefit[]` extraction (deductible, co-pay,
+  per-procedure sub-limits). The `<MiniStat>` grid is sized to
+  drop those in as new tiles without restructuring.
+* Persisted `InsurancePlan` cache. The current read path is
+  cheap enough (3 parallel reads) that pre-computation isn't
+  yet worth the staleness risk.
+
+Verified: all 6 workspace projects typecheck clean; web lint
+clean.
+
+
+
 ### Cases list — search + claim-phase filters + URL deep-links
 
 Closes Tier 1 #4 from the operator UX audit. The cases list had
