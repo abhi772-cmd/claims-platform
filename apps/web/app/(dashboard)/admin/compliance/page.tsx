@@ -18,12 +18,20 @@
 import { type ComplianceDashboard } from '@claims/contracts';
 import { useEffect, useState, type ReactNode } from 'react';
 
+import {
+  useConfirm,
+  usePrompt,
+} from '../../../../components/modals/ConfirmDialog/ConfirmDialogProvider';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
+import { useToast } from '../../../../components/toast/ToastProvider';
 import { BreachApi } from '../../../../lib/api/breach.api';
 import { ComplianceApi } from '../../../../lib/api/compliance.api';
 
 export default function ComplianceDashboardPage(): JSX.Element {
   const { showApiError } = useErrorModal();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
+  const showToast = useToast();
   const [data, setData] = useState<ComplianceDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -51,8 +59,10 @@ export default function ComplianceDashboardPage(): JSX.Element {
     setScanning(true);
     try {
       const r = await BreachApi.scan();
-      // Informational only — toast-equivalent.
-      window.alert(`Scan complete: ${r.incidentsCreated} new incident(s) in ${r.durationMs}ms.`);
+      showToast({
+        tone: 'success',
+        message: `Scan complete: ${r.incidentsCreated} new incident${r.incidentsCreated === 1 ? '' : 's'} in ${r.durationMs}ms.`,
+      });
       refresh();
     } catch (err) {
       showApiError(err);
@@ -62,7 +72,20 @@ export default function ComplianceDashboardPage(): JSX.Element {
   };
 
   const notify = async (id: string): Promise<void> => {
-    if (!window.confirm('Notify the Data Protection Board for this incident?')) return;
+    const ok = await confirm({
+      title: 'Notify the Data Protection Board?',
+      body: (
+        <>
+          This records that you formally notified the DPB about this incident
+          under DPDP §8(6). The breach incident will move to{' '}
+          <span className="font-semibold">notified</span> state and the audit
+          trail will mark this as your acknowledgement of the notification.
+        </>
+      ),
+      tone: 'warning',
+      confirmLabel: 'Yes, mark notified',
+    });
+    if (!ok) return;
     try {
       await BreachApi.notify(id, { acknowledged: true });
       refresh();
@@ -72,8 +95,17 @@ export default function ComplianceDashboardPage(): JSX.Element {
   };
 
   const dismiss = async (id: string): Promise<void> => {
-    const reason = window.prompt('Reason for dismissal (min 10 chars):');
-    if (!reason || reason.length < 10) return;
+    const reason = await prompt({
+      title: 'Dismiss breach incident',
+      body: 'Recorded in the audit log. Required so reviewers can later see WHY a flagged incident was closed without DPB notification.',
+      label: 'Reason for dismissal',
+      placeholder: 'e.g. False positive — scan rule triggered on a re-encrypted backup, not a real breach.',
+      minLength: 10,
+      maxLength: 2000,
+      multiline: true,
+      confirmLabel: 'Dismiss incident',
+    });
+    if (reason === null) return;
     try {
       await BreachApi.dismiss(id, { reason });
       refresh();

@@ -10,6 +10,7 @@ import {
 } from '@claims/contracts';
 import { useEffect, useState } from 'react';
 
+import { usePrompt } from '../../../../components/modals/ConfirmDialog/ConfirmDialogProvider';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { ConsentApi } from '../../../../lib/api/consent.api';
 
@@ -25,6 +26,7 @@ const STATUS_STYLE: Record<ConsentStatus, { cls: string; dot: string }> = {
 
 export default function ConsentsViewerPage(): JSX.Element {
   const { showApiError } = useErrorModal();
+  const prompt = usePrompt();
   const [filter, setFilter] = useState<ConsentListFilter>({});
   const [draft, setDraft] = useState<ConsentListFilter>({});
   const [rows, setRows] = useState<ConsentRecordRow[]>([]);
@@ -53,8 +55,17 @@ export default function ConsentsViewerPage(): JSX.Element {
   const apply = (): void => setFilter(draft);
 
   const withdraw = async (id: string): Promise<void> => {
-    const reason = window.prompt('Reason for withdrawing this consent (required, min 5 chars):');
-    if (!reason || reason.length < 5) return;
+    const reason = await prompt({
+      title: 'Withdraw consent',
+      body: 'The data subject is exercising their right to withdraw under DPDP §6. The withdrawal is recorded in the audit log and stops new data processing tied to this consent.',
+      label: 'Reason for withdrawal',
+      placeholder: 'e.g. Data subject requested withdrawal by email on 2026-05-17.',
+      minLength: 5,
+      maxLength: 2000,
+      multiline: true,
+      confirmLabel: 'Withdraw consent',
+    });
+    if (reason === null) return;
     try {
       await ConsentApi.withdraw(id, { reason });
       setRefreshKey((k) => k + 1);
