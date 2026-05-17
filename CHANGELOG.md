@@ -6,6 +6,55 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### T2-13 follow-up — per-line operator overrides on bill classifier
+
+PR #115 gave the classified bill a durable home but locked the
+operator into the classifier's opinion: if "TV rental" came back
+as `comfort` and the operator wanted to file it as
+`miscellaneous`, they had to edit the description text and rely
+on the classifier matching a different term. This slice fixes
+that by making every row in the bill table independently editable.
+
+Web:
+
+* `<NonMedicalStripCalculator>` table rows now carry inline
+  controls:
+  * A medical / non-medical segmented toggle.
+  * A category dropdown (shown only when non-medical) with all
+    nine categories from `NonMedicalCategorySchema`.
+  * A "manual" badge with a reset link when the operator's
+    choice differs from what the classifier opined.
+* Headline tiles (medical total / non-medical / grand / suggested
+  final) and the by-category breakdown are now driven by an
+  `effectiveLines` projection — overrides flow immediately into
+  the summary math without a refetch.
+* Save payload uses the same `effectiveLines` so the persisted
+  rows reflect the operator's final word, not the classifier's
+  draft opinion.
+* On mount-load and on successful save the persisted rows are
+  replayed into the overrides map. This way operator decisions
+  survive page reload AND any post-save server-side scrubbing
+  (medical rows getting category/matchedTerm forced to null) is
+  visible immediately in the local UI.
+
+What this doesn't change:
+
+* No schema, no migration — the `bill_line_item` table already
+  stored `medical` + `category` as operator-final fields. Only
+  the UI surfaces this affordance now.
+* The classifier still runs on every textarea edit; it's just
+  the seed, not the final word.
+* No per-row description / amount editing — the textarea is
+  still the way to change those (re-typing is short enough that
+  inline edit isn't worth the UX complexity).
+
+Verified:
+
+* `pnpm -r typecheck` + `pnpm --filter @claims/web lint` clean
+  across all 6 workspace projects.
+
+
+
 ### T2-13 follow-up — bill line item persistence
 
 Yesterday's PR #113 shipped an operator-aid bill classifier with no
