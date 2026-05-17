@@ -6,6 +6,57 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Audit log — row expansion with full payload + actor names
+
+Tier 2 #5 from the operator UX audit. The audit log table had
+the columns reviewers needed (time / actor / action / resource /
+correlation) but **no way to see the actual before/after
+payload** without DB access. The "Actor" column showed
+`user:1234abcd…` — the bare userId prefix — so reviewers
+couldn't tell who did what at a glance.
+
+Both pieces of data were already on the wire — the audit
+endpoint returns `before`, `after`, `ipAddress`, `userAgent`
+fields per row. The web layer just wasn't rendering them.
+
+Web changes (`/admin/audit`):
+
+* **Click-to-expand rows.** Each row gets a chevron in a new
+  leading column; clicking anywhere on the row toggles the
+  expansion drawer. Only one row open at a time so the table
+  height stays stable.
+* **Expansion drawer** contains:
+  * Full ISO timestamp (vs. the collapsed locale time)
+  * Full resource id (vs. the truncated 8-char prefix)
+  * Resolved actor name + email, with the `actorType` (user /
+    system / scheduled) as a sub-label
+  * Correlation id, full
+  * IP address + user-agent strings on a metadata strip
+  * Before / after JSON snapshots pretty-printed in a two-column
+    diff-style layout (single-column when only one side present)
+  * Italic "No before / after snapshot captured" fallback when
+    both are null
+* **Actor name resolution.** Page mount fetches
+  `TenantUsersApi.list()` once and builds a Map<userId, user>.
+  Each row's `actorUserId` resolves to "First Last" + email in
+  both the collapsed and expanded views. Silent fallback to
+  the prior id-prefix display if the user-list call fails
+  (e.g. operator lacks `user.invite` permission).
+* Expanded state collapses on page change so navigation doesn't
+  leave a stale drawer open.
+
+Compliance impact:
+
+* DPDP §10 audit-trail review can now be done in-app — no DB
+  query needed to see "what changed and by whom" for any
+  recorded action.
+* The before/after snapshots are already PII-redacted by the
+  service before persistence, so the new render path is safe.
+
+Verified: web typecheck + lint clean.
+
+
+
 ### Operator-action feedback — success toasts on every workflow step
 
 Fresh audit pass after the Tier 1 clean-sweep found a dominant
