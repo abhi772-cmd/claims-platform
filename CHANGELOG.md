@@ -6,6 +6,62 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Operator-action feedback — success toasts on every workflow step
+
+Fresh audit pass after the Tier 1 clean-sweep found a dominant
+rough edge: most operator actions completed silently. The
+panels reloaded their data, the status pill flipped under the
+operator's fingers, but there was no positive "your action
+landed" feedback. The operator was forced to look for state
+change to confirm a click went through.
+
+This slice wires success toasts into every operator action
+handler. Toast infra was already in place from PR #121; the gap
+was systematic — none of the workflow-progress actions used it.
+
+Patterns unified:
+
+* **`action()` helper pattern** (SettlementPanel, ClaimPhasePanel,
+  AppealPanel previously) — extended the helper to accept an
+  optional `successToast` string parameter that fires before
+  `onChanged()`. Each call site now passes a domain-specific
+  message.
+* **Custom handler pattern** (PreauthPanel, EnhancementPanel,
+  CommunicationsPanel, case-detail eligibility) — added
+  `useToast()` import and inline `showToast()` at the success
+  path of each handler.
+
+Action ↔ toast wiring:
+
+* **Eligibility** — verified → `"Coverage verified: <plan>"`;
+  failed → warning toast with the payer's failure reason.
+* **Pre-auth** — save draft → `"Pre-auth draft saved"`;
+  submit → `"Pre-auth submitted to payer — IRDAI 1-hour timer started"`.
+* **Enhancement** — start → `"Enhancement drafting started"`;
+  submit → `"Enhancement submitted to payer"`.
+* **Discharge** — initiate → `"Discharge initiated — upload supporting documents below"`;
+  submit → `"Discharge bundle submitted to payer"`.
+* **Claim** — start drafting → `"Claim drafting started"`;
+  submit → `"Claim submitted to payer — IRDAI 3-hour timer started"`.
+* **Settlement** — expect → `"Payment expected — settlement row created"`;
+  receipt → `"Receipt recorded against settlement"`;
+  reconcile → `"Settlement reconciled"`;
+  close → `"Settlement closed"`.
+* **Communications** — send → `"Message sent to payer"`.
+
+(Pre-existing toasts on write-off, appeal-resolve, breach-notify,
+consent-withdraw, dialog confirms — left untouched.)
+
+Three workflow toasts deliberately name the IRDAI SLA timer
+("1-hour" / "3-hour") so the operator immediately knows the
+clock has started. The eligibility-failed toast surfaces the
+payer's reason text directly so the operator doesn't have to
+hunt for it.
+
+Verified: web typecheck + lint clean.
+
+
+
 ### PlanPreviewCard — real insurance-plan summary on case detail
 
 Closes Tier 1 #1 from the operator UX audit. Before this slice,

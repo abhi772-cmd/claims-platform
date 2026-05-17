@@ -125,10 +125,15 @@ export function SettlementPanel({
 
   if (!SETTLEMENT_VISIBLE_FROM.has(status)) return null;
 
-  async function action(name: string, fn: () => Promise<unknown>): Promise<void> {
+  async function action(
+    name: string,
+    fn: () => Promise<unknown>,
+    successToast?: string,
+  ): Promise<void> {
     setBusy(name);
     try {
       await fn();
+      if (successToast) showToast({ tone: 'success', message: successToast });
       onChanged();
     } catch (err) {
       showApiError(err);
@@ -205,8 +210,10 @@ export function SettlementPanel({
             </div>
             <button
               onClick={() =>
-                action('expect', () =>
-                  CaseApi.expectPayment(caseId, claimId, { paymentMode }),
+                action(
+                  'expect',
+                  () => CaseApi.expectPayment(caseId, claimId, { paymentMode }),
+                  'Payment expected — settlement row created.',
                 )
               }
               disabled={busy === 'expect'}
@@ -335,17 +342,23 @@ export function SettlementPanel({
               <div className="flex justify-end">
                 <button
                   onClick={() =>
-                    action('receipt', () => {
-                      const reasons = shortPaymentReasons
-                        .split(',')
-                        .map((r) => r.trim())
-                        .filter((r) => r.length > 0);
-                      return CaseApi.recordReceipt(caseId, claimId, {
-                        receivedAmount: Number.parseInt(receivedAmount, 10),
-                        ...(bankTxnId.length > 0 ? { bankTxnId } : {}),
-                        ...(reasons.length > 0 ? { shortPaymentReasons: reasons } : {}),
-                      });
-                    })
+                    action(
+                      'receipt',
+                      () => {
+                        const reasons = shortPaymentReasons
+                          .split(',')
+                          .map((r) => r.trim())
+                          .filter((r) => r.length > 0);
+                        return CaseApi.recordReceipt(caseId, claimId, {
+                          receivedAmount: Number.parseInt(receivedAmount, 10),
+                          ...(bankTxnId.length > 0 ? { bankTxnId } : {}),
+                          ...(reasons.length > 0
+                            ? { shortPaymentReasons: reasons }
+                            : {}),
+                        });
+                      },
+                      'Receipt recorded against settlement.',
+                    )
                   }
                   disabled={busy === 'receipt' || !receivedAmount}
                   className="btn-primary"
@@ -404,14 +417,18 @@ export function SettlementPanel({
               <div className="flex justify-end">
                 <button
                   onClick={() =>
-                    action('reconcile', () => {
-                      const cleaned = deductions.filter(
-                        (d) => d.category.trim().length > 0 || d.amount > 0,
-                      );
-                      return CaseApi.reconcile(caseId, claimId, {
-                        ...(cleaned.length > 0 ? { deductions: cleaned } : {}),
-                      });
-                    })
+                    action(
+                      'reconcile',
+                      () => {
+                        const cleaned = deductions.filter(
+                          (d) => d.category.trim().length > 0 || d.amount > 0,
+                        );
+                        return CaseApi.reconcile(caseId, claimId, {
+                          ...(cleaned.length > 0 ? { deductions: cleaned } : {}),
+                        });
+                      },
+                      'Settlement reconciled.',
+                    )
                   }
                   disabled={busy === 'reconcile'}
                   className="btn-primary"
@@ -449,7 +466,13 @@ export function SettlementPanel({
           {status === 'PAYMENT_RECONCILED' || status === 'WRITTEN_OFF' ? (
             <div className="flex justify-end border-t border-surface-variant/50 pt-4">
               <button
-                onClick={() => action('close', () => CaseApi.closeSettlement(caseId, claimId))}
+                onClick={() =>
+                  action(
+                    'close',
+                    () => CaseApi.closeSettlement(caseId, claimId),
+                    'Settlement closed.',
+                  )
+                }
                 disabled={busy === 'close'}
                 className="btn-outline"
                 style={{ padding: '8px 18px', fontSize: '13px' }}

@@ -211,10 +211,15 @@ export function ClaimPhasePanel({ caseId, claimId, status, onChanged }: Props): 
     }
   }
 
-  async function action(name: string, fn: () => Promise<unknown>): Promise<void> {
+  async function action(
+    name: string,
+    fn: () => Promise<unknown>,
+    successToast?: string,
+  ): Promise<void> {
     setBusy(name);
     try {
       await fn();
+      if (successToast) showToast({ tone: 'success', message: successToast });
       onChanged();
     } catch (err) {
       showApiError(err);
@@ -344,7 +349,11 @@ export function ClaimPhasePanel({ caseId, claimId, status, onChanged }: Props): 
           {PREAUTH_DONE.has(status) ? (
             <button
               onClick={() =>
-                action('discharge.initiate', () => CaseApi.initiateDischarge(caseId, claimId))
+                action(
+                  'discharge.initiate',
+                  () => CaseApi.initiateDischarge(caseId, claimId),
+                  'Discharge initiated — upload supporting documents below.',
+                )
               }
               disabled={busy === 'discharge.initiate'}
               className="btn-primary"
@@ -362,7 +371,11 @@ export function ClaimPhasePanel({ caseId, claimId, status, onChanged }: Props): 
           {status === 'DISCHARGE_PENDING' ? (
             <button
               onClick={() =>
-                action('discharge.submit', () => CaseApi.submitDischarge(caseId, claimId))
+                action(
+                  'discharge.submit',
+                  () => CaseApi.submitDischarge(caseId, claimId),
+                  'Discharge bundle submitted to payer.',
+                )
               }
               disabled={busy === 'discharge.submit'}
               className="btn-primary"
@@ -389,7 +402,11 @@ export function ClaimPhasePanel({ caseId, claimId, status, onChanged }: Props): 
           {status === 'DISCHARGE_SUBMITTED' ? (
             <button
               onClick={() =>
-                action('claim.start', () => CaseApi.startClaimSubmission(caseId, claimId))
+                action(
+                  'claim.start',
+                  () => CaseApi.startClaimSubmission(caseId, claimId),
+                  'Claim drafting started.',
+                )
               }
               disabled={busy === 'claim.start'}
               className="btn-primary"
@@ -410,10 +427,13 @@ export function ClaimPhasePanel({ caseId, claimId, status, onChanged }: Props): 
               />
               <button
                 onClick={() =>
-                  action('claim.submit', () =>
-                    CaseApi.submitClaim(caseId, claimId, {
-                      finalAmount: Number.parseInt(finalAmount, 10),
-                    }),
+                  action(
+                    'claim.submit',
+                    () =>
+                      CaseApi.submitClaim(caseId, claimId, {
+                        finalAmount: Number.parseInt(finalAmount, 10),
+                      }),
+                    'Claim submitted to payer — IRDAI 3-hour timer started.',
                   )
                 }
                 disabled={busy === 'claim.submit' || !finalAmount}

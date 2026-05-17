@@ -27,6 +27,7 @@ import { useState, type FormEvent } from 'react';
 
 import { EnhancementApi } from '../../lib/api/enhancement.api';
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
+import { useToast } from '../toast/ToastProvider';
 
 interface Props {
   caseId: string;
@@ -78,6 +79,7 @@ export function EnhancementPanel({
   onChanged,
 }: Props): JSX.Element | null {
   const { showApiError } = useErrorModal();
+  const showToast = useToast();
   const phase = phaseOf(status);
   const [working, setWorking] = useState(false);
   const defaultRevisedRupees = (() => {
@@ -94,6 +96,7 @@ export function EnhancementPanel({
     setWorking(true);
     try {
       await EnhancementApi.start(caseId, claimId);
+      showToast({ tone: 'success', message: 'Enhancement drafting started.' });
       onChanged();
     } catch (err) {
       showApiError(err);
@@ -113,6 +116,10 @@ export function EnhancementPanel({
       await EnhancementApi.submit(caseId, claimId, {
         revisedAmount: Math.round(rupees * 100),
         reason: trimmed,
+      });
+      showToast({
+        tone: 'success',
+        message: 'Enhancement submitted to payer.',
       });
       onChanged();
     } catch (err) {
