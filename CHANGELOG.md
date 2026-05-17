@@ -6,6 +6,77 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Discharge — real document upload, replacing the stub flow
+
+Before this slice, the `<ClaimPhasePanel>` upload form was a
+filename text input + a `/documents/upload-stub` POST that
+created a metadata row with `sizeBytes: 1024` and no actual file
+binary. Operators typed `discharge_summary.pdf`, a fake row
+landed in the DB, and the downstream discharge / claim-submit
+bundle referenced documents that didn't exist in storage.
+
+**This was the biggest gap in the operator UX** — every claim
+shipped with fake document references.
+
+The real two-step upload pipeline already existed on the API
+(`POST /documents/upload-init` → presigned PUT URL → `POST
+/documents/:id/finalize`), it just wasn't wired to the web. This
+slice connects them.
+
+Web — new upload flow in `<ClaimPhasePanel>`:
+
+1. Operator picks a real file via `<input type="file">`. Selected
+   filename + size render inline.
+2. On Upload click, the browser:
+   * Reads the file as ArrayBuffer.
+   * Computes `crypto.subtle.digest('SHA-256', buffer)` for the
+     finalize-time content hash.
+   * Calls `uploadInit` with `{ documentType, originalFilename,
+     contentType, sizeBytes }`. Server creates a 'pending'
+     Document row and returns `{ uploadUrl, expiresAt,
+     requiredHeaders }`.
+   * If `uploadUrl` starts with `stub://` (dev `STORAGE_MODE=stub`):
+     skip the PUT, base64-encode the bytes (cap 5 MB matching
+     `UploadFinalizeRequestSchema.scanBufferBase64`), pass to
+     finalize so the in-process scanner can run.
+   * Else: PUT the file bytes to `uploadUrl` with
+     `requiredHeaders`. Throws on non-2xx.
+   * Calls `uploadFinalize` with `contentSha256` (and
+     `scanBufferBase64` in stub mode). Server HEADs the object
+     (real mode) or scans the buffer (stub mode); row flips to
+     'completed'.
+3. Document list refreshes; success toast confirms the upload.
+
+Document rows in the list are now clickable — operator clicks
+the filename, browser fetches a short-lived presigned GET URL
+via `getDocumentDownloadUrl`, and opens it in a new tab.
+Stub-mode rows show an info toast ("Stub storage mode — no real
+bytes to download in dev") rather than failing silently.
+
+Client-side limits surfaced before the server has to reject:
+
+* 50 MB upload cap (matches `UploadInitRequestSchema`).
+* Inline red error text when the picked file exceeds the cap.
+* The 5 MB stub-scan-buffer limit silently skips the in-process
+  scan rather than erroring — that's a dev-mode-only path.
+
+What this doesn't change:
+
+* The legacy `/documents/upload-stub` endpoint stays. Integration
+  tests still use it and dev/stub mode can still invoke it.
+* `documentLifecycle.worker` still expires stale 'pending' rows
+  past their TTL (the cleanup path that catches abandoned
+  uploads — unchanged).
+* The discharge / claim-submit bundle builders are unchanged —
+  they were already wiring document references through; the
+  references just now point at real bytes.
+
+Verified: web typecheck + lint clean. Local Prisma generate still
+blocked by Windows OneDrive file lock (carried over from earlier
+in the day) — CI runner is unaffected.
+
+
+
 ### Admin polish round 2 — confirms on destructive actions, success toasts
 
 Audit-grepped the rest of the app for destructive / serious
