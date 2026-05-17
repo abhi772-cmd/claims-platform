@@ -37,3 +37,31 @@ export const UserSchema = z.object({
   mustChangePassword: z.boolean(),
 });
 export type User = z.infer<typeof UserSchema>;
+
+// Admin /tenant/users directory view. Carries the lightweight
+// per-row data the admin/users page needs — identity, status,
+// roles, last-login. mfaEnabled is surfaced because it's a
+// security-posture signal admins want to scan at a glance.
+//
+// inviteExpiresAt is non-null only for users in 'invited' state;
+// the admin/users page renders a "expires in X days" hint and an
+// inline "Resend invite" affordance on these rows.
+export const TenantUserSummarySchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  firstName: z.string(),
+  lastName: z.string(),
+  designation: z.string().nullable(),
+  status: UserStatusSchema,
+  roles: z.array(RoleNameSchema),
+  mfaEnabled: z.boolean(),
+  lastLoginAt: z.string().datetime().nullable(),
+  inviteExpiresAt: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+});
+export type TenantUserSummary = z.infer<typeof TenantUserSummarySchema>;
+
+export const ListTenantUsersResponseSchema = z.object({
+  users: z.array(TenantUserSummarySchema),
+});
+export type ListTenantUsersResponse = z.infer<typeof ListTenantUsersResponseSchema>;

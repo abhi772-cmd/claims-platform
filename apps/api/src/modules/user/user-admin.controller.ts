@@ -1,9 +1,16 @@
-import { Permissions, type InviteUserRequest, InviteUserRequestSchema, type InviteUserResponse } from '@claims/contracts';
-import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Permissions,
+  type InviteUserRequest,
+  InviteUserRequestSchema,
+  type InviteUserResponse,
+  type ListTenantUsersResponse,
+} from '@claims/contracts';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { type Request } from 'express';
 
 import { InviteService } from './invite.service';
+import { UserService } from './user.service';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
@@ -14,7 +21,21 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 @Controller('tenant/users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class UserAdminController {
-  constructor(private readonly invites: InviteService) {}
+  constructor(
+    private readonly invites: InviteService,
+    private readonly users: UserService,
+  ) {}
+
+  // Admin /tenant/users directory listing. Gated on user.invite —
+  // anyone who can invite a teammate can see who already exists.
+  @Get()
+  @RequirePermission(Permissions.USER_INVITE)
+  async list(
+    @CurrentUser() actor: Express.AuthenticatedUser,
+  ): Promise<ListTenantUsersResponse> {
+    const users = await this.users.listForTenant(actor.tenantId);
+    return { users };
+  }
 
   @Post()
   @HttpCode(201)

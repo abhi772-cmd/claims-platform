@@ -6,6 +6,48 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Admin /users — real directory replacing the "coming soon" stub
+
+The `/admin/users` page used to be a one-line placeholder
+("User directory — coming soon") with an Invite CTA. This slice
+replaces the stub with a real tenant-user directory.
+
+Backend:
+
+* New `GET /tenant/users` endpoint on the existing user-admin
+  controller. Gated on `user.invite` permission — anyone who can
+  invite a teammate can see who already exists.
+* `UserService.listForTenant(tenantId)` reads every user in the
+  current tenant, hydrates roles + last-login + invite expiry,
+  and orders by status (invited first) then createdAt desc so
+  admins see pending invitations + newest hires at the top.
+* New `TenantUserSummary` + `ListTenantUsersResponse` schemas in
+  `@claims/contracts`. `inviteExpiresAt` is non-null only for
+  `status='invited'` rows so the UI knows when to render the
+  expiry hint.
+
+Web:
+
+* Rebuilt admin/users page — search box, status filter chips,
+  table with avatar/name/email/designation, role chips, status
+  pill + invite-expiry countdown + MFA badge, last-sign-in,
+  inline "Resend invite" button on invited rows.
+* Status chips show counts; "Suspended" and "Deactivated" chips
+  hide when there are zero in that bucket (don't promote
+  unused affordances).
+* Invite-expiry text turns red when expired so admins can spot
+  invitations the recipient missed.
+* Empty states for two cases: no users at all (first-time
+  tenant) and no users matching the current filter.
+
+Wire client:
+
+* `apps/web/lib/api/tenant-users.api.ts` — list + resendInvite.
+
+Verified: web typecheck + lint clean; contracts typecheck clean.
+
+
+
 ### EOB-line matcher (Phase 3) — multi-line subset matches
 
 Phase 2 (#118) handled one payer deduction → one bill row. Real
