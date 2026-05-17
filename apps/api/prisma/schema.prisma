@@ -161,13 +161,40 @@ model Claim {
   paidAt          DateTime?
   closedAt        DateTime?
 
-  case   Case          @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  events ClaimEvent[]
+  case          Case            @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  events        ClaimEvent[]
+  billLineItems BillLineItem[]
 
   @@index([tenantId, status])
   @@index([tenantId, assignedToUserId, status])
   @@index([caseId])
   @@map("claim")
+}
+
+// T2-13 follow-up — persisted bill line items captured at discharge
+// time. Replace-all save semantics from the operator-facing
+// NonMedicalStripCalculator. Cascades on Claim delete; tenant-scoped
+// via RLS-FORCE (see 20260604000000_bill_line_item migration).
+model BillLineItem {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @db.Uuid
+  claimId      String   @db.Uuid
+  description  String
+  amountPaise  Int
+  medical      Boolean
+  // Non-medical category token from NonMedicalCategorySchema.
+  // Null when medical = true.
+  category     String?
+  // Classifier hint at save time. Null when medical = true OR when
+  // the operator overrode the classifier with a manual tag.
+  matchedTerm  String?
+  createdAt    DateTime @default(now())
+  createdById  String   @db.Uuid
+
+  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, claimId])
+  @@map("bill_line_item")
 }
 
 // Append-only via RLS. Application code that tries to UPDATE/DELETE
