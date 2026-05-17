@@ -37,11 +37,34 @@ function formatDisputeCandidates(matches: EobLineMatch[]): string {
   ];
   for (const m of matches) {
     if (!m.isDisputeCandidate || !m.confirmed) continue;
-    lines.push(
-      `- ${m.deductionCategory} ${fmtINR(m.deductionAmount)}` +
-        (m.billLineDescription ? ` — bill line "${m.billLineDescription}"` : '') +
-        (m.deductionReason ? ` (payer reason: ${m.deductionReason})` : ''),
-    );
+    const isSubset = m.additionalBillLineItemIds.length > 0;
+    if (isSubset) {
+      // Multi-line subset — render the deduction header then a
+      // sub-bullet per subset member so the appeal text spells
+      // out exactly which bill rows the dispute covers.
+      lines.push(
+        `- ${m.deductionCategory} ${fmtINR(m.deductionAmount)}` +
+          (m.deductionReason ? ` (payer reason: ${m.deductionReason})` : '') +
+          ' — subset of bill rows:',
+      );
+      if (m.billLineDescription !== null && m.billLineAmountPaise !== null) {
+        lines.push(
+          `    · "${m.billLineDescription}" ${fmtINR(m.billLineAmountPaise)}`,
+        );
+      }
+      for (let i = 0; i < m.additionalBillLineDescriptions.length; i++) {
+        const desc = m.additionalBillLineDescriptions[i];
+        const amt = m.additionalBillLineAmountsPaise[i];
+        if (desc === undefined || amt === undefined) continue;
+        lines.push(`    · "${desc}" ${fmtINR(amt)}`);
+      }
+    } else {
+      lines.push(
+        `- ${m.deductionCategory} ${fmtINR(m.deductionAmount)}` +
+          (m.billLineDescription ? ` — bill line "${m.billLineDescription}"` : '') +
+          (m.deductionReason ? ` (payer reason: ${m.deductionReason})` : ''),
+      );
+    }
   }
   return lines.join('\n');
 }

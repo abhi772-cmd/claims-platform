@@ -20,7 +20,7 @@ import {
   type EobLineMatchesResponse,
   type EobMatchConfidence,
 } from '@claims/contracts';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
 import { BillLineItemApi } from '../../lib/api/bill-line-item.api';
@@ -74,7 +74,7 @@ function fmtTime(iso: string): string {
   });
 }
 
-function SignalChip({ children }: { children: string }): JSX.Element {
+function SignalChip({ children }: { children: ReactNode }): JSX.Element {
   return (
     <span className="rounded-full border border-outline-variant/40 bg-surface-container-lowest/70 px-2 py-0.5 text-[10px] uppercase tracking-eyebrow text-on-surface-variant">
       {children}
@@ -130,6 +130,7 @@ export function EobLineMatchesPanel({
       deductionIndex: number,
       billLineItemId: string | null,
       isDispute: boolean,
+      additionalBillLineItemIds: string[],
     ) => {
       setBusyDeductionIndex(deductionIndex);
       try {
@@ -137,6 +138,7 @@ export function EobLineMatchesPanel({
           deductionIndex,
           billLineItemId,
           isDispute,
+          additionalBillLineItemIds,
         });
         setData(next);
       } catch (err) {
@@ -256,6 +258,7 @@ interface MatchRowProps {
     deductionIndex: number,
     billLineItemId: string | null,
     isDispute: boolean,
+    additionalBillLineItemIds: string[],
   ) => Promise<void>;
   onReset: (deductionIndex: number) => Promise<void>;
 }
@@ -277,6 +280,12 @@ function MatchRow({
   const [pickedDispute, setPickedDispute] = useState<boolean>(
     match.isDisputeCandidate === true,
   );
+  // Phase 3 — additional subset members. Seeded from the auto-
+  // suggestion so a multi-line match can be confirmed as-is with
+  // one click.
+  const [additionalIds, setAdditionalIds] = useState<string[]>(
+    match.additionalBillLineItemIds,
+  );
 
   // Re-seed when the parent's match prop changes (server roundtrip
   // after confirm/reset replaces the matches array). Without this,
@@ -284,13 +293,41 @@ function MatchRow({
   useEffect(() => {
     setPickedBillLineId(match.billLineItemId);
     setPickedDispute(match.isDisputeCandidate === true);
-  }, [match.billLineItemId, match.isDisputeCandidate, match.confirmed]);
+    setAdditionalIds(match.additionalBillLineItemIds);
+  }, [
+    match.billLineItemId,
+    match.isDisputeCandidate,
+    match.confirmed,
+    match.additionalBillLineItemIds,
+  ]);
 
   const billLineOptions = useMemo(() => billLines, [billLines]);
   const pickedLine = useMemo(
     () => billLineOptions.find((b) => b.id === pickedBillLineId) ?? null,
     [billLineOptions, pickedBillLineId],
   );
+  const billLineById = useMemo(() => {
+    const m = new Map<string, BillLineItem>();
+    for (const b of billLineOptions) m.set(b.id, b);
+    return m;
+  }, [billLineOptions]);
+  // Subset members the dropdown should still offer for "Add line".
+  // Excludes the primary AND any already-additional id.
+  const availableForAdd = useMemo(() => {
+    const blocked = new Set<string>(additionalIds);
+    if (pickedBillLineId) blocked.add(pickedBillLineId);
+    return billLineOptions.filter((b) => !blocked.has(b.id));
+  }, [additionalIds, billLineOptions, pickedBillLineId]);
+  // Subset sum displayed live so the reviewer sees what they're
+  // about to confirm.
+  const subsetSumPaise = useMemo(() => {
+    let sum = pickedLine?.amountPaise ?? 0;
+    for (const id of additionalIds) {
+      const line = billLineById.get(id);
+      if (line) sum += line.amountPaise;
+    }
+    return sum;
+  }, [pickedLine, additionalIds, billLineById]);
 
   return (
     <tr
@@ -342,6 +379,84 @@ function MatchRow({
             {fmtINR(pickedLine.amountPaise)} · {pickedLine.medical ? 'medical' : 'non-medical'}
           </p>
         ) : null}
+
+        {/* Phase 3 — additional subset members rendered as
+            removable chips. Primary is the dropdown above; this
+            list is everything beyond it. */}
+        {additionalIds.length > 0 ? (
+          <ul className="mt-2 space-y-1">
+            {additionalIds.map((id) => {
+              const line = billLineById.get(id);
+              return (
+                <li
+                  key={id}
+                  className="flex items-center justify-between gap-2 rounded-md border border-outline-variant/30 bg-surface-container-lowest/60 px-2 py-1 text-[11px]"
+                >
+                  <span className="truncate text-on-surface">
+                    {line?.description ?? id}
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="font-mono tabular-nums text-on-surface-variant">
+                      {line ? fmtINR(line.amountPaise) : ''}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAdditionalIds((prev) => prev.filter((x) => x !== id))
+                      }
+                      disabled={busy}
+                      className="text-[14px] leading-none text-on-surface-variant hover:text-amber-700"
+                      title="Remove from subset"
+                      aria-label="Remove from subset"
+                    >
+                      ×
+                    </button>
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
+        {/* "+ Add bill line" picker — only when there's a primary
+            and at least one bill line left to add. */}
+        {pickedBillLineId !== null && availableForAdd.length > 0 ? (
+          <select
+            value=""
+            onChange={(e) => {
+              const id = e.target.value;
+              if (!id) return;
+              setAdditionalIds((prev) => [...prev, id]);
+            }}
+            disabled={busy}
+            className="mt-2 w-full rounded-md border border-dashed border-outline-variant/40 bg-surface-container-lowest/40 px-2 py-1 text-[11px] text-on-surface-variant outline-none focus:border-primary focus:ring-1 focus:ring-primary-container"
+            aria-label="Add another bill line to this subset"
+          >
+            <option value="">+ Add another bill line to this subset</option>
+            {availableForAdd.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.description} · {fmtINR(b.amountPaise)}
+              </option>
+            ))}
+          </select>
+        ) : null}
+
+        {/* Subset-sum readout — visible whenever the subset has
+            ≥ 2 members or when sum disagrees with the deduction. */}
+        {additionalIds.length > 0 ? (
+          <p
+            className={
+              subsetSumPaise === match.deductionAmount
+                ? 'mt-1.5 text-[11px] font-medium text-green-700'
+                : 'mt-1.5 text-[11px] text-on-surface-variant'
+            }
+          >
+            subset sum {fmtINR(subsetSumPaise)} / deduction{' '}
+            {fmtINR(match.deductionAmount)}
+            {subsetSumPaise === match.deductionAmount ? ' · matches' : ''}
+          </p>
+        ) : null}
+
         <label className="mt-1.5 inline-flex items-center gap-1.5 text-[11px] text-on-surface-variant">
           <input
             type="checkbox"
@@ -374,6 +489,16 @@ function MatchRow({
             {match.signals.includes('amount_close') ? (
               <SignalChip>amount ~close</SignalChip>
             ) : null}
+            {match.signals.includes('subset_sum_exact') ? (
+              <SignalChip>
+                subset sum · {match.additionalBillLineItemIds.length + 1} lines
+              </SignalChip>
+            ) : null}
+            {match.signals.includes('subset_sum_close') ? (
+              <SignalChip>
+                subset ~close · {match.additionalBillLineItemIds.length + 1} lines
+              </SignalChip>
+            ) : null}
             {match.signals.includes('token_overlap') ? (
               <SignalChip>tokens</SignalChip>
             ) : null}
@@ -395,12 +520,17 @@ function MatchRow({
               <button
                 type="button"
                 onClick={() =>
-                  void onConfirm(match.deductionIndex, pickedBillLineId, pickedDispute)
+                  void onConfirm(
+                    match.deductionIndex,
+                    pickedBillLineId,
+                    pickedDispute,
+                    additionalIds,
+                  )
                 }
                 disabled={busy}
                 className="rounded-md border border-primary bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/20 disabled:opacity-50"
               >
-                {busy ? '…' : 'Confirm'}
+                {busy ? '…' : additionalIds.length > 0 ? 'Confirm subset' : 'Confirm'}
               </button>
             )}
           </div>
