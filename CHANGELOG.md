@@ -6,6 +6,75 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Cases list — search + claim-phase filters + URL deep-links
+
+Closes Tier 1 #4 from the operator UX audit. The cases list had
+four broad chips (`all / open / closed / abandoned`) and no
+search at all. Operators couldn't filter by claim phase, by SLA
+state, by appeal state, or by patient name. The operational
+dashboard tiles (PR #124) all linked to `/cases` with no filter,
+so even with the new tiles a billing manager couldn't drill in.
+
+Backend (`GET /cases`):
+
+* New query params, each independently composable:
+  * `q` — free-text search across `patientName`, `hospitalMrn`,
+    and headline claim's `preauthRefNum` / `claimRefNum`. Case-
+    insensitive `contains` via Prisma.
+  * `phase` — claim phase bucket
+    (`drafting | awaitingPayer | approved | paymentPending`).
+    Status sets defined inline; mirror the dashboard tile
+    bucketing one-to-one so a tile click takes the operator to
+    the same set of cases the tile counts.
+  * `sla` — `breached | at_risk | any`. Server-side post-load
+    filter because SLA state is computed from the event stream
+    at read time and can't be expressed as a Prisma where-clause.
+  * `appeals` — boolean. Filters to claims in
+    `APPEAL_INITIATED` / `APPEAL_SUBMITTED`.
+  * `dischargeDue` — boolean. Cases where
+    `admissionDate + estimatedStayDays` falls within today ± 1
+    day AND the claim is in the approved-but-not-discharged
+    window.
+* `CaseService.list()` builds the Prisma where clause for
+  server-filterable bits (status, phase, appeals, search,
+  dischargeDue prefilter), then runs SLA + dischargeDue
+  post-filters in TS. When post-filters apply, the DB pulls a
+  larger candidate page (up to 500) and we slice the operator-
+  facing page after filtering — the alternative was undercounts.
+
+Web (`/cases`):
+
+* Search input at the top, debounced 300 ms — typing doesn't
+  fire a request on every keystroke. Inline "searching…" hint
+  while the debounce is in flight.
+* Three chip rows organised by axis:
+  * **Status** (`All / Open / Closed / Abandoned`).
+  * **Phase** (`Any phase / Drafting / Awaiting payer / Approved
+    / Payment pending`).
+  * **Quick** (SLA pill with cycle-through state, Discharges-due
+    toggle, In-appeal toggle).
+* All filter state syncs to URL params via `router.replace`
+  (scroll: false). Deep-links from the dashboard tiles work;
+  browser back/forward works; bookmarkable views work.
+* Active-filter counter + "Clear all" link in the header row
+  when any non-default filter is set.
+* Empty state diverges: when filters are active, copy reads
+  "No cases match the filters" + "Clear all filters" CTA;
+  when no filters, the original "Nothing here yet" + "Create
+  new case" CTA.
+
+Dashboard tile hrefs updated:
+
+* Open claims → `/cases?status=open`
+* SLA at risk → `/cases?status=open&sla=breached` if any
+  breached, else `/cases?status=open&sla=any`
+* Discharges due → `/cases?status=open&dischargeDue=true`
+* Pending appeals → `/cases?status=open&appeals=true`
+
+Verified: all 6 workspace projects typecheck + web lint clean.
+
+
+
 ### Dashboard — operational tiles for daily operators
 
 Before this slice, the dashboard landing page had four stat tiles

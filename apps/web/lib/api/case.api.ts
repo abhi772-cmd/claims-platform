@@ -46,12 +46,24 @@ export const CaseApi = {
     limit?: number;
     offset?: number;
     status?: 'open' | 'closed' | 'abandoned';
+    // Tier 1 #4 — new filters. Each is independently composable;
+    // the server accepts any subset.
+    q?: string;
+    phase?: 'drafting' | 'awaitingPayer' | 'approved' | 'paymentPending';
+    sla?: 'breached' | 'at_risk' | 'any';
+    appeals?: boolean;
+    dischargeDue?: boolean;
   }): Promise<ListCasesResponse> => {
-    const q = new URLSearchParams();
-    if (params?.limit !== undefined) q.set('limit', String(params.limit));
-    if (params?.offset !== undefined) q.set('offset', String(params.offset));
-    if (params?.status) q.set('status', params.status);
-    const query = q.toString();
+    const qs = new URLSearchParams();
+    if (params?.limit !== undefined) qs.set('limit', String(params.limit));
+    if (params?.offset !== undefined) qs.set('offset', String(params.offset));
+    if (params?.status) qs.set('status', params.status);
+    if (params?.q && params.q.trim().length > 0) qs.set('q', params.q.trim());
+    if (params?.phase) qs.set('phase', params.phase);
+    if (params?.sla) qs.set('sla', params.sla);
+    if (params?.appeals === true) qs.set('appeals', 'true');
+    if (params?.dischargeDue === true) qs.set('dischargeDue', 'true');
+    const query = qs.toString();
     return apiRequest<ListCasesResponse>(`/cases${query ? `?${query}` : ''}`);
   },
 
