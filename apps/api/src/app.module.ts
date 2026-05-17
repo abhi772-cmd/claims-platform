@@ -19,6 +19,7 @@ import { ClaimSubmitModule } from './modules/claim-submit';
 import { CommunicationModule } from './modules/communication';
 import { ComplianceModule } from './modules/compliance/compliance.module';
 import { ConsentModule } from './modules/consent/consent.module';
+import { DashboardModule } from './modules/dashboard';
 import { DataAccessModule } from './modules/data-access/data-access.module';
 import { DischargeModule } from './modules/discharge';
 import { DoctorModule } from './modules/doctor';
@@ -92,6 +93,7 @@ import { UserModule } from './modules/user/user.module';
     PrismaModule,
     SecurityModule,
     AuditModule,
+    DashboardModule,
     DataAccessModule,
     NotificationModule,
     PasswordModule,
