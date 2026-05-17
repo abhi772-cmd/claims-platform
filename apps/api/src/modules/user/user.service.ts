@@ -1,3 +1,8 @@
+import {
+  type RoleName,
+  type TenantUserSummary,
+  type UserStatus,
+} from '@claims/contracts';
 import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -53,6 +58,37 @@ export class UserService {
         };
       },
     );
+  }
+
+  // Admin /tenant/users directory listing. Returns the
+  // lightweight per-row summary the admin page renders — identity
+  // + roles + status + last login. Ordered by status (invited
+  // first, so admins see pending invitations at the top of the
+  // page) then by createdAt desc so newest hires sit above stale
+  // accounts.
+  async listForTenant(tenantId: string): Promise<TenantUserSummary[]> {
+    return this.prisma.runInTenantContext(tenantId, 'tenant', async (tx) => {
+      const rows = await tx.user.findMany({
+        where: { tenantId },
+        include: { userRoles: { include: { role: true } } },
+        orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
+      });
+      return rows.map((u) => ({
+        id: u.id,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        designation: u.designation,
+        status: u.status as UserStatus,
+        roles: u.userRoles.map((ur) => ur.role.name as RoleName),
+        mfaEnabled: u.mfaEnabled,
+        lastLoginAt: u.lastLoginAt ? u.lastLoginAt.toISOString() : null,
+        inviteExpiresAt: u.inviteTokenExpiresAt
+          ? u.inviteTokenExpiresAt.toISOString()
+          : null,
+        createdAt: u.createdAt.toISOString(),
+      }));
+    });
   }
 
   async getMe(
