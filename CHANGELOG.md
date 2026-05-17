@@ -6,6 +6,61 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Admin polish — replace browser alert / confirm / prompt with styled dialogs
+
+CLAUDE.md rule #6 is explicit: "No browser `alert()`, `confirm()`,
+`prompt()`, or unstyled toasts for serious errors." Audit found
+four lingering violations in the admin pages:
+
+* `compliance/page.tsx` — `window.alert()` for scan-complete
+  toast, `window.confirm()` for "Notify the Data Protection
+  Board" (a DPDP §8(6) regulatory action), `window.prompt()` for
+  breach dismissal reason.
+* `consents/page.tsx` — `window.prompt()` for consent
+  withdrawal reason (DPDP §6 data-subject rights flow).
+
+These were the last unstyled flows on serious actions. This slice
+replaces them with reusable promise-based dialogs + a styled
+toast system.
+
+New infrastructure:
+
+* `<ConfirmDialogProvider>` + `useConfirm()` + `usePrompt()`
+  hooks. Promise-based — caller awaits the user's decision.
+  ConfirmDialog supports three tones (primary / warning /
+  danger) keyed to icon + button styling; PromptDialog supports
+  single-line or multiline input, min/max length validation,
+  inline character counter, ESC-to-cancel, click-outside-to-
+  cancel. Modeled on the existing `<ErrorModalProvider>` pattern.
+* `<ToastProvider>` + `useToast()` hook for transient success /
+  info / warning messages. Bottom-right stack, auto-dismiss
+  after 4s, FIFO eviction past 4 visible. Replaces the one
+  remaining `alert()` for success messaging.
+* Both providers mounted in the root `app/layout.tsx` between
+  `ErrorModalProvider` and the page tree so every page can use
+  them.
+
+Wired into:
+
+* Compliance dashboard — scan-complete success now toasts;
+  notify-DPB and dismiss-incident use the new dialogs with rich
+  copy (DPDP §8(6) context, audit-trail implications, examples).
+* Consents viewer — withdrawal prompt uses the multiline
+  PromptDialog with DPDP §6 context.
+
+Why this matters beyond aesthetics:
+
+* `window.confirm()` for a regulatory notification is unsafe —
+  there's no context, no proper Cancel emphasis, no place to
+  surface the audit-trail implications. The styled ConfirmDialog
+  carries copy explaining what the action will record.
+* `window.prompt()` blocks the entire page, doesn't validate
+  inline, can't show min-length progress, and renders poorly on
+  mobile. The styled PromptDialog has a live character counter
+  that turns green when the threshold is met.
+
+
+
 ### Admin /users — real directory replacing the "coming soon" stub
 
 The `/admin/users` page used to be a one-line placeholder
