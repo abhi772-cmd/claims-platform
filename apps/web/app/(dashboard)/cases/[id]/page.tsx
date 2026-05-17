@@ -16,6 +16,7 @@ import { EnhancementPanel } from '../../../../components/enhancement/Enhancement
 import { PlanPreviewCard } from '../../../../components/insurance-plan/PlanPreviewCard';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { PreauthPanel } from '../../../../components/preauth/PreauthPanel';
+import { EobLineMatchesPanel } from '../../../../components/settlement/EobLineMatchesPanel';
 import { SettlementPanel } from '../../../../components/settlement/SettlementPanel';
 import { SlaPill } from '../../../../components/sla/SlaPill';
 import { CaseApi } from '../../../../lib/api/case.api';
@@ -322,6 +323,18 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
           claimId={claim.id}
           status={claim.status as ClaimStatus}
           onChanged={() => void reload()}
+        />
+      ) : null}
+
+      {/* EOB-line matcher Phase 1 — suggested mapping between
+          payer deductions and hospital-classified bill rows.
+          Self-hides when the claim isn't adjudicated or there
+          are no deductions/bill lines to compare. */}
+      {claim ? (
+        <EobLineMatchesPanel
+          caseId={detail.id}
+          claimId={claim.id}
+          status={claim.status as ClaimStatus}
         />
       ) : null}
 
