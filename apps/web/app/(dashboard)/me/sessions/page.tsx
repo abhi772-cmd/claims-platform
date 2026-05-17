@@ -3,11 +3,15 @@
 import { type SessionListItem } from '@claims/contracts';
 import { useEffect, useState } from 'react';
 
+import { useConfirm } from '../../../../components/modals/ConfirmDialog/ConfirmDialogProvider';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
+import { useToast } from '../../../../components/toast/ToastProvider';
 import { AuthApi } from '../../../../lib/api/auth.api';
 
 export default function SessionsPage(): JSX.Element {
   const { showApiError } = useErrorModal();
+  const confirm = useConfirm();
+  const showToast = useToast();
   const [sessions, setSessions] = useState<SessionListItem[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -26,9 +30,25 @@ export default function SessionsPage(): JSX.Element {
   }, []);
 
   async function revoke(id: string): Promise<void> {
+    const target = sessions?.find((s) => s.id === id);
+    const label = target?.userAgent ?? 'this device';
+    const ok = await confirm({
+      title: 'Revoke this session?',
+      body: (
+        <>
+          <span className="font-semibold">{label}</span> will be signed out
+          immediately. If the device tries to make a request afterwards it
+          will be redirected to the login screen.
+        </>
+      ),
+      tone: 'warning',
+      confirmLabel: 'Revoke session',
+    });
+    if (!ok) return;
     setBusy(id);
     try {
       await AuthApi.revokeSession(id);
+      showToast({ tone: 'success', message: 'Session revoked.' });
       await load();
     } catch (err) {
       showApiError(err);

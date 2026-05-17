@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 
 import { usePrompt } from '../../../../components/modals/ConfirmDialog/ConfirmDialogProvider';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
+import { useToast } from '../../../../components/toast/ToastProvider';
 import { ConsentApi } from '../../../../lib/api/consent.api';
 
 const TYPES: ConsentType[] = ['nhcx_processing', 'pmjay_processing', 'analytics', 'communication'];
@@ -27,6 +28,7 @@ const STATUS_STYLE: Record<ConsentStatus, { cls: string; dot: string }> = {
 export default function ConsentsViewerPage(): JSX.Element {
   const { showApiError } = useErrorModal();
   const prompt = usePrompt();
+  const showToast = useToast();
   const [filter, setFilter] = useState<ConsentListFilter>({});
   const [draft, setDraft] = useState<ConsentListFilter>({});
   const [rows, setRows] = useState<ConsentRecordRow[]>([]);
@@ -68,6 +70,7 @@ export default function ConsentsViewerPage(): JSX.Element {
     if (reason === null) return;
     try {
       await ConsentApi.withdraw(id, { reason });
+      showToast({ tone: 'success', message: 'Consent withdrawn.' });
       setRefreshKey((k) => k + 1);
     } catch (err) {
       showApiError(err);

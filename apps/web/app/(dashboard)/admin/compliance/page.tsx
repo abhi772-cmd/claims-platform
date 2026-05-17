@@ -88,6 +88,10 @@ export default function ComplianceDashboardPage(): JSX.Element {
     if (!ok) return;
     try {
       await BreachApi.notify(id, { acknowledged: true });
+      showToast({
+        tone: 'success',
+        message: 'Incident marked as notified to the Data Protection Board.',
+      });
       refresh();
     } catch (err) {
       showApiError(err);
@@ -108,6 +112,7 @@ export default function ComplianceDashboardPage(): JSX.Element {
     if (reason === null) return;
     try {
       await BreachApi.dismiss(id, { reason });
+      showToast({ tone: 'success', message: 'Incident dismissed.' });
       refresh();
     } catch (err) {
       showApiError(err);
