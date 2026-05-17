@@ -20,6 +20,15 @@
 // operator sees the strip math live; persistence is opt-in via a
 // click so we don't write to the DB on every keystroke.
 //
+// T2-13 follow-up — per-line operator overrides. Each row in the
+// classified table can be re-tagged: medical ↔ non-medical, and
+// the non-medical category is editable via inline select. The
+// classifier output is just the seed; whatever the operator clicks
+// is what gets saved AND what feeds the suggested final amount.
+// On reload, persisted classifications are replayed into the
+// override map so the operator's saved decisions stick across
+// navigation.
+//
 // The default behaviour in both modes suggests
 // `finalAmount = grandTotal − nonMedical` so the claim only
 // includes reimbursable items. The operator still types the
@@ -57,6 +66,65 @@ const CATEGORY_LABEL: Record<NonMedicalCategory, string> = {
   miscellaneous_consumables: 'Misc. consumables',
   miscellaneous: 'Miscellaneous',
 };
+
+const CATEGORY_OPTIONS: NonMedicalCategory[] = [
+  'toiletries',
+  'attendant_food',
+  'attendant_stay',
+  'admin_fees',
+  'transport',
+  'comfort',
+  'documentation',
+  'miscellaneous_consumables',
+  'miscellaneous',
+];
+
+// Per-line operator override. Keyed by a stable identity built
+// from description + amount so the override survives re-classify
+// across textarea edits (the row itself didn't change). When a
+// row's text or amount IS edited, the new identity has no
+// override yet and the classifier opinion drives.
+type Override = {
+  medical: boolean;
+  // Only meaningful when medical === false. When the operator
+  // forces medical, the category is dropped to match server-side
+  // scrubbing rules in bill-line-item.service.
+  category: NonMedicalCategory | null;
+};
+
+function overrideKey(line: { description: string; amountPaise: number }): string {
+  return `${line.description}|||${line.amountPaise}`;
+}
+
+// Merge an override (if any) onto the classifier's opinion.
+// Returns the EFFECTIVE classification — what's displayed in the
+// table, what feeds the totals, and what gets persisted on save.
+function applyOverride(line: ClassifiedLine, override: Override | undefined): ClassifiedLine {
+  if (!override) return line;
+  if (override.medical) {
+    return { ...line, medical: true, category: null, matchedTerm: null };
+  }
+  // Non-medical override. We MUST have a category in this branch
+  // (the dropdown enforces it); fall back to miscellaneous if a
+  // legacy persisted row ever lacked one. matchedTerm goes to
+  // null because the operator's choice isn't claiming a
+  // classifier-term match.
+  return {
+    ...line,
+    medical: false,
+    category: override.category ?? 'miscellaneous',
+    matchedTerm: null,
+  };
+}
+
+// True when the override actually disagrees with the classifier.
+// Used to decide whether to render the "manual" badge.
+function overrideIsActive(line: ClassifiedLine, override: Override | undefined): boolean {
+  if (!override) return false;
+  if (override.medical !== line.medical) return true;
+  if (!override.medical && override.category !== line.category) return true;
+  return false;
+}
 
 const PLACEHOLDER = `Room rent — single AC\t8000
 Surgery\t45000
@@ -126,6 +194,9 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [savedLineCount, setSavedLineCount] = useState<number | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Per-line operator overrides keyed by overrideKey(line). See
+  // the type docstring above for semantics.
+  const [overrides, setOverrides] = useState<Map<string, Override>>(() => new Map());
 
   const persistEnabled = Boolean(caseId && claimId);
 
@@ -146,6 +217,19 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
           setText(classifiedToText(res.lines));
           setSavedAt(res.lines[res.lines.length - 1]?.createdAt ?? null);
           setSavedLineCount(res.lines.length);
+          // Seed overrides from persisted state — the saved row
+          // IS the operator's final word, even if the classifier
+          // would now disagree. Without this, reloading the page
+          // would show the classifier's opinion instead of what
+          // the operator deliberately tagged.
+          const seeded = new Map<string, Override>();
+          for (const persisted of res.lines) {
+            seeded.set(overrideKey(persisted), {
+              medical: persisted.medical,
+              category: persisted.medical ? null : persisted.category,
+            });
+          }
+          setOverrides(seeded);
         }
       } catch (err) {
         if (!cancelled) showApiError(err);
@@ -184,27 +268,123 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
     return () => clearTimeout(id);
   }, [classify]);
 
+  // Effective classification: classifier output overlaid with any
+  // operator overrides. This — not result.lines — is the source of
+  // truth for the table, the summary tiles, the by-category
+  // breakdown, AND the save payload.
+  const effectiveLines = useMemo<ClassifiedLine[]>(() => {
+    if (!result) return [];
+    return result.lines.map((line) =>
+      applyOverride(line, overrides.get(overrideKey(line))),
+    );
+  }, [result, overrides]);
+
+  const effectiveTotals = useMemo(() => {
+    let medicalPaise = 0;
+    let nonMedicalPaise = 0;
+    for (const l of effectiveLines) {
+      if (l.medical) medicalPaise += l.amountPaise;
+      else nonMedicalPaise += l.amountPaise;
+    }
+    return {
+      medicalPaise,
+      nonMedicalPaise,
+      grandTotalPaise: medicalPaise + nonMedicalPaise,
+    };
+  }, [effectiveLines]);
+
+  const effectiveByCategory = useMemo(() => {
+    const buckets = new Map<NonMedicalCategory, { count: number; amountPaise: number }>();
+    for (const l of effectiveLines) {
+      if (l.medical || !l.category) continue;
+      const cur = buckets.get(l.category) ?? { count: 0, amountPaise: 0 };
+      cur.count += 1;
+      cur.amountPaise += l.amountPaise;
+      buckets.set(l.category, cur);
+    }
+    return Array.from(buckets.entries())
+      .map(([category, v]) => ({ category, count: v.count, amountPaise: v.amountPaise }))
+      .sort((a, b) => b.amountPaise - a.amountPaise);
+  }, [effectiveLines]);
+
+  // Override mutators. Both go through one setter so the Map
+  // reference always changes (React doesn't deep-compare).
+  const setRowMedical = useCallback(
+    (line: ClassifiedLine, medical: boolean) => {
+      const key = overrideKey(line);
+      setOverrides((prev) => {
+        const next = new Map(prev);
+        if (medical) {
+          next.set(key, { medical: true, category: null });
+        } else {
+          // Going non-medical without a category — fall back to the
+          // classifier's category if it had one, else miscellaneous.
+          // The operator can refine via the dropdown afterwards.
+          next.set(key, {
+            medical: false,
+            category: line.category ?? 'miscellaneous',
+          });
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  const setRowCategory = useCallback(
+    (line: ClassifiedLine, category: NonMedicalCategory) => {
+      const key = overrideKey(line);
+      setOverrides((prev) => {
+        const next = new Map(prev);
+        next.set(key, { medical: false, category });
+        return next;
+      });
+    },
+    [],
+  );
+
+  const clearRowOverride = useCallback((line: ClassifiedLine) => {
+    const key = overrideKey(line);
+    setOverrides((prev) => {
+      if (!prev.has(key)) return prev;
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
+  }, []);
+
   const onSave = useCallback(async () => {
     if (!persistEnabled || !caseId || !claimId || !result) return;
     setSaving(true);
     try {
       const out = await BillLineItemApi.save(caseId, claimId, {
-        lines: classifiedToSavePayload(result.lines),
+        lines: classifiedToSavePayload(effectiveLines),
       });
       const lastCreatedAt = out.lines[out.lines.length - 1]?.createdAt;
       setSavedAt(lastCreatedAt ?? new Date().toISOString());
       setSavedLineCount(out.lines.length);
+      // Re-seed overrides from the server's stored view so our
+      // local map matches reality (the server may have scrubbed
+      // category/matchedTerm for medical rows).
+      const seeded = new Map<string, Override>();
+      for (const persisted of out.lines) {
+        seeded.set(overrideKey(persisted), {
+          medical: persisted.medical,
+          category: persisted.medical ? null : persisted.category,
+        });
+      }
+      setOverrides(seeded);
     } catch (err) {
       showApiError(err);
     } finally {
       setSaving(false);
     }
-  }, [persistEnabled, caseId, claimId, result, showApiError]);
+  }, [persistEnabled, caseId, claimId, result, effectiveLines, showApiError]);
 
   const suggestedFinal = useMemo(() => {
     if (!result) return null;
-    return result.totals.grandTotalPaise - result.totals.nonMedicalPaise;
-  }, [result]);
+    return effectiveTotals.grandTotalPaise - effectiveTotals.nonMedicalPaise;
+  }, [result, effectiveTotals]);
 
   const canSave =
     persistEnabled &&
@@ -289,6 +469,7 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
               onClick={() => {
                 setText('');
                 setResult(null);
+                setOverrides(new Map());
               }}
               className="text-on-surface-variant hover:text-primary"
             >
@@ -300,21 +481,22 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
 
       {result ? (
         <>
-          {/* Summary tiles */}
+          {/* Summary tiles — driven by effectiveTotals so operator
+              overrides immediately update the headline numbers. */}
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <SummaryTile
               label="Medical total"
-              value={fmtINR(result.totals.medicalPaise)}
+              value={fmtINR(effectiveTotals.medicalPaise)}
               tone="primary"
             />
             <SummaryTile
               label="Non-medical (strip)"
-              value={fmtINR(result.totals.nonMedicalPaise)}
-              tone={result.totals.nonMedicalPaise > 0 ? 'amber' : 'neutral'}
+              value={fmtINR(effectiveTotals.nonMedicalPaise)}
+              tone={effectiveTotals.nonMedicalPaise > 0 ? 'amber' : 'neutral'}
             />
             <SummaryTile
               label="Grand total"
-              value={fmtINR(result.totals.grandTotalPaise)}
+              value={fmtINR(effectiveTotals.grandTotalPaise)}
             />
             <SummaryTile
               label="Suggested final"
@@ -324,14 +506,14 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
             />
           </div>
 
-          {/* By-category */}
-          {result.byCategory.length > 0 ? (
+          {/* By-category — recomputed from effective lines too. */}
+          {effectiveByCategory.length > 0 ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-4">
               <p className="mb-3 text-eyebrow uppercase tracking-eyebrow text-amber-700">
                 Non-medical by category
               </p>
               <ul className="space-y-1 text-body-sm">
-                {result.byCategory.map((row) => (
+                {effectiveByCategory.map((row) => (
                   <li
                     key={row.category}
                     className="flex items-center justify-between gap-3 font-mono tabular-nums text-on-surface"
@@ -347,7 +529,12 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
             </div>
           ) : null}
 
-          {/* Per-line table */}
+          {/* Per-line table — each row is editable. The medical
+              toggle and (when non-medical) category dropdown
+              feed into `overrides`; a "manual" badge surfaces
+              when the operator's choice differs from the
+              classifier's opinion. Reset returns the row to the
+              classifier default. */}
           <div className="overflow-x-auto rounded-lg border border-outline-variant/30">
             <table className="w-full border-collapse text-left text-body-sm">
               <thead className="bg-surface-container-low/40">
@@ -364,41 +551,108 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
                 </tr>
               </thead>
               <tbody>
-                {result.lines.map((line, idx) => (
-                  <tr
-                    key={idx}
-                    className={
-                      line.medical
-                        ? 'border-t border-outline-variant/20'
-                        : 'border-t border-outline-variant/20 bg-amber-50/40'
-                    }
-                  >
-                    <td className="px-3 py-2 text-on-surface">{line.description}</td>
-                    <td className="px-3 py-2 text-on-surface-variant">
-                      {line.medical ? (
-                        <span className="inline-flex items-center gap-1 text-primary">
-                          <span className="material-symbols-outlined text-[14px]">
-                            check_circle
-                          </span>
-                          Medical
-                        </span>
-                      ) : (
-                        <span className="inline-flex flex-wrap items-center gap-1 text-amber-700">
-                          <span className="material-symbols-outlined text-[14px]">block</span>
-                          {line.category ? CATEGORY_LABEL[line.category] : 'Non-medical'}
-                          {line.matchedTerm ? (
+                {effectiveLines.map((line, idx) => {
+                  const classifierLine = result.lines[idx];
+                  const ov = overrides.get(overrideKey(line));
+                  const isManual =
+                    classifierLine !== undefined
+                      ? overrideIsActive(classifierLine, ov)
+                      : false;
+                  return (
+                    <tr
+                      key={`${overrideKey(line)}#${idx}`}
+                      className={
+                        line.medical
+                          ? 'border-t border-outline-variant/20'
+                          : 'border-t border-outline-variant/20 bg-amber-50/40'
+                      }
+                    >
+                      <td className="px-3 py-2 align-top text-on-surface">
+                        {line.description}
+                      </td>
+                      <td className="px-3 py-2 align-top text-on-surface-variant">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* Medical / non-medical segmented toggle */}
+                          <div
+                            className="inline-flex overflow-hidden rounded-full border border-outline-variant/40 text-[11px]"
+                            role="group"
+                            aria-label="Classification toggle"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setRowMedical(line, true)}
+                              className={
+                                line.medical
+                                  ? 'bg-primary px-2.5 py-1 font-medium text-on-primary'
+                                  : 'px-2.5 py-1 text-on-surface-variant hover:bg-surface-container-low'
+                              }
+                              aria-pressed={line.medical}
+                            >
+                              Medical
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRowMedical(line, false)}
+                              className={
+                                !line.medical
+                                  ? 'bg-amber-600 px-2.5 py-1 font-medium text-white'
+                                  : 'px-2.5 py-1 text-on-surface-variant hover:bg-surface-container-low'
+                              }
+                              aria-pressed={!line.medical}
+                            >
+                              Non-medical
+                            </button>
+                          </div>
+
+                          {/* Category dropdown — only when non-medical */}
+                          {!line.medical ? (
+                            <select
+                              value={line.category ?? 'miscellaneous'}
+                              onChange={(e) =>
+                                setRowCategory(line, e.target.value as NonMedicalCategory)
+                              }
+                              className="rounded-md border border-outline-variant/40 bg-surface-container-lowest/70 px-2 py-1 text-[12px] text-on-surface outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-200"
+                              aria-label="Non-medical category"
+                            >
+                              {CATEGORY_OPTIONS.map((c) => (
+                                <option key={c} value={c}>
+                                  {CATEGORY_LABEL[c]}
+                                </option>
+                              ))}
+                            </select>
+                          ) : null}
+
+                          {/* Matched-term hint (only when classifier
+                              still drives the row — overrides drop
+                              the hint). */}
+                          {!line.medical && line.matchedTerm ? (
                             <span className="text-[10px] text-amber-700/70">
-                              · matched &ldquo;{line.matchedTerm}&rdquo;
+                              matched &ldquo;{line.matchedTerm}&rdquo;
                             </span>
                           ) : null}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums text-on-surface">
-                      {fmtINR(line.amountPaise)}
-                    </td>
-                  </tr>
-                ))}
+
+                          {/* Manual badge + reset */}
+                          {isManual ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-outline-variant/40 bg-surface-container-lowest/60 px-2 py-0.5 text-[10px] uppercase tracking-eyebrow text-on-surface-variant">
+                              manual
+                              <button
+                                type="button"
+                                onClick={() => clearRowOverride(line)}
+                                className="ml-0.5 text-primary hover:underline"
+                                title="Reset this row to the classifier default"
+                              >
+                                reset
+                              </button>
+                            </span>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 text-right align-top font-mono tabular-nums text-on-surface">
+                        {fmtINR(line.amountPaise)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
