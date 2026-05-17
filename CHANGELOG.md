@@ -6,6 +6,78 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### EOB-line matcher (Phase 1) — suggest payer-deduction ↔ bill-line mapping
+
+The hospital classifies bill rows at discharge (PR #115). The
+payer EOB carries deductions explaining what they didn't pay.
+Until now these two views never touched: reviewers eyeballed the
+EOB, eyeballed the bill, and reconciled by hand. Phase 1 of the
+matcher closes that loop with a read-side suggestion service.
+
+Pure logic:
+
+* `apps/api/src/modules/eob-line-matcher/match-eob-lines.ts` — a
+  pure function over three independent signals:
+  * **amount_exact** — `BillLineItem.amountPaise === DeductionLine.amount`
+    (strongest signal; payer EOBs typically deduct the exact line
+    value when stripping a specific item).
+  * **token_overlap** — Jaccard similarity on description tokens
+    vs `(deduction.category + reason)` tokens. Stop-word list
+    drops generic noise like `the`, `for`, `rent`, `gst`. Jaccard
+    ≥ 0.34 with amount_exact → high; ≥ 0.5 alone → medium;
+    ≥ 0.2 → low.
+  * **category_alignment** — payer category `non_payable_items`
+    (or `non_admissible`, `exclusion`) ↔ bill `medical: false`.
+    Used to break ties and to bump confidence when the hospital
+    already agreed with the strip.
+* 10-case unit spec covering: empty inputs, amount-exact +
+  tokens (high), amount-exact alone (medium), token-only fallback
+  (low), dispute-candidate detection, unmatched bill lines,
+  totals accounting, and same-bill-line picked twice.
+
+Service / API:
+
+* `EobLineMatcherService.suggestForClaim(tenantId, claimId)` —
+  parallel-loads `Settlement.deductions` + bill_line_item rows,
+  invokes the pure matcher, returns the suggestion bundle. No
+  writes — Phase 1 is observability only.
+* `GET /cases/:c/claims/:cl/eob-line-matches` — gated on
+  `claim.draft` (same as bill-line-item read/save).
+* Response carries per-match `confidence`, `signals[]`, and an
+  `isDisputeCandidate` flag (true when the payer deducted a row
+  the hospital had tagged medical → appeal candidate).
+
+Web:
+
+* `EobLineMatchesPanel` on case-detail, rendered after the
+  SettlementPanel. Self-hides when the claim isn't adjudicated
+  or there are no deductions to compare. Surfaces:
+  * Per-row: payer category + reason, matched bill description,
+    confidence badge, signal chips (amount/tokens/category),
+    dispute-candidate flag.
+  * Header tally: `matched ₹X / ₹Y` and a `N dispute candidates`
+    pill when the payer stripped hospital-medical lines.
+  * Footer: count of bill lines NOT picked by any deduction
+    ("typically the medical items the payer accepted in full").
+
+Deliberately out of scope (Phase 2 territory):
+
+* No reviewer-confirm / reviewer-reject UI. Suggestions don't
+  persist — every page load runs the matcher fresh.
+* No multi-line matches (one deduction spanning several bill
+  rows, common with prorated category strips).
+* No fuzzy amount tolerance (±1% of bill value for rounding
+  discrepancies). Phase 1 only matches paise-exact.
+* No appeal-draft pre-population from dispute candidates. The
+  flag exists; using it lives in the appeal-drafting slice.
+
+Verified:
+
+* 10/10 unit tests pass; `pnpm -r typecheck` + `pnpm -r lint`
+  clean across all 6 workspace projects.
+
+
+
 ### T2-13 follow-up — per-line operator overrides on bill classifier
 
 PR #115 gave the classified bill a durable home but locked the

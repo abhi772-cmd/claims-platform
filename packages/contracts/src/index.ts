@@ -31,5 +31,6 @@ export * from './nhcx-status-search.schema';
 export * from './non-medical-classifier.schema';
 export * from './enhancement.schema';
 export * from './bill-line-item.schema';
+export * from './eob-line-matcher.schema';
 export * from './problem-details.schema';
 export { Permissions, ALL_PERMISSIONS, type Permission as AppPermission } from './permissions';

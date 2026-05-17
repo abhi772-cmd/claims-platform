@@ -26,6 +26,7 @@ import { DocumentModule } from './modules/document';
 import { VirusScanModule } from './modules/document/scan';
 import { EligibilityModule } from './modules/eligibility';
 import { EnhancementModule } from './modules/enhancement';
+import { EobLineMatcherModule } from './modules/eob-line-matcher';
 import { EobOcrModule } from './modules/eob-ocr';
 import { ErasureModule } from './modules/erasure/erasure.module';
 import { HealthModule } from './modules/health/health.module';
@@ -119,6 +120,7 @@ import { UserModule } from './modules/user/user.module';
     BillLineItemModule,
     CommunicationModule,
     SettlementModule,
+    EobLineMatcherModule,
     AppealModule,
     MasterDataModule,
     HealthModule,
