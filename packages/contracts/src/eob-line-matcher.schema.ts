@@ -21,6 +21,11 @@ export const EobMatchSignalSchema = z.enum([
   // because payer EOBs typically deduct the exact line value when
   // they're rejecting a specific item.
   'amount_exact',
+  // Phase 2 — bill line amountPaise is within ±1% (capped at
+  // ±10000 paise / ₹100) of the deduction amount. Catches the
+  // common case of payer rounding to nearest 100 / dropping
+  // paise. Weaker than amount_exact but still a strong signal.
+  'amount_close',
   // Description tokens overlap with the deduction's category/reason
   // text. Jaccard ≥ 0.34 (one shared token out of 5 unique tokens)
   // is "weak"; ≥ 0.5 is "strong" — driving the confidence bucket.
@@ -53,6 +58,20 @@ export const EobLineMatchSchema = z.object({
   isDisputeCandidate: z.boolean().nullable(),
   confidence: EobMatchConfidenceSchema,
   signals: z.array(EobMatchSignalSchema),
+  // Phase 2 — true when a reviewer has explicitly confirmed this
+  // row (Settlement.deductions[deductionIndex] ↔ billLineItemId).
+  // When true, the matcher's auto-suggestion is REPLACED by the
+  // reviewer's choice; the row is locked at `high` confidence
+  // and `signals[]` is empty (the reviewer's word stands on its
+  // own without the heuristic chips).
+  confirmed: z.boolean().default(false),
+  // Phase 2 — id of the user who confirmed. Null when not
+  // confirmed. Surfaced only for audit / hover-tooltip purposes;
+  // not used for control flow.
+  confirmedById: z.string().uuid().nullable(),
+  // Phase 2 — ISO timestamp of the confirmation. Null when not
+  // confirmed.
+  confirmedAt: z.string().datetime().nullable(),
 });
 export type EobLineMatch = z.infer<typeof EobLineMatchSchema>;
 
@@ -73,3 +92,20 @@ export const EobLineMatchesResponseSchema = z.object({
   disputeCandidateCount: z.number().int().nonnegative(),
 });
 export type EobLineMatchesResponse = z.infer<typeof EobLineMatchesResponseSchema>;
+
+// Phase 2 — reviewer confirms (or explicitly clears) a match for
+// one deduction. billLineItemId === null means "no bill line
+// matches this deduction" — a legitimate finding the reviewer can
+// record so the matcher stops re-suggesting against this row.
+// isDispute is captured at confirm time from the bill row's
+// current `medical` state and stored as a stable fact (does NOT
+// drift if the bill row's medical flag later changes).
+export const ConfirmEobLineMatchRequestSchema = z.object({
+  deductionIndex: z.number().int().nonnegative(),
+  billLineItemId: z.string().uuid().nullable(),
+  isDispute: z.boolean(),
+});
+export type ConfirmEobLineMatchRequest = z.infer<
+  typeof ConfirmEobLineMatchRequestSchema
+>;
+

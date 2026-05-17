@@ -6,6 +6,99 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### EOB-line matcher (Phase 2) — confirm, fuzzy amount, appeal hook
+
+Phase 1 (#117) shipped read-only suggestions. Phase 2 closes the
+remaining loops:
+
+1. **Persisted reviewer confirmations** — a new `eob_line_match`
+   table stores the operator's chosen mapping for each payer
+   deduction. Confirmed rows survive reload and override the
+   auto-suggest on subsequent matcher runs. Natural key
+   `(claimId, deductionIndex)`; one confirmation per deduction.
+   `billLineItemId` is nullable — the reviewer can record an
+   explicit "no bill line matches this deduction" finding, and
+   the auto-suggester respects it.
+2. **Fuzzy amount tolerance** — new `amount_close` signal fires
+   when bill and deduction amounts agree within ±1% (capped at
+   ±₹100). Catches the common case of payer rounding without
+   accepting noisy multi-rupee gaps as matches. Tuned so a
+   ₹50,000 surgery does NOT match a ₹50,500 deduction (real
+   disagreement) but a ₹500 toiletry kit DOES match a ₹495
+   deduction (rounding).
+3. **Appeal-drafting hook** — on claim-rejected / short-paid
+   statuses, the AppealPanel surfaces a "Pull N confirmed
+   disputes" button that pre-populates the appeal-reason
+   textarea with a formatted block of every confirmed dispute
+   candidate. The reviewer can edit afterwards; this just gives
+   them a non-empty starting draft.
+
+Schema:
+
+* New `eob_line_match` table — id, tenantId, claimId,
+  deductionIndex, billLineItemId (nullable), isDispute (captured
+  AT CONFIRM TIME — does NOT drift with later bill-row flips),
+  confirmedAt, confirmedById. Unique index on
+  (tenantId, claimId, deductionIndex). RLS-FORCEd, cascades on
+  claim delete AND on bill_line_item delete.
+
+Service / API:
+
+* `EobLineMatcherService.confirm(input)` — upsert semantics:
+  delete-then-insert inside a tenant tx; audit_log row carries
+  the confirmed (deductionIndex, billLineItemId, isDispute).
+* `EobLineMatcherService.reset(input)` — idempotent delete of
+  one confirmation; audit row only written when something was
+  actually removed.
+* `EobLineMatcherService.suggestForClaim()` — now parallel-loads
+  matchers AND confirmations, hands both to the pure matcher,
+  which short-circuits the auto-suggest for any deduction with a
+  confirmation.
+* `POST /cases/:c/claims/:cl/eob-line-matches/confirm` and
+  `DELETE /cases/:c/claims/:cl/eob-line-matches/:deductionIndex`
+  endpoints; both gated on `claim.draft`.
+
+Pure matcher:
+
+* New `amount_close` factor + `isAmountClose()` helper; bucket
+  rules updated (amount_close + tokens → medium; amount_close
+  alone → low; amount_exact still beats amount_close on score).
+* `ConfirmedEobLineMatch[]` input to `matchEobLines()` —
+  confirmations bypass the heuristic loop entirely; the row is
+  emitted at `high` confidence with empty `signals[]`. Reviewer's
+  word stands on its own without the heuristic chips.
+* 7 new spec cases on top of the original 10: amount_close
+  basic, ±₹100 cap, amount_exact-beats-amount_close tie-break,
+  confirmation-replaces-auto-suggest, confirm-no-match,
+  dispute-captured-at-confirm-time, confirmedById surfaced.
+  17/17 pass.
+
+Web:
+
+* `<EobLineMatchesPanel>` — each row now exposes a bill-line
+  `<select>` (defaults to auto-suggest, lists every bill line
+  on the claim plus an explicit "no match" option), a "Mark as
+  dispute candidate" checkbox, and a Confirm button. Confirmed
+  rows render with a green tint, a "confirmed at HH:MM" badge,
+  and a Reset link. New `amount_close` signal chip added.
+* `<AppealPanel>` — loads matcher data on claim-rejected /
+  short-paid statuses. When ≥1 confirmed dispute candidate
+  exists, an amber "Pull N confirmed disputes" CTA shows above
+  the reason textarea and inserts a formatted dispute-grounds
+  block.
+
+Deliberately deferred:
+
+* No multi-line matches (one deduction spanning several bill
+  rows; common with prorated category strips). Phase 3 if
+  reviewer-demand emerges.
+* No fuzzy token alignment — Jaccard with a stop-word filter is
+  still the only text signal.
+* No bulk confirm (e.g. "accept all auto-suggestions"); each
+  row confirms individually so the reviewer is forced to think.
+
+
+
 ### EOB-line matcher (Phase 1) — suggest payer-deduction ↔ bill-line mapping
 
 The hospital classifies bill rows at discharge (PR #115). The

@@ -161,9 +161,10 @@ model Claim {
   paidAt          DateTime?
   closedAt        DateTime?
 
-  case          Case            @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  events        ClaimEvent[]
-  billLineItems BillLineItem[]
+  case           Case            @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  events         ClaimEvent[]
+  billLineItems  BillLineItem[]
+  eobLineMatches EobLineMatch[]
 
   @@index([tenantId, status])
   @@index([tenantId, assignedToUserId, status])
@@ -191,10 +192,35 @@ model BillLineItem {
   createdAt    DateTime @default(now())
   createdById  String   @db.Uuid
 
-  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  claim          Claim          @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  eobLineMatches EobLineMatch[]
 
   @@index([tenantId, claimId])
   @@map("bill_line_item")
+}
+
+// EOB-line matcher Phase 2 — reviewer-confirmed match between a
+// Settlement deduction and a bill_line_item row. See migration
+// 20260605000000_eob_line_match for the schema rationale. Natural
+// key is (tenantId, claimId, deductionIndex); billLineItemId is
+// nullable for an explicit "no bill line matches this deduction"
+// confirmation.
+model EobLineMatch {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @db.Uuid
+  claimId         String   @db.Uuid
+  deductionIndex  Int
+  billLineItemId  String?  @db.Uuid
+  isDispute       Boolean  @default(false)
+  confirmedAt     DateTime @default(now())
+  confirmedById   String   @db.Uuid
+
+  claim         Claim         @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  billLineItem  BillLineItem? @relation(fields: [billLineItemId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, claimId, deductionIndex])
+  @@index([tenantId, claimId])
+  @@map("eob_line_match")
 }
 
 // Append-only via RLS. Application code that tries to UPDATE/DELETE

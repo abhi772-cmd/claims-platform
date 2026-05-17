@@ -4,11 +4,47 @@ import {
   type AppealResolutionKind,
   type AppealSummary,
   type ClaimStatus,
+  type EobLineMatch,
 } from '@claims/contracts';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
 import { CaseApi } from '../../lib/api/case.api';
+import { EobLineMatcherApi } from '../../lib/api/eob-line-matcher.api';
+
+// EOB-matcher integration: only "claim-rejected / short-paid"
+// statuses trigger the dispute-candidates lookup. The matcher
+// doesn't apply for preauth-rejected appeals — those have no
+// settlement deductions to reconcile against.
+const DISPUTE_HOOK_STATUSES: ReadonlySet<ClaimStatus> = new Set([
+  'CLAIM_REJECTED',
+  'SHORT_PAID',
+]);
+
+function fmtINR(paise: number): string {
+  return `₹${(paise / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+}
+
+// Build a textual appeal grounds block from confirmed dispute
+// candidates. Reviewer can edit afterwards; this just gives them
+// a starting point so they don't have to re-type the same
+// lines they already curated in the matcher panel.
+function formatDisputeCandidates(matches: EobLineMatch[]): string {
+  const lines: string[] = [
+    'The following deductions correspond to bill items the hospital',
+    'classified as medical and we are appealing:',
+    '',
+  ];
+  for (const m of matches) {
+    if (!m.isDisputeCandidate || !m.confirmed) continue;
+    lines.push(
+      `- ${m.deductionCategory} ${fmtINR(m.deductionAmount)}` +
+        (m.billLineDescription ? ` — bill line "${m.billLineDescription}"` : '') +
+        (m.deductionReason ? ` (payer reason: ${m.deductionReason})` : ''),
+    );
+  }
+  return lines.join('\n');
+}
 
 const APPEAL_ELIGIBLE_FROM: ReadonlySet<ClaimStatus> = new Set([
   'PREAUTH_REJECTED',
@@ -48,6 +84,9 @@ export function AppealPanel({
   const [approvedAmount, setApprovedAmount] = useState('');
   const [resolutionNote, setResolutionNote] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  // EOB matcher integration — load confirmed dispute candidates
+  // so the reviewer can one-click pre-populate the appeal reason.
+  const [eobMatches, setEobMatches] = useState<EobLineMatch[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +102,36 @@ export function AppealPanel({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId, claimId, status]);
+
+  // Only load EOB matches on statuses where the appeal-grounds
+  // hook makes sense (claim-rejected / short-paid). Silent failure
+  // — the appeal can still be drafted by hand if the matcher is
+  // not yet wired for the claim.
+  useEffect(() => {
+    if (!DISPUTE_HOOK_STATUSES.has(status)) return;
+    let cancelled = false;
+    EobLineMatcherApi.list(caseId, claimId)
+      .then((res) => {
+        if (!cancelled) setEobMatches(res.matches);
+      })
+      .catch(() => {
+        // ignore — appeal panel still works without matcher
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [caseId, claimId, status]);
+
+  const confirmedDisputeCandidates = useMemo(
+    () => eobMatches.filter((m) => m.confirmed && m.isDisputeCandidate === true),
+    [eobMatches],
+  );
+
+  const onPullDisputes = useCallback(() => {
+    const block = formatDisputeCandidates(confirmedDisputeCandidates);
+    // Prepend so any existing operator copy is preserved beneath.
+    setReason((prev) => (prev.trim() ? `${block}\n\n${prev}` : block));
+  }, [confirmedDisputeCandidates]);
 
   const eligible = APPEAL_ELIGIBLE_FROM.has(status);
   const live = APPEAL_LIVE_FROM.has(status);
@@ -190,6 +259,21 @@ export function AppealPanel({
           >
             Ground for appeal
           </label>
+          {/* EOB matcher Phase 2 hook — pre-populate from
+              confirmed dispute candidates so reviewer doesn't
+              re-type lines they already curated downstairs. */}
+          {confirmedDisputeCandidates.length > 0 ? (
+            <button
+              type="button"
+              onClick={onPullDisputes}
+              className="inline-flex items-center gap-1 self-start rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-medium text-amber-700 hover:bg-amber-100"
+              title="Insert appeal grounds drafted from confirmed dispute candidates in the EOB-line matcher panel."
+            >
+              <span className="material-symbols-outlined text-[14px]">gavel</span>
+              Pull {confirmedDisputeCandidates.length} confirmed dispute
+              {confirmedDisputeCandidates.length === 1 ? '' : 's'}
+            </button>
+          ) : null}
           <textarea
             id="appeal-reason"
             value={reason}
