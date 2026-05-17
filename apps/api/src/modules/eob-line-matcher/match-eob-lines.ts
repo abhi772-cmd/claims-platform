@@ -66,18 +66,39 @@ function categoryWantsNonMedical(category: string): boolean {
 }
 
 // Score a single (deduction, billLine) pair. Higher = better.
-// Tuned so amount-exact always beats pure-token, but a row with
-// amount-exact + token agreement beats amount-exact alone (and
-// thus wins ties between several bill rows with the same paise).
+// Tuned so amount-exact always beats pure-token, amount-close
+// beats pure-token, but a row with stronger amount signal + token
+// agreement beats amount-only (so ties between bill rows with the
+// same paise still resolve toward the better description match).
 interface ScoreFactors {
   amountExact: boolean;
+  // Phase 2 — payer amount within ±1% (cap ±10000 paise / ₹100)
+  // of the bill line. Strictly excludes amountExact (a row is
+  // either exact OR close, never both).
+  amountClose: boolean;
   jaccardScore: number;
   categoryAligns: boolean;
+}
+
+// Decide whether two amounts are "close enough" to call it a
+// rounding match. Tolerance is min(1% of larger, ₹100). The 1%
+// catches small bills where ₹100 would be too generous (e.g. a
+// ₹500 toiletry line shouldn't match a ₹600 deduction). The ₹100
+// cap stops big bills from accepting noisy matches (a ₹50,000
+// surgery should NOT match a ₹50,500 deduction — that's a real
+// disagreement).
+function isAmountClose(billPaise: number, deductionPaise: number): boolean {
+  if (billPaise === deductionPaise) return false; // exact is its own bucket
+  const diff = Math.abs(billPaise - deductionPaise);
+  const onePercent = Math.round(Math.max(billPaise, deductionPaise) * 0.01);
+  const tolerance = Math.min(onePercent, 10_000);
+  return diff <= tolerance;
 }
 
 function scoreOf(f: ScoreFactors): number {
   let s = 0;
   if (f.amountExact) s += 100;
+  else if (f.amountClose) s += 60;
   s += Math.round(f.jaccardScore * 40); // 0..40
   if (f.categoryAligns) s += 5;
   return s;
@@ -86,15 +107,35 @@ function scoreOf(f: ScoreFactors): number {
 function bucketConfidence(f: ScoreFactors): EobMatchConfidence {
   if (f.amountExact && f.jaccardScore >= 0.34) return 'high';
   if (f.amountExact) return 'medium';
+  // amount_close + decent tokens = medium (the rounding-tolerant
+  // version of the amount-exact + tokens → high rule).
+  if (f.amountClose && f.jaccardScore >= 0.34) return 'medium';
+  if (f.amountClose) return 'low';
   if (f.jaccardScore >= 0.5) return 'medium';
   if (f.jaccardScore >= 0.2) return 'low';
   if (f.categoryAligns && f.jaccardScore > 0) return 'low';
   return 'none';
 }
 
+// Phase 2 — a reviewer-confirmed mapping for one deduction. The
+// matcher consumes these alongside its own suggestions; when a
+// deductionIndex appears in `confirmed`, the auto-suggest output
+// for that index is REPLACED with the reviewer's word.
+export interface ConfirmedEobLineMatch {
+  deductionIndex: number;
+  billLineItemId: string | null;
+  isDispute: boolean;
+  confirmedById: string;
+  confirmedAt: string;
+}
+
 export interface MatchEobLinesInput {
   deductions: ReadonlyArray<DeductionLine>;
   billLines: ReadonlyArray<BillLineItem>;
+  // Phase 2 — reviewer confirmations keyed by deductionIndex.
+  // Optional for backwards compatibility with Phase 1 callers
+  // (specs in particular).
+  confirmed?: ReadonlyArray<ConfirmedEobLineMatch>;
 }
 
 export interface MatchEobLinesResult {
@@ -106,7 +147,11 @@ export interface MatchEobLinesResult {
 }
 
 export function matchEobLines(input: MatchEobLinesInput): MatchEobLinesResult {
-  const { deductions, billLines } = input;
+  const { deductions, billLines, confirmed } = input;
+  const confirmedByIndex = new Map<number, ConfirmedEobLineMatch>();
+  for (const c of confirmed ?? []) confirmedByIndex.set(c.deductionIndex, c);
+  const billLineById = new Map<string, BillLineItem>();
+  for (const b of billLines) billLineById.set(b.id, b);
 
   // Pre-tokenise once per bill line. Same line is compared against
   // every deduction.
@@ -121,6 +166,40 @@ export function matchEobLines(input: MatchEobLinesInput): MatchEobLinesResult {
 
   deductions.forEach((d, idx) => {
     totalDeductionAmount += d.amount;
+
+    // Phase 2 — if reviewer confirmed this deduction, the
+    // confirmation wins. Auto-suggest is bypassed entirely.
+    const confirmedMatch = confirmedByIndex.get(idx);
+    if (confirmedMatch !== undefined) {
+      const matchedLine =
+        confirmedMatch.billLineItemId !== null
+          ? billLineById.get(confirmedMatch.billLineItemId) ?? null
+          : null;
+      if (matchedLine !== null) {
+        matchedIds.add(matchedLine.id);
+        totalMatchedAmount += d.amount;
+      }
+      if (confirmedMatch.isDispute) disputeCandidateCount += 1;
+      matches.push({
+        deductionIndex: idx,
+        deductionCategory: d.category,
+        deductionAmount: d.amount,
+        deductionReason: d.reason ?? null,
+        billLineItemId: matchedLine?.id ?? null,
+        billLineDescription: matchedLine?.description ?? null,
+        billLineAmountPaise: matchedLine?.amountPaise ?? null,
+        isDisputeCandidate: matchedLine !== null ? confirmedMatch.isDispute : null,
+        // Reviewer's word stands at 'high'; signals stay empty
+        // because the heuristic chips aren't what made this row.
+        confidence: 'high',
+        signals: [],
+        confirmed: true,
+        confirmedById: confirmedMatch.confirmedById,
+        confirmedAt: confirmedMatch.confirmedAt,
+      });
+      return;
+    }
+
     const reasonTokens = tokenize(`${d.category} ${d.reason ?? ''}`);
     const wantsNonMedical = categoryWantsNonMedical(d.category);
 
@@ -131,8 +210,10 @@ export function matchEobLines(input: MatchEobLinesInput): MatchEobLinesResult {
     } | null = null;
 
     for (const line of billLines) {
+      const amountExact = line.amountPaise === d.amount;
       const factors: ScoreFactors = {
-        amountExact: line.amountPaise === d.amount,
+        amountExact,
+        amountClose: !amountExact && isAmountClose(line.amountPaise, d.amount),
         jaccardScore: jaccard(reasonTokens, billTokens.get(line.id) ?? new Set()),
         categoryAligns: wantsNonMedical && !line.medical,
       };
@@ -156,6 +237,9 @@ export function matchEobLines(input: MatchEobLinesInput): MatchEobLinesResult {
         isDisputeCandidate: null,
         confidence: 'none',
         signals: [],
+        confirmed: false,
+        confirmedById: null,
+        confirmedAt: null,
       });
       return;
     }
@@ -165,6 +249,7 @@ export function matchEobLines(input: MatchEobLinesInput): MatchEobLinesResult {
 
     const signals: EobMatchSignal[] = [];
     if (best.factors.amountExact) signals.push('amount_exact');
+    else if (best.factors.amountClose) signals.push('amount_close');
     if (best.factors.jaccardScore > 0) signals.push('token_overlap');
     if (best.factors.categoryAligns) signals.push('category_alignment');
 
@@ -184,6 +269,9 @@ export function matchEobLines(input: MatchEobLinesInput): MatchEobLinesResult {
       isDisputeCandidate,
       confidence,
       signals,
+      confirmed: false,
+      confirmedById: null,
+      confirmedAt: null,
     });
   });
 
