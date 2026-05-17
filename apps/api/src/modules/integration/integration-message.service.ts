@@ -8,6 +8,11 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type TenantPrisma } from '../../types/express';
 
+// Used by cross-tenant sweep paths (replay worker). When running under
+// the platform_admin role, set_config('app.tenant_id', ...) still needs
+// a UUID-shaped value — this sentinel signals "no specific tenant".
+const CROSS_TENANT_SENTINEL_UUID = '00000000-0000-0000-0000-000000000000';
+
 export interface RecordOutboundInput {
   tenantId: string;
   claimId?: string;
@@ -184,11 +189,19 @@ export class IntegrationMessageService {
   }
 
   // Find replayable rows ready for re-issue across ALL tenants.
-  // Direct prisma access — bypasses runInTenantContext deliberately
-  // because the worker sweeps cross-tenant. Tenant boundaries are
-  // reasserted when the replay handler re-invokes the owning
-  // service (which sets its own tenant GUC). Mirrors the pattern
-  // in NotificationRetryWorker.runOnce.
+  //
+  // Runs under runInTenantContext(SENTINEL_UUID, 'platform_admin', ...)
+  // so the FORCE-RLS SELECT predicate on integration_message admits
+  // rows from every tenant. The runtime role is claims_app
+  // (NOSUPERUSER NOBYPASSRLS) — without the platform_admin GUC the
+  // policy returns zero rows and the replay worker silently no-ops.
+  //
+  // Tenant boundaries are reasserted when the replay handler re-invokes
+  // the owning service, which sets its own per-tenant GUC via
+  // runInTenantContext(tenantId, 'tenant', ...). This worker only reads
+  // the queue — it never mutates rows under platform_admin.
+  //
+  // Mirrors DocumentLifecycleWorker.runOnce.
   async findReplayable(
     options: { limit?: number; integration?: IntegrationName; now?: Date } = {},
   ): Promise<
@@ -205,28 +218,33 @@ export class IntegrationMessageService {
   > {
     const limit = Math.min(options.limit ?? 25, 100);
     const cutoff = options.now ?? new Date();
-    return this.prisma.integrationMessage.findMany({
-      where: {
-        status: 'queued_for_retry',
-        nextRetryAt: { lte: cutoff },
-        retryCount: { lt: IntegrationMessageService.REPLAY_MAX_ATTEMPTS },
-        ...(options.integration !== undefined
-          ? { integration: options.integration }
-          : {}),
-      },
-      orderBy: { nextRetryAt: 'asc' },
-      take: limit,
-      select: {
-        id: true,
-        tenantId: true,
-        claimId: true,
-        integration: true,
-        operation: true,
-        correlationId: true,
-        retryCount: true,
-        idempotencyKey: true,
-      },
-    });
+    return this.prisma.runInTenantContext(
+      CROSS_TENANT_SENTINEL_UUID,
+      'platform_admin',
+      (tx) =>
+        tx.integrationMessage.findMany({
+          where: {
+            status: 'queued_for_retry',
+            nextRetryAt: { lte: cutoff },
+            retryCount: { lt: IntegrationMessageService.REPLAY_MAX_ATTEMPTS },
+            ...(options.integration !== undefined
+              ? { integration: options.integration }
+              : {}),
+          },
+          orderBy: { nextRetryAt: 'asc' },
+          take: limit,
+          select: {
+            id: true,
+            tenantId: true,
+            claimId: true,
+            integration: true,
+            operation: true,
+            correlationId: true,
+            retryCount: true,
+            idempotencyKey: true,
+          },
+        }),
+    );
   }
 
   // Called by a replay handler when re-issue succeeds. Flips status

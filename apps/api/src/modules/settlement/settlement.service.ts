@@ -6,6 +6,7 @@ import {
 } from '@claims/contracts';
 import { Injectable } from '@nestjs/common';
 
+import { InvalidClaimTransitionError } from '../../common/errors/claim-errors';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ClaimService } from '../claim';
@@ -109,9 +110,14 @@ export class SettlementService {
         actorUserId: input.actorUserId,
       });
     } catch (err) {
-      // Swallow same-status repeats. Anything else flows up.
-      const code = (err as { code?: string }).code;
-      if (code !== 'VALIDATION_FAILED') throw err;
+      // Swallow same-status repeats only. We catch InvalidClaimTransitionError
+      // specifically (state-machine rejected the event) and rethrow everything
+      // else — including ValidationFailedError from real validation paths
+      // inside transition(), which would otherwise be silently lost and
+      // mis-record reconciliation state. Both errors carry the same
+      // VALIDATION_FAILED code, so class-based narrowing is the only safe
+      // discriminator.
+      if (!(err instanceof InvalidClaimTransitionError)) throw err;
     }
     return toSettlement(settlement);
   }
