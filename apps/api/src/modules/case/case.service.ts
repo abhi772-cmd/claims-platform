@@ -99,6 +99,10 @@ export interface ListCasesInput {
   // within today ± 1 day AND whose claim is in the approved-but-
   // not-discharged window.
   dischargeDue?: boolean;
+  // Tier 2 — filter to cases whose headline claim is assigned to
+  // a specific user. The web "Mine" chip resolves via /me and
+  // passes the current user's id here.
+  assignedTo?: string;
 }
 
 @Injectable()
@@ -243,6 +247,7 @@ export class CaseService {
         claimRefNum: claim.claimRefNum,
         initiatedAt: claim.initiatedAt.toISOString(),
         closedAt: claim.closedAt ? claim.closedAt.toISOString() : null,
+        assignedToUserId: claim.assignedToUserId,
       },
     ]);
   }
@@ -312,6 +317,17 @@ export class CaseService {
           }
         : {};
 
+      // Tier 2 — assignee filter is a separate `claims.some`
+      // clause; Prisma merges multiple `claims` constraints with
+      // AND so combining phase+assignedTo+dischargeDue works.
+      const assigneeClause = input.assignedTo
+        ? {
+            claims: {
+              some: { assignedToUserId: input.assignedTo },
+            },
+          }
+        : {};
+
       const where = {
         tenantId: input.tenantId,
         ...(input.status ? { caseStatus: input.status } : {}),
@@ -320,6 +336,7 @@ export class CaseService {
           : {}),
         ...searchClause,
         ...dischargeDueClause,
+        ...assigneeClause,
       };
 
       // For filters that need post-load evaluation (sla,
@@ -343,6 +360,7 @@ export class CaseService {
               take: 1,
               select: {
                 status: true,
+                assignedToUserId: true,
                 events: {
                   orderBy: { occurredAt: 'asc' },
                   select: { eventType: true, occurredAt: true },
@@ -411,7 +429,12 @@ export class CaseService {
 
       return {
         cases: paginated.map((h) =>
-          this.toSummary(h.row, h.headline?.status ?? null, h.sla),
+          this.toSummary(
+            h.row,
+            h.headline?.status ?? null,
+            h.sla,
+            h.headline?.assignedToUserId ?? null,
+          ),
         ),
         // When post-filtering, the SQL total is wrong (it counts
         // pre-filter). Use the filtered length as the honest total
@@ -462,6 +485,7 @@ export class CaseService {
       claimRefNum: c.claimRefNum,
       initiatedAt: c.initiatedAt.toISOString(),
       closedAt: c.closedAt ? c.closedAt.toISOString() : null,
+      assignedToUserId: c.assignedToUserId,
       sla: computeSlaForClaim(
         c.events.map(
           (e): SlaEvent => ({
@@ -540,6 +564,7 @@ export class CaseService {
     },
     headlineStatus: string | null,
     sla: ClaimSla | null = null,
+    headlineAssignedToUserId: string | null = null,
   ): CaseSummary {
     return {
       id: c.id,
@@ -567,6 +592,8 @@ export class CaseService {
       // T2-8 — current room rate (operator-updated). When > roomDailyRate
       // the case-detail page auto-suggests a preauth enhancement.
       currentRoomDailyRate: c.currentRoomDailyRate,
+      // Tier 2 — assignee of the headline claim.
+      assignedToUserId: headlineAssignedToUserId,
     };
   }
 
@@ -589,7 +616,16 @@ export class CaseService {
     },
     claims: CaseDetail['claims'],
   ): CaseDetail {
-    const headlineStatus = claims[claims.length - 1]?.status ?? null;
-    return { ...this.toSummary(row, headlineStatus), claims };
+    const headline = claims[claims.length - 1];
+    const headlineStatus = headline?.status ?? null;
+    return {
+      ...this.toSummary(
+        row,
+        headlineStatus,
+        null,
+        headline?.assignedToUserId ?? null,
+      ),
+      claims,
+    };
   }
 }

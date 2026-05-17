@@ -1,4 +1,6 @@
 import {
+  type AssignClaimRequest,
+  AssignClaimRequestSchema,
   type ClaimEventListResponse,
   type ManualTransitionRequest,
   ManualTransitionRequestSchema,
@@ -66,6 +68,32 @@ export class ClaimController {
         payload: e.payload,
       })),
     };
+  }
+
+  // Tier 2 — assign / unassign a claim to a tenant user.
+  // userId === null clears the assignment. Gated on case.assign
+  // (existing permission, already in the seed). Writes a
+  // `claim.assigned` event so the audit trail captures the change.
+  @Post('assign')
+  @HttpCode(200)
+  @RequirePermission(Permissions.CASE_ASSIGN)
+  async assign(
+    @Param('caseId', new ParseUUIDPipe()) caseId: string,
+    @Param('claimId', new ParseUUIDPipe()) claimId: string,
+    @Body(new ZodValidationPipe(AssignClaimRequestSchema))
+    body: AssignClaimRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<{ assignedToUserId: string | null }> {
+    const detail = await this.cases.getById(user.tenantId, caseId);
+    const owns = detail.claims.some((c) => c.id === claimId);
+    if (!owns) throw new ValidationFailedError({ claimId: ['Claim not on this case.'] });
+    const out = await this.claims.assign({
+      tenantId: user.tenantId,
+      claimId,
+      userId: body.userId,
+      actorUserId: user.userId,
+    });
+    return { assignedToUserId: out.assignedToUserId ?? null };
   }
 
   @Post('transitions')

@@ -13,6 +13,7 @@ import { ClaimPhasePanel } from '../../../../components/claim-phase/ClaimPhasePa
 import { CommunicationsPanel } from '../../../../components/communication/CommunicationsPanel';
 import { NonMedicalStripCalculator } from '../../../../components/discharge/NonMedicalStripCalculator';
 import { EnhancementPanel } from '../../../../components/enhancement/EnhancementPanel';
+import { AssigneeWidget } from '../../../../components/claim/AssigneeWidget';
 import { PlanPreviewCard } from '../../../../components/insurance-plan/PlanPreviewCard';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { useToast } from '../../../../components/toast/ToastProvider';
@@ -188,7 +189,17 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
               </span>
               <h1 className="mt-1 text-h2 font-h2 text-on-surface">{detail.patientName}</h1>
             </div>
-            <StatusPill status={detail.caseStatus} />
+            <div className="flex flex-col items-end gap-2">
+              <StatusPill status={detail.caseStatus} />
+              {claim ? (
+                <AssigneeWidget
+                  caseId={detail.id}
+                  claimId={claim.id}
+                  assignedToUserId={claim.assignedToUserId}
+                  onChanged={() => void reload()}
+                />
+              ) : null}
+            </div>
           </div>
           <div className="mt-4 flex flex-col gap-2 text-body-sm">
             <div className="flex items-center gap-2 text-on-surface-variant">

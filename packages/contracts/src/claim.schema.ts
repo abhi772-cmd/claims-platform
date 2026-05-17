@@ -151,6 +151,11 @@ export const ClaimEventTypeSchema = z.enum([
   // is logged in integration_message as usual.
   'communication.outbound_sent',
   'communication.inbound_received',
+  // Tier 2 — operator assigned / re-assigned / unassigned the
+  // claim. Non-transitioning (same resultingStatus). Payload
+  // carries previousAssignedToUserId + newAssignedToUserId so
+  // the audit trail captures the change.
+  'claim.assigned',
 ]);
 export type ClaimEventType = z.infer<typeof ClaimEventTypeSchema>;
 
@@ -171,6 +176,11 @@ export const ClaimSchema = z.object({
   claimRefNum: z.string().nullable(),
   initiatedAt: z.string().datetime(),
   closedAt: z.string().datetime().nullable(),
+  // Operator who owns this claim. Null = unassigned. The user is
+  // expected to be in the same tenant (RLS enforces this on the
+  // join); the column on `claim` is a plain UUID without FK to
+  // `user` so the user can be deleted without orphaning the claim.
+  assignedToUserId: z.string().uuid().nullable(),
   // T2-15 — IRDAI SLA timers. Optional so callers that don't compute
   // it (list endpoints that skip the per-claim event scan) stay
   // wire-compatible. Case-detail responses always populate it.
@@ -179,6 +189,17 @@ export const ClaimSchema = z.object({
   sla: ClaimSlaSchema.optional(),
 });
 export type Claim = z.infer<typeof ClaimSchema>;
+
+// Tier 2 claim-assignment slice.
+//
+// POST /cases/:caseId/claims/:claimId/assign with userId=null
+// unassigns; with a uuid assigns. The endpoint writes a
+// claim_event so the audit + history surfaces who was the owner
+// at each transition, even after a later re-assignment.
+export const AssignClaimRequestSchema = z.object({
+  userId: z.string().uuid().nullable(),
+});
+export type AssignClaimRequest = z.infer<typeof AssignClaimRequestSchema>;
 
 export const ClaimEventSchema = z.object({
   id: z.string().uuid(),
