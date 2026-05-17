@@ -299,8 +299,13 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
 
       {/* T2-13 — non-medical strip calculator sits just above the
           ClaimPhasePanel so the operator can decide the right
-          finalAmount before typing it into the panel below. */}
-      {claim ? <NonMedicalStripCalculator /> : null}
+          finalAmount before typing it into the panel below. With
+          caseId + claimId provided, the calculator persists the
+          classified bill against the claim (T2-13 follow-up) so
+          a later EOB-line matcher can cross-reference. */}
+      {claim ? (
+        <NonMedicalStripCalculator caseId={detail.id} claimId={claim.id} />
+      ) : null}
 
       {claim ? (
         <ClaimPhasePanel

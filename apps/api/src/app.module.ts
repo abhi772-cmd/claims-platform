@@ -10,6 +10,7 @@ import { AnalyticsModule } from './modules/analytics';
 import { AppealModule } from './modules/appeal';
 import { AuditModule } from './modules/audit';
 import { AuthModule } from './modules/auth/auth.module';
+import { BillLineItemModule } from './modules/bill-line-item';
 import { BiometricAuthModule } from './modules/biometric-auth';
 import { BreachModule } from './modules/breach/breach.module';
 import { CaseModule } from './modules/case';
@@ -115,6 +116,7 @@ import { UserModule } from './modules/user/user.module';
     DocumentModule,
     DischargeModule,
     ClaimSubmitModule,
+    BillLineItemModule,
     CommunicationModule,
     SettlementModule,
     AppealModule,

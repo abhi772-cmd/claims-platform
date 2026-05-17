@@ -6,6 +6,76 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### T2-13 follow-up — bill line item persistence
+
+Yesterday's PR #113 shipped an operator-aid bill classifier with no
+persistence — the operator pasted the bill into a textarea every
+time. This PR gives the classified bill a durable home so:
+
+* the operator can come back later without re-typing
+* the EOB-line matcher (separate slice) can map our lines to payer
+  deductions when the EOB lands
+* the audit trail captures what the hospital actually classified
+  at discharge
+
+Schema:
+
+* New `bill_line_item` table — id, tenantId, claimId, description,
+  amountPaise, medical (boolean), category (nullable, scrubbed for
+  medical rows), matchedTerm (nullable), createdAt, createdById.
+  Indexed on (tenantId, claimId). RLS-FORCEd with the same tenant-id
+  pattern as `consent_record`. Cascades on Claim delete.
+
+Service / API:
+
+* `POST /cases/:c/claims/:cl/bill-line-items` — replace-all save.
+  Deletes the claim's existing rows and inserts the new set in one
+  tenant tx. Audit-log row carries lineCount + grandTotalPaise +
+  nonMedicalPaise so the trail is bounded but reconstructable.
+* `GET /cases/:c/claims/:cl/bill-line-items` — returns lines +
+  server-computed totals (medical / non-medical / grand).
+* `BillLineItemService` with 6-case unit spec: replace-all
+  semantics, empty-set clears, medical-row scrubbing of category +
+  matchedTerm, audit snapshot shape, list empty-state, round-trip.
+* Permission reuses `claim.draft` — no new permission.
+
+Web:
+
+* `<NonMedicalStripCalculator>` now takes optional `caseId + claimId`
+  props. When set:
+  * On mount, GETs existing lines and pre-populates the textarea
+    from `description\tamount` rows.
+  * Adds a "Save to claim" button that POSTs the current classified
+    set (replace-all).
+  * Shows a "saved N lines at HH:MM" indicator after save.
+  * When the props are absent (the component's standalone use)
+    the original PR #113 operator-aid behaviour is unchanged.
+* Case-detail page passes both props so persistence is enabled on
+  every claim opened.
+
+What this doesn't do (intentionally):
+
+* No per-line override UI yet (operator re-types if they disagree
+  with the classifier). The persisted `medical` column is honest
+  about being operator-override-capable; the UI to wire that lands
+  later if needed.
+* No `claim_event` for bill save — the `audit_log` row is enough
+  for V1.
+* No EOB-line matcher (separate slice). The persistence here is
+  the data the matcher will consume when it lands.
+
+Verified end-to-end:
+
+* 6-line sample saved to claim → POST 200, 6 rows in Postgres with
+  correct totals (medical ₹53,000 / non-medical ₹1,550 / grand ₹54,550)
+* Per-line tags preserved through the round-trip (Surgery + Room rent
+  medical; Toiletry kit → toiletries; TV rental → comfort)
+* Page reload pre-populates the textarea with all 6 lines and shows
+  the "saved 6 lines at 02:24" indicator — no re-typing
+* `pnpm -r typecheck` + `pnpm -r lint` clean; 6/6 service unit tests pass
+
+
+
 ### T2-8 — ICU upgrade auto-enhancement (ward tier tracker)
 
 When a patient is moved to a higher-tier ward mid-stay (most
