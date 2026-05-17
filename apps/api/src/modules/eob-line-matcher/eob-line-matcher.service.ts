@@ -51,6 +51,8 @@ export class EobLineMatcherService {
   ): Promise<EobLineMatchesResponse> {
     // Parallel reads — all three go through their own tenant
     // context. No cross-table tx needed; this is read-only.
+    // Phase 3 — include join rows so we replay multi-line
+    // confirmations with their full member set.
     const [settlement, billLinesResp, confirmedRows] = await Promise.all([
       this.settlements.getByClaim(tenantId, claimId),
       this.billLines.listForClaim(tenantId, claimId),
@@ -58,6 +60,7 @@ export class EobLineMatcherService {
         tx.eobLineMatch.findMany({
           where: { claimId },
           orderBy: { deductionIndex: 'asc' },
+          include: { additionalBillLineItems: true },
         }),
       ),
     ]);
@@ -66,6 +69,9 @@ export class EobLineMatcherService {
     const confirmed: ConfirmedEobLineMatch[] = confirmedRows.map((r) => ({
       deductionIndex: r.deductionIndex,
       billLineItemId: r.billLineItemId,
+      additionalBillLineItemIds: r.additionalBillLineItems.map(
+        (item) => item.billLineItemId,
+      ),
       isDispute: r.isDispute,
       confirmedById: r.confirmedById,
       confirmedAt: r.confirmedAt.toISOString(),
@@ -86,9 +92,12 @@ export class EobLineMatcherService {
     };
   }
 
-  // Phase 2 — confirm one deduction's match. Upsert semantics:
+  // Phase 2/3 — confirm one deduction's match. Upsert semantics:
   // re-confirming overwrites the previous record (delete-then-
   // insert inside a tenant tx so RLS + the unique index hold).
+  // Phase 3 — `additionalBillLineItemIds` populates the
+  // eob_line_match_item join table; the join rows cascade with
+  // the parent eob_line_match on the deleteMany above.
   async confirm(input: ConfirmInput): Promise<EobLineMatchesResponse> {
     await this.prisma.runInTenantContext(input.tenantId, 'tenant', async (tx) => {
       await tx.eobLineMatch.deleteMany({
@@ -97,7 +106,15 @@ export class EobLineMatcherService {
           deductionIndex: input.request.deductionIndex,
         },
       });
-      await tx.eobLineMatch.create({
+      // De-dupe additionalBillLineItemIds and strip the primary
+      // (defensive — the UI shouldn't include the primary in
+      // additionals, but if it does we silently drop the
+      // duplicate rather than rejecting with a 422).
+      const additionals = Array.from(
+        new Set(input.request.additionalBillLineItemIds ?? []),
+      ).filter((id) => id !== input.request.billLineItemId);
+
+      const created = await tx.eobLineMatch.create({
         data: {
           tenantId: input.tenantId,
           claimId: input.claimId,
@@ -107,6 +124,15 @@ export class EobLineMatcherService {
           confirmedById: input.actorUserId,
         },
       });
+      if (additionals.length > 0) {
+        await tx.eobLineMatchItem.createMany({
+          data: additionals.map((billLineItemId) => ({
+            tenantId: input.tenantId,
+            eobLineMatchId: created.id,
+            billLineItemId,
+          })),
+        });
+      }
       await this.audit.recordWithTx(tx, {
         tenantId: input.tenantId,
         actorUserId: input.actorUserId,
@@ -117,6 +143,7 @@ export class EobLineMatcherService {
         after: {
           deductionIndex: input.request.deductionIndex,
           billLineItemId: input.request.billLineItemId,
+          additionalCount: additionals.length,
           isDispute: input.request.isDispute,
         },
         ipAddress: input.ip ?? null,

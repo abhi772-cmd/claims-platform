@@ -192,8 +192,9 @@ model BillLineItem {
   createdAt    DateTime @default(now())
   createdById  String   @db.Uuid
 
-  claim          Claim          @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  eobLineMatches EobLineMatch[]
+  claim               Claim              @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  eobLineMatches      EobLineMatch[]
+  eobLineMatchItems   EobLineMatchItem[]
 
   @@index([tenantId, claimId])
   @@map("bill_line_item")
@@ -215,12 +216,32 @@ model EobLineMatch {
   confirmedAt     DateTime @default(now())
   confirmedById   String   @db.Uuid
 
-  claim         Claim         @relation(fields: [claimId], references: [id], onDelete: Cascade)
-  billLineItem  BillLineItem? @relation(fields: [billLineItemId], references: [id], onDelete: Cascade)
+  claim                   Claim              @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  billLineItem            BillLineItem?      @relation(fields: [billLineItemId], references: [id], onDelete: Cascade)
+  additionalBillLineItems EobLineMatchItem[]
 
   @@unique([tenantId, claimId, deductionIndex])
   @@index([tenantId, claimId])
   @@map("eob_line_match")
+}
+
+// Phase 3 — join row carrying ADDITIONAL bill_line_item members
+// of a multi-line subset match. Primary subset member is stored
+// on eob_line_match.billLineItemId; everything beyond the primary
+// lives here. Cascades on either parent's delete. See migration
+// 20260606000000_eob_line_match_item.
+model EobLineMatchItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @db.Uuid
+  eobLineMatchId  String   @db.Uuid
+  billLineItemId  String   @db.Uuid
+
+  eobLineMatch EobLineMatch @relation(fields: [eobLineMatchId], references: [id], onDelete: Cascade)
+  billLineItem BillLineItem @relation(fields: [billLineItemId], references: [id], onDelete: Cascade)
+
+  @@unique([eobLineMatchId, billLineItemId])
+  @@index([tenantId, eobLineMatchId])
+  @@map("eob_line_match_item")
 }
 
 // Append-only via RLS. Application code that tries to UPDATE/DELETE

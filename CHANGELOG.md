@@ -6,6 +6,93 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### EOB-line matcher (Phase 3) — multi-line subset matches
+
+Phase 2 (#118) handled one payer deduction → one bill row. Real
+payer EOBs aggregate: "non_payable_items: ₹2,500" maps to FIVE
+hospital rows (toiletry, tv-rental, attendant-food, comfort,
+admin-fees) that sum to ₹2,500. Phase 3 fans out across subsets.
+
+Pure matcher:
+
+* Bounded subset-sum search — for each deduction, the matcher
+  evaluates BOTH the best single-line candidate AND the best
+  subset (size ≥ 2) of category-aligned bill rows whose sum
+  lands within tolerance of the deduction amount. Higher score
+  wins; ties resolve toward single-line (the simpler explanation).
+* New signals `subset_sum_exact` + `subset_sum_close`, slotted
+  into the existing confidence ladder:
+  * subset_sum_exact + category_alignment → high
+  * subset_sum_exact alone → medium
+  * subset_sum_close + category → medium
+  * subset_sum_close alone → low
+* Search is depth-capped (MAX_SUBSET_DEPTH = 6) with ascending-
+  sort pruning; typical bills are 5-30 rows and search completes
+  in microseconds.
+* Subset matches honour category filtering: a `non_payable_items`
+  deduction only considers non-medical rows. `cap_exceeded` and
+  similar non-aligned categories let all rows compete.
+* Dispute-candidate semantics for subsets: flagged when ANY
+  subset member is hospital-medical. Reviewer sees one banner
+  for the deduction even if only one of N rows is the disputed
+  one.
+* 7 new spec cases on top of Phase 2's 17 → 24/24 passing.
+
+Schema:
+
+* New `eob_line_match_item` join table — id, tenantId,
+  eobLineMatchId, billLineItemId. One row per ADDITIONAL subset
+  member; the primary stays on `eob_line_match.billLineItemId`
+  for back-compat. Unique on (eobLineMatchId, billLineItemId);
+  cascades on either parent's delete. RLS-FORCEd.
+
+Service / API:
+
+* `EobLineMatcherService.confirm()` now accepts
+  `additionalBillLineItemIds[]` and writes join rows alongside
+  the primary in one tenant tx. Re-confirmation deletes-then-
+  inserts (existing cascade handles the join rows).
+* `suggestForClaim()` includes join rows via Prisma relation;
+  the pure matcher replays confirmed subsets with their full
+  member set.
+* `EobLineMatch` response shape gains
+  `additionalBillLineItemIds[]`, `additionalBillLineDescriptions[]`,
+  `additionalBillLineAmountsPaise[]`, `subsetSumPaise`.
+* `ConfirmEobLineMatchRequest` accepts the optional
+  `additionalBillLineItemIds` array (capped at 20).
+
+Web:
+
+* `<EobLineMatchesPanel>` row now renders subset members as
+  removable chips below the primary picker, with a "+ Add
+  another bill line to this subset" dropdown for grow-on-demand
+  reviewer adjustment. A live subset-sum readout shows running
+  total vs deduction amount in green when they match.
+* Confirm button label flips to "Confirm subset" when the row
+  has additional members.
+* New `subset sum · N lines` / `subset ~close · N lines` signal
+  chips.
+* `<AppealPanel>` `formatDisputeCandidates()` extended: a
+  multi-line dispute renders the deduction header followed by
+  indented sub-bullets per subset member, so the auto-drafted
+  appeal grounds spell out exactly which bill rows are in scope.
+
+Deliberately deferred:
+
+* No bulk confirm — each deduction still confirms one at a
+  time. Bulk would invite reviewer rubber-stamping; force
+  per-row attention.
+* No "swap primary with additional" UI — to change the primary,
+  reviewer removes the current additional, picks a different
+  primary from the dropdown, then re-adds the old primary as an
+  additional. Low-frequency enough to not warrant a special
+  affordance.
+* Subset search depth is fixed at 6. Phase 4 (if needed) could
+  lift this when payer files show category strips touching more
+  rows.
+
+
+
 ### EOB-line matcher (Phase 2) — confirm, fuzzy amount, appeal hook
 
 Phase 1 (#117) shipped read-only suggestions. Phase 2 closes the

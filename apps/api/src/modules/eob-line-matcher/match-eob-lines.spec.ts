@@ -230,11 +230,12 @@ describe('matchEobLines', () => {
   function confirm(
     deductionIndex: number,
     billLineItemId: string | null,
-    opts: { isDispute?: boolean } = {},
+    opts: { isDispute?: boolean; additionalBillLineItemIds?: string[] } = {},
   ): ConfirmedEobLineMatch {
     return {
       deductionIndex,
       billLineItemId,
+      additionalBillLineItemIds: opts.additionalBillLineItemIds ?? [],
       isDispute: opts.isDispute ?? false,
       confirmedById: '00000000-0000-0000-0000-aaaaaaaaaaaa',
       confirmedAt: '2026-05-17T12:00:00.000Z',
@@ -315,6 +316,177 @@ describe('matchEobLines', () => {
       '00000000-0000-0000-0000-aaaaaaaaaaaa',
     );
     expect(out.matches[0]?.confirmedAt).toBe('2026-05-17T12:00:00.000Z');
+  });
+
+  // ===========================
+  // Phase 3 — subset matching (multi-line)
+  // ===========================
+
+  it('matches a subset of non-medical rows summing exactly to a category strip', () => {
+    // Classic case: payer deducts "non_payable_items ₹2500" — no
+    // single bill line is ₹2500, but five non-medical rows sum to
+    // exactly ₹2500. The matcher should fan out across all five.
+    const out = matchEobLines({
+      deductions: [deduction('non_payable_items', 250_000, 'Non-payable items strip')],
+      billLines: [
+        bill('1', 'Surgery', 5_000_000, true),
+        bill('2', 'Toiletry kit', 30_000, false, { category: 'toiletries' }),
+        bill('3', 'TV rental', 15_000, false, { category: 'comfort' }),
+        bill('4', 'Attendant food', 90_000, false, { category: 'attendant_food' }),
+        bill('5', 'Admin fees', 70_000, false, { category: 'admin_fees' }),
+        bill('6', 'Documentation', 45_000, false, { category: 'documentation' }),
+      ],
+    });
+    const m = out.matches[0];
+    expect(m?.billLineItemId).not.toBeNull();
+    expect(m?.additionalBillLineItemIds.length).toBeGreaterThanOrEqual(1);
+    // Subset sum must hit target exactly.
+    expect(m?.subsetSumPaise).toBe(250_000);
+    expect(m?.signals).toContain('subset_sum_exact');
+    expect(m?.signals).toContain('category_alignment');
+    expect(m?.confidence).toBe('high');
+    // No medical row should have leaked in.
+    const subsetIds = [m?.billLineItemId, ...(m?.additionalBillLineItemIds ?? [])];
+    expect(subsetIds).not.toContain('00000000-0000-0000-0000-000000000001');
+  });
+
+  it('prefers single-line exact match over subset when both exist', () => {
+    // Single "Toiletry kit ₹2500" beats any subset that also sums
+    // to ₹2500 — single-exact has the higher score.
+    const out = matchEobLines({
+      deductions: [deduction('non_payable_items', 250_000, 'Toiletry kit')],
+      billLines: [
+        bill('1', 'Toiletry kit batch', 250_000, false, { category: 'toiletries' }),
+        bill('2', 'TV rental', 50_000, false, { category: 'comfort' }),
+        bill('3', 'Attendant food', 100_000, false, { category: 'attendant_food' }),
+        bill('4', 'Admin fees', 100_000, false, { category: 'admin_fees' }),
+      ],
+    });
+    expect(out.matches[0]?.billLineItemId).toBe(
+      '00000000-0000-0000-0000-000000000001',
+    );
+    expect(out.matches[0]?.additionalBillLineItemIds).toEqual([]);
+    expect(out.matches[0]?.signals).toContain('amount_exact');
+    expect(out.matches[0]?.signals).not.toContain('subset_sum_exact');
+  });
+
+  it('subset_sum_close matches when sum is within ±1% / ±₹100', () => {
+    // Subset sums to ₹2,495 (5 paise off target of ₹2,500). Within
+    // tolerance. Should fire subset_sum_close, not subset_sum_exact.
+    const out = matchEobLines({
+      deductions: [deduction('non_payable_items', 250_000, 'Non-payable strip')],
+      billLines: [
+        bill('1', 'Toiletry kit', 50_000, false, { category: 'toiletries' }),
+        bill('2', 'TV rental', 49_500, false, { category: 'comfort' }),
+        bill('3', 'Attendant food', 100_000, false, { category: 'attendant_food' }),
+        bill('4', 'Admin fees', 50_000, false, { category: 'admin_fees' }),
+      ],
+    });
+    expect(out.matches[0]?.subsetSumPaise).toBe(249_500);
+    expect(out.matches[0]?.signals).toContain('subset_sum_close');
+    expect(out.matches[0]?.signals).not.toContain('subset_sum_exact');
+    expect(out.matches[0]?.confidence).toBe('medium');
+  });
+
+  it('does NOT propose a subset when no combination fits the tolerance', () => {
+    // Sums won't land near the target. Should fall back to single
+    // best (here, none — no single-line score either).
+    const out = matchEobLines({
+      deductions: [deduction('non_payable_items', 500_000, 'Strip')],
+      billLines: [
+        bill('1', 'Surgery', 5_000_000, true),
+        bill('2', 'Random consumable', 12_345, false, { category: 'miscellaneous' }),
+      ],
+    });
+    // No subset summed to anywhere near ₹5000, no single line did
+    // either. Either 'none' confidence OR a low-confidence
+    // category-only match — but NO subset signals.
+    expect(out.matches[0]?.signals).not.toContain('subset_sum_exact');
+    expect(out.matches[0]?.signals).not.toContain('subset_sum_close');
+  });
+
+  it('flags subset as dispute candidate when ANY member is medical', () => {
+    // Payer says "non_admissible ₹2500" — one medical row + a
+    // non-medical row sum to it. Touching a medical row makes
+    // the whole subset disputable.
+    //
+    // We use a category (non_admissible) that aligns to
+    // non-medical so subset evaluation kicks in but allow the
+    // matcher to find a mixed subset — actually wait, we filter
+    // out medical from subset candidates when wantsNonMedical is
+    // true. So this test exercises a non-aligned category
+    // (e.g. cap_exceeded) where all rows compete.
+    const out = matchEobLines({
+      deductions: [
+        deduction('cap_exceeded', 200_000, 'Sub-limit exceeded across stay'),
+      ],
+      billLines: [
+        bill('1', 'Room rent day 1', 100_000, true),
+        bill('2', 'Room rent day 2', 100_000, true),
+      ],
+    });
+    const m = out.matches[0];
+    expect(m?.subsetSumPaise).toBe(200_000);
+    expect(m?.isDisputeCandidate).toBe(true);
+    expect(out.disputeCandidateCount).toBe(1);
+  });
+
+  it('honours reviewer confirmation with additionalBillLineItemIds', () => {
+    // Reviewer confirms a multi-line subset for a single payer
+    // deduction. The matcher replays the subset and locks it at
+    // high confidence.
+    const out = matchEobLines({
+      deductions: [deduction('non_payable_items', 200_000, 'Strip')],
+      billLines: [
+        bill('1', 'Toiletry kit', 50_000, false, { category: 'toiletries' }),
+        bill('2', 'TV rental', 50_000, false, { category: 'comfort' }),
+        bill('3', 'Admin fees', 100_000, false, { category: 'admin_fees' }),
+      ],
+      confirmed: [
+        confirm(0, '00000000-0000-0000-0000-000000000001', {
+          additionalBillLineItemIds: [
+            '00000000-0000-0000-0000-000000000002',
+            '00000000-0000-0000-0000-000000000003',
+          ],
+        }),
+      ],
+    });
+    const m = out.matches[0];
+    expect(m?.confirmed).toBe(true);
+    expect(m?.billLineItemId).toBe('00000000-0000-0000-0000-000000000001');
+    expect(m?.additionalBillLineItemIds).toEqual([
+      '00000000-0000-0000-0000-000000000002',
+      '00000000-0000-0000-0000-000000000003',
+    ]);
+    expect(m?.subsetSumPaise).toBe(200_000);
+    expect(m?.confidence).toBe('high');
+  });
+
+  it('marks all subset members as matched (none left in unmatchedBillLineIds)', () => {
+    const out = matchEobLines({
+      deductions: [deduction('non_payable_items', 150_000, 'Strip')],
+      billLines: [
+        bill('1', 'Toiletry kit', 50_000, false, { category: 'toiletries' }),
+        bill('2', 'TV rental', 50_000, false, { category: 'comfort' }),
+        bill('3', 'Admin fees', 50_000, false, { category: 'admin_fees' }),
+        bill('4', 'Surgery', 5_000_000, true),
+      ],
+    });
+    // 1, 2, 3 should all be picked. 4 (surgery, medical) should
+    // not have been a candidate (wantsNonMedical filter) and
+    // shows up in unmatched.
+    expect(out.unmatchedBillLineIds).toContain(
+      '00000000-0000-0000-0000-000000000004',
+    );
+    expect(out.unmatchedBillLineIds).not.toContain(
+      '00000000-0000-0000-0000-000000000001',
+    );
+    expect(out.unmatchedBillLineIds).not.toContain(
+      '00000000-0000-0000-0000-000000000002',
+    );
+    expect(out.unmatchedBillLineIds).not.toContain(
+      '00000000-0000-0000-0000-000000000003',
+    );
   });
 
   it('does not double-count a bill line if two deductions hit it', () => {

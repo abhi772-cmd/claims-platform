@@ -26,6 +26,15 @@ export const EobMatchSignalSchema = z.enum([
   // common case of payer rounding to nearest 100 / dropping
   // paise. Weaker than amount_exact but still a strong signal.
   'amount_close',
+  // Phase 3 — a SUBSET of bill lines sums to the deduction amount
+  // exactly. Common with category strips: payer deducts a single
+  // "non-payable items: ₹2500" line that maps to multiple hospital
+  // rows the hospital tagged non-medical.
+  'subset_sum_exact',
+  // Phase 3 — subset of bill lines sums within ±1% (cap ±₹100) of
+  // the deduction amount. Same rationale as amount_close but for
+  // multi-line matches.
+  'subset_sum_close',
   // Description tokens overlap with the deduction's category/reason
   // text. Jaccard ≥ 0.34 (one shared token out of 5 unique tokens)
   // is "weak"; ≥ 0.5 is "strong" — driving the confidence bucket.
@@ -49,9 +58,30 @@ export const EobLineMatchSchema = z.object({
   deductionReason: z.string().nullable(),
   // Best-match bill line item id, null when no candidate cleared
   // the confidence floor. Reviewers see those as "no suggestion".
+  //
+  // For multi-line subset matches (Phase 3), this is the PRIMARY
+  // member of the subset — first in `additionalBillLineItemIds`
+  // is empty for single-line matches; populated for subsets.
   billLineItemId: z.string().uuid().nullable(),
   billLineDescription: z.string().nullable(),
   billLineAmountPaise: z.number().int().nonnegative().nullable(),
+  // Phase 3 — for subset matches, the bill line ids beyond the
+  // primary. Empty array for single-line matches (the common case).
+  // Total subset = [billLineItemId, ...additionalBillLineItemIds].
+  additionalBillLineItemIds: z.array(z.string().uuid()).default([]),
+  // Phase 3 — descriptions of the additional rows, supplied flat so
+  // callers don't need to also load bill-line items to display the
+  // subset. Same length + order as additionalBillLineItemIds.
+  additionalBillLineDescriptions: z.array(z.string()).default([]),
+  // Phase 3 — paise amounts of the additional rows; same length +
+  // order as additionalBillLineItemIds. Used by the UI to display
+  // each subset member's contribution.
+  additionalBillLineAmountsPaise: z.array(z.number().int().nonnegative()).default([]),
+  // Phase 3 — total subset amount (primary + additionals). For
+  // single-line matches this equals billLineAmountPaise; for subset
+  // matches it's the running sum the matcher used to compare
+  // against deductionAmount. Null when there's no match.
+  subsetSumPaise: z.number().int().nonnegative().nullable(),
   // True when the matched bill row was hospital-tagged medical and
   // the payer is still deducting it — i.e. a dispute candidate.
   // Null when there's no match.
@@ -104,6 +134,16 @@ export const ConfirmEobLineMatchRequestSchema = z.object({
   deductionIndex: z.number().int().nonnegative(),
   billLineItemId: z.string().uuid().nullable(),
   isDispute: z.boolean(),
+  // Phase 3 — for subset confirmations, additional bill lines
+  // beyond the primary. Empty / omitted for single-line confirms.
+  // Capped at 20 to keep the payload bounded; in practice subsets
+  // beyond 10 are vanishingly rare (a category strip rarely
+  // touches more rows than that).
+  additionalBillLineItemIds: z
+    .array(z.string().uuid())
+    .max(20)
+    .optional()
+    .default([]),
 });
 export type ConfirmEobLineMatchRequest = z.infer<
   typeof ConfirmEobLineMatchRequestSchema
