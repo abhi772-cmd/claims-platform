@@ -6,6 +6,70 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Dashboard — operational tiles for daily operators
+
+Before this slice, the dashboard landing page had four stat tiles
+— **all compliance/security**: Open breaches · Overdue
+(breaches) · Active consents · Unbound access (24h). A billing
+manager opening the dashboard saw nothing about *their* work.
+
+This slice adds a "Today's work" row of operational tiles above
+the existing compliance bento. Compliance row stays — different
+audience, both useful.
+
+Backend:
+
+* New `GET /dashboard/operational` endpoint gated on `case.view`
+  (the broadest operator permission).
+* `DashboardService.operational(tenantId)` — single Prisma pass
+  over open claims (loading their events so we can compute IRDAI
+  SLA at-risk in the same scan). The SLA logic reuses
+  `computeSlaForClaim` from the existing T2-15 implementation;
+  no duplication.
+* `DashboardModule` registered in `app.module.ts`.
+
+Response shape (`OperationalDashboardResponse`):
+
+* `openClaims.{total, drafting, awaitingPayer, approved,
+  paymentPending}` — phase bucketing of every open claim. Each
+  bucket maps to a defined set of `ClaimStatus` values
+  (e.g. `drafting` = `ELIGIBILITY_*` + `*_DRAFTING` +
+  `DISCHARGE_PENDING`).
+* `slaAtRisk.{breached, expiringSoon}` — sum across both preauth
+  and claim phases. A claim breached on both phases tallies as
+  2 because each is independent regulatory exposure.
+* `dischargesDueToday` — open cases whose `admissionDate +
+  estimatedStayDays` lands within today ± 1 day AND whose
+  headline claim is in the approved-but-not-discharged window.
+  Computed in TS because Prisma can't express the column-
+  arithmetic filter cleanly.
+* `pendingAppeals` — claims in `APPEAL_INITIATED` /
+  `APPEAL_SUBMITTED`.
+
+Web:
+
+* New "Today's work" section on `/dashboard` with four
+  operational tiles:
+  * **Open claims** — total with `drafting · awaiting payer`
+    sub-text
+  * **SLA at risk** — sum of breached + expiring soon; tone
+    flips to red when any are breached
+  * **Discharges due** — count within today ± 1 day
+  * **Pending appeals** — active + submitted
+* Each tile clicks through to `/cases`. Per-filter deep links
+  (e.g. `?slaAtRisk=true`) are deferred to the cases-list
+  search slice (Tier 1 #4).
+* Tiles render `—` while loading and silently degrade to `—`
+  if the API call fails — never blocks the rest of the
+  dashboard from rendering.
+* React Query handles the fetch with retry: false (same pattern
+  as the existing compliance query).
+
+Verified: web + api + contracts typecheck clean across all 6
+workspace projects; web lint clean.
+
+
+
 ### Discharge — real document upload, replacing the stub flow
 
 Before this slice, the `<ClaimPhasePanel>` upload form was a

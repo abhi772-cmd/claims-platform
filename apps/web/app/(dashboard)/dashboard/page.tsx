@@ -16,6 +16,7 @@ import { useErrorModal } from '../../../components/modals/ErrorModal/ErrorModalP
 import { AuthApi } from '../../../lib/api/auth.api';
 import { ApiError } from '../../../lib/api/client';
 import { ComplianceApi } from '../../../lib/api/compliance.api';
+import { DashboardApi } from '../../../lib/api/dashboard.api';
 
 export default function DashboardPage(): JSX.Element {
   const router = useRouter();
@@ -29,6 +30,13 @@ export default function DashboardPage(): JSX.Element {
   const compliance = useQuery({
     queryKey: ['compliance-dashboard-summary'],
     queryFn: () => ComplianceApi.dashboard(),
+    enabled: me.data !== undefined,
+    retry: false,
+  });
+
+  const operational = useQuery({
+    queryKey: ['operational-dashboard'],
+    queryFn: () => DashboardApi.operational(),
     enabled: me.data !== undefined,
     retry: false,
   });
@@ -72,6 +80,73 @@ export default function DashboardPage(): JSX.Element {
           </Link>
         </div>
       ) : null}
+
+      {/* Operational tile row — "what does my team need to work
+          on today." Distinct from the compliance bento below
+          which is for governance / DPDP audience. Loads
+          independently and silently degrades to '—' if the
+          /dashboard/operational call fails. */}
+      <section>
+        <h3 className="mb-3 text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+          Today&apos;s work
+        </h3>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <OperationalTile
+            label="Open claims"
+            value={operational.data?.openClaims.total}
+            subtext={
+              operational.data
+                ? `${operational.data.openClaims.drafting} drafting · ${operational.data.openClaims.awaitingPayer} awaiting payer`
+                : undefined
+            }
+            icon="folder_open"
+            tone="success"
+            href="/cases"
+          />
+          <OperationalTile
+            label="SLA at risk"
+            value={
+              operational.data
+                ? operational.data.slaAtRisk.breached + operational.data.slaAtRisk.expiringSoon
+                : undefined
+            }
+            subtext={
+              operational.data
+                ? `${operational.data.slaAtRisk.breached} breached · ${operational.data.slaAtRisk.expiringSoon} expiring soon`
+                : undefined
+            }
+            icon="timer"
+            tone={
+              (operational.data?.slaAtRisk.breached ?? 0) > 0
+                ? 'danger'
+                : (operational.data?.slaAtRisk.expiringSoon ?? 0) > 0
+                  ? 'warning'
+                  : 'neutral'
+            }
+            href="/cases"
+          />
+          <OperationalTile
+            label="Discharges due"
+            value={operational.data?.dischargesDueToday}
+            subtext="within today ± 1 day"
+            icon="logout"
+            tone={
+              (operational.data?.dischargesDueToday ?? 0) > 0 ? 'success' : 'neutral'
+            }
+            href="/cases"
+          />
+          <OperationalTile
+            label="Pending appeals"
+            value={operational.data?.pendingAppeals}
+            subtext="active or submitted"
+            icon="gavel"
+            tone={
+              (operational.data?.pendingAppeals ?? 0) > 0 ? 'warning' : 'neutral'
+            }
+            href="/cases"
+          />
+        </div>
+      </section>
 
       {/* Bento grid */}
       <div className="grid auto-rows-min grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-4">
@@ -216,6 +291,49 @@ function StatTile({ label, value, tone, icon, href }: StatTileProps): JSX.Elemen
         <div className="text-h2 font-h2 tabular-nums text-on-surface">
           {value.toString().padStart(2, '0')}
         </div>
+      </div>
+    </Link>
+  );
+}
+
+// Operational tile — denser than StatTile because it carries
+// sub-text. Used for "today's work" row above the compliance
+// bento. Renders '—' when value is undefined (loading or error).
+function OperationalTile({
+  label,
+  value,
+  subtext,
+  icon,
+  tone,
+  href,
+}: {
+  label: string;
+  value: number | undefined;
+  subtext?: string;
+  icon: string;
+  tone: Tone;
+  href: string;
+}): JSX.Element {
+  const ic = TONE_ICON[tone];
+  return (
+    <Link href={href} className="group">
+      <div className="flex h-full flex-col rounded-xl border border-white/40 border-l-white border-t-white bg-white/70 p-5 shadow-[0_4px_20px_rgba(0,102,110,0.05)] backdrop-blur-[24px] transition-all group-hover:-translate-y-0.5 group-hover:bg-white/80 group-hover:shadow-lg">
+        <div className="mb-3 flex items-start justify-between">
+          <h3 className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+            {label}
+          </h3>
+          <div
+            className={`flex h-8 w-8 items-center justify-center rounded-full border border-white/50 ${ic.bg} ${ic.fg} backdrop-blur-sm`}
+          >
+            <span className="material-symbols-outlined text-[18px]">{icon}</span>
+          </div>
+        </div>
+        <div className="text-h1-mobile font-h1 tabular-nums text-on-surface md:text-h1">
+          {value === undefined ? '—' : value.toString()}
+        </div>
+        {subtext ? (
+          <p className="mt-1 text-[12px] text-on-surface-variant">{subtext}</p>
+        ) : null}
       </div>
     </Link>
   );
