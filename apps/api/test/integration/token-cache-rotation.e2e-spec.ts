@@ -194,24 +194,20 @@ describe('Slice U — ABDM token cache + NHCX key rotation', () => {
       const server = createServer(async (req, res) => {
         let raw = '';
         for await (const chunk of req) raw += chunk;
-        outboundKid = readJweKid(raw);
-        // Decrypt with the gateway's private key (gateway side has
-        // our active public key from the resolver — we mock by
-        // decrypting with v2 because we encrypted to gatewayPublic,
-        // not the other way; this test just needs the round-trip).
+        // P0.3 — outbound body is `{ payload: <jwe> }` JSON envelope.
+        // Unwrap to read the compact JWE's kid.
+        const envelopeIn = JSON.parse(raw) as { payload: string };
+        outboundKid = readJweKid(envelopeIn.payload);
         // Reply with a JWE addressed to the RETIRED key (v1) to
         // exercise the resolver's lookup path.
-        const responseEnvelope = {
+        const responseBundle = {
           meta: { ok: true },
           payload: { verified: true },
         };
-        const reply = await encryptToParticipant(responseEnvelope, v1.publicPem, 'v1');
-        res.writeHead(200, { 'content-type': 'application/jose' });
-        res.end(reply);
-        // Decrypt the outbound (sanity that the encrypt path didn't
-        // break). gateway.privatePem doesn't match because we pass
-        // it as gatewayPublicKey on the client. Skip; the kid check
-        // is enough.
+        const reply = await encryptToParticipant(responseBundle, v1.publicPem, 'v1');
+        // P0.3 — response is also `{ payload: <jwe> }` JSON envelope.
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ payload: reply }));
       });
       await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
       const addr = server.address() as AddressInfo;

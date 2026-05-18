@@ -42,6 +42,14 @@ import {
   NHCX_KEY_RESOLVER,
   type NhcxKeyResolver,
 } from './nhcx-key-resolver';
+import {
+  buildJwePayloadEnvelope,
+  buildNhcxProtocolHeader,
+  isProtocolError,
+  isProtocolPayload,
+  STATUS_REQUEST_QUEUED,
+} from './nhcx-protocol';
+import { NhcxSessionTokenService } from './nhcx-session-token.service';
 import { decryptFromParticipant, encryptToParticipant, readJweKid } from './nhcx.crypto';
 import { type AppConfig } from '../../config/configuration';
 
@@ -77,10 +85,6 @@ interface OperationResult<T> {
   latencyMs: number;
 }
 
-const HEADER_CORRELATION = 'x-hcx-correlation-id';
-const HEADER_SENDER = 'x-hcx-sender-code';
-const HEADER_OPERATION = 'x-hcx-operation';
-
 @Injectable()
 export class NhcxJweAdapter implements NhcxAdapter {
   private readonly log = new Logger(NhcxJweAdapter.name);
@@ -88,10 +92,14 @@ export class NhcxJweAdapter implements NhcxAdapter {
   // The key resolver is optional so existing test rigs that build the
   // adapter directly with `new NhcxJweAdapter(cfg)` keep working — the
   // adapter falls back to the legacy single-key behaviour when no
-  // resolver is injected.
+  // resolver is injected. The session-token service is similarly
+  // optional: when omitted the adapter behaves like the pre-P0.1
+  // build (no Authorization header), which is what stub-mode tests
+  // expect.
   constructor(
     private readonly config: ConfigService<AppConfig, true>,
     @Optional() @Inject(NHCX_KEY_RESOLVER) private readonly keyResolver: NhcxKeyResolver | null = null,
+    @Optional() private readonly sessionToken: NhcxSessionTokenService | null = null,
   ) {}
 
   async verifyEligibility(input: AdapterEligibilityRequest): Promise<AdapterEligibilityResponse> {
@@ -450,6 +458,27 @@ export class NhcxJweAdapter implements NhcxAdapter {
       );
     }
 
+    // The recipient code is the payer on the other side of the call.
+    // For protocol header it MUST be present; we recover it from the
+    // FHIR Bundle's receiver actor when the caller-supplied payload
+    // is a FHIR bundle, falling back to the senderCode (= sender
+    // talks to itself) only for the lightweight legacy payload
+    // shape that integration tests still rely on.
+    const recipientCode = this.recipientFromPayload(payload) ?? senderCode;
+
+    // P0.2 — full 10-field NHCX protocol header. Same field names
+    // appear both inside the AEAD-protected JWE header AND on the
+    // HTTP request — gateways route on the HTTP fields before
+    // decrypting and verify the JWE-side copies haven't been
+    // tampered with.
+    const protocolHeader = buildNhcxProtocolHeader({
+      senderCode,
+      recipientCode,
+      correlationId,
+      operation,
+      status: STATUS_REQUEST_QUEUED,
+    });
+
     const bundle: NhcxBundle<unknown> = {
       resourceType: 'Bundle',
       type: 'collection',
@@ -461,33 +490,57 @@ export class NhcxJweAdapter implements NhcxAdapter {
       },
       payload,
     };
-    // Stamp our active key version into the JWE header so the gateway
-    // knows which of our public keys to verify against. Symmetric
-    // operation: the gateway stamps THEIR kid on inbound, and we use
-    // it below to pick the right private key.
-    const encrypted = await encryptToParticipant(bundle, gatewayPublicKey, activeKey.version);
+    // Stamp the active key version + 10-field protocol header into
+    // the JWE protected header so the gateway can route AND verify
+    // tamper-evidence in one step.
+    const encrypted = await encryptToParticipant(
+      bundle,
+      gatewayPublicKey,
+      activeKey.version,
+      protocolHeader,
+    );
+
+    // P0.3 — HCX 0.7.1 §6.5 outbound body is a JSON envelope
+    // wrapping the compact JWE. Gateways reject raw `application/jose`
+    // bodies; the body must be `application/json` carrying
+    // `{ payload: <compact-jwe> }`.
+    const envelopeBody = JSON.stringify(buildJwePayloadEnvelope(encrypted));
 
     const url = `${gatewayUrl.replace(/\/$/, '')}/${operation}`;
     const started = Date.now();
-    const ac = new AbortController();
-    const timer = setTimeout(() => ac.abort(), timeoutMs);
-    let res: Response;
-    try {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/jose',
-          accept: 'application/jose',
-          [HEADER_CORRELATION]: correlationId,
-          [HEADER_SENDER]: senderCode,
-          [HEADER_OPERATION]: operation,
-        },
-        body: encrypted,
-        signal: ac.signal,
-      });
-    } finally {
-      clearTimeout(timer);
+
+    // P0.1 — wrap the actual fetch in a function so we can retry
+    // exactly once after a 401-driven token refresh.
+    const doFetch = async (): Promise<Response> => {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), timeoutMs);
+      const bearer = this.sessionToken ? await this.sessionToken.getBearer() : null;
+      try {
+        return await fetch(url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            accept: 'application/json',
+            ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+            ...protocolHeader,
+          },
+          body: envelopeBody,
+          signal: ac.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    let res = await doFetch();
+    // 401 → force a token refresh and retry once. We don't retry on
+    // any other status — those are protocol errors that need to be
+    // surfaced, not retried.
+    if (res.status === 401 && this.sessionToken) {
+      this.sessionToken.forceRefresh();
+      res = await doFetch();
     }
+
     const latencyMs = Date.now() - started;
 
     if (!res.ok) {
@@ -498,7 +551,26 @@ export class NhcxJweAdapter implements NhcxAdapter {
       throw new Error(`NHCX ${operation} failed with HTTP ${res.status}`);
     }
 
-    const compactJwe = await res.text();
+    // Parse the JSON envelope. Gateways return either the JWE
+    // payload (success) or a ProtocolErrorEnvelope (sync rejection).
+    // We discriminate before attempting JWE decrypt — decrypt-on-error
+    // would fail with an opaque "invalid JWE" instead of the real
+    // gateway message.
+    const wireJson = (await res.json().catch(() => null)) as unknown;
+    if (isProtocolError(wireJson)) {
+      const { code, message } = wireJson.error;
+      this.log.warn(
+        `nhcx ${operation} → protocol error ${code} (${latencyMs}ms) corr=${correlationId} msg=${message}`,
+      );
+      throw new Error(`NHCX ${operation} returned protocol error ${code}: ${message}`);
+    }
+    if (!isProtocolPayload(wireJson)) {
+      throw new Error(
+        `NHCX ${operation} returned an unexpected body shape — expected { payload } or { error }`,
+      );
+    }
+
+    const compactJwe = wireJson.payload;
     // Pick the private key matching the inbound JWE's kid. When the
     // gateway hasn't stamped one (legacy / stub gateways) fall through
     // to the active key; that matches Slice P behaviour exactly.
@@ -517,5 +589,18 @@ export class NhcxJweAdapter implements NhcxAdapter {
       response: decrypted.payload,
       latencyMs,
     };
+  }
+
+  // Best-effort extraction of the FHIR bundle's recipient (payer)
+  // code from the typed-bundle payloads the builders produce. Returns
+  // null for the lightweight legacy payload shape so the caller can
+  // fall back to the sender code.
+  private recipientFromPayload(payload: unknown): string | null {
+    if (typeof payload !== 'object' || payload === null) return null;
+    const candidate = (payload as { meta?: { receiverCode?: unknown } }).meta?.receiverCode;
+    if (typeof candidate === 'string' && candidate.length > 0) return candidate;
+    const directReceiver = (payload as { receiverCode?: unknown }).receiverCode;
+    if (typeof directReceiver === 'string' && directReceiver.length > 0) return directReceiver;
+    return null;
   }
 }

@@ -332,9 +332,9 @@ describe('Slice Z — NHCX inbound webhook', () => {
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(res.body.status).toBe('accepted');
-    expect(res.body.correlationId).toBe(eligibilityCorrelationId);
+    expect(res.body.correlation_id).toBe(eligibilityCorrelationId);
 
     // The orchestrator already drove the claim to ELIGIBILITY_VERIFIED
     // synchronously. The inbound dispatcher attempts to transition again
@@ -400,7 +400,7 @@ describe('Slice Z — NHCX inbound webhook', () => {
       .set('x-hcx-operation', 'preauth/on_submit')
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
 
     const out = await waitForStatusChange(migrator, preauthCorrelationId);
     expect(out.status).toBe('succeeded');
@@ -426,11 +426,11 @@ describe('Slice Z — NHCX inbound webhook', () => {
         .send({ payload: jwe, type: 'JWEPayload' });
 
     const first = await send();
-    expect(first.status).toBe(200);
+    expect(first.status).toBe(202);
     await waitForStatusChange(migrator, eligibilityCorrelationId);
 
     const second = await send();
-    expect(second.status).toBe(200);
+    expect(second.status).toBe(202);
 
     const rows = await readInboundRows(migrator, eligibilityCorrelationId);
     expect(rows.length).toBe(1);
@@ -448,7 +448,7 @@ describe('Slice Z — NHCX inbound webhook', () => {
       .set('x-hcx-correlation-id', orphanCorrelationId)
       .set('x-hcx-operation', 'coverageeligibility/on_check')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     const rows = await readInboundRows(migrator, orphanCorrelationId);
     expect(rows.length).toBe(0);
   });
@@ -474,7 +474,7 @@ describe('Slice Z — NHCX inbound webhook', () => {
       .set('x-hcx-correlation-id', eligibilityCorrelationId)
       .set('x-hcx-operation', 'coverageeligibility/on_check')
       .send({ payload: 'not-a-real-jwe.aaa.bbb.ccc.ddd', type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
 
     const out = await waitForStatusChange(migrator, eligibilityCorrelationId);
     expect(out.status).toBe('failed');

@@ -238,7 +238,7 @@ describe('Slice BD — auxiliary inbound messages (insuranceplan + task)', () =>
       .set('x-hcx-operation', 'insuranceplan/on_request')
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
 
     const out = await waitForInboundStatus(migrator, correlationId, 'insuranceplan/on_request');
     expect(out.status).toBe('succeeded');
@@ -277,7 +277,7 @@ describe('Slice BD — auxiliary inbound messages (insuranceplan + task)', () =>
       .set('x-hcx-operation', 'task/on_submit')
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
 
     const out = await waitForInboundStatus(migrator, correlationId, 'task/on_submit');
     expect(out.status).toBe('succeeded');

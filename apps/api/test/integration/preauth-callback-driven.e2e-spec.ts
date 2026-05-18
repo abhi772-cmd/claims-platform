@@ -41,14 +41,17 @@ async function startMockGateway(
     let body = '';
     for await (const chunk of req) body += chunk;
     try {
-      await decryptFromParticipant(body, gatewayPrivPem);
-      const envelope = {
+      // P0.3 — outbound body is { payload: <jwe> } JSON envelope.
+      const envelopeIn = JSON.parse(body) as { payload: string };
+      await decryptFromParticipant(envelopeIn.payload, gatewayPrivPem);
+      const responseBundle = {
         meta: { acknowledged: true },
         payload: { acknowledged: true, payerRefNum },
       };
-      const encrypted = await encryptToParticipant(envelope, participantPubPem);
-      res.writeHead(200, { 'content-type': 'application/jose' });
-      res.end(encrypted);
+      const encrypted = await encryptToParticipant(responseBundle, participantPubPem);
+      // P0.3 — wrap response in JSON envelope too.
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ payload: encrypted }));
     } catch (err) {
       res.writeHead(500, { 'content-type': 'text/plain' });
       res.end(String(err));
@@ -333,7 +336,7 @@ describe('Slice AD — preauth callback-driven in real mode', () => {
       .set('x-hcx-correlation-id', correlationId)
       .set('x-hcx-operation', 'preauth/on_submit')
       .send({ payload: decisionJwe, type: 'JWEPayload' });
-    expect(inbound.status).toBe(200);
+    expect(inbound.status).toBe(202);
 
     // Wait for the inbound process() to settle.
     const start = Date.now();

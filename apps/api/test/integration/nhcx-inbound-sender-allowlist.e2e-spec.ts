@@ -220,7 +220,7 @@ describe('Slice AG — NHCX inbound sender-code allowlist', () => {
       .set('x-hcx-operation', 'coverageeligibility/on_check')
       .set('x-hcx-sender-code', 'literally-any-sender@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
 
     // Wait briefly for processing then check the inbound row exists.
     await new Promise((r) => setTimeout(r, 200));
@@ -246,7 +246,7 @@ describe('Slice AG — NHCX inbound sender-code allowlist', () => {
       .set('x-hcx-operation', 'coverageeligibility/on_check')
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     await new Promise((r) => setTimeout(r, 200));
     const inbound = await readInbound(migrator, correlationId);
     expect(inbound).not.toBeNull();
@@ -271,7 +271,7 @@ describe('Slice AG — NHCX inbound sender-code allowlist', () => {
       .set('x-hcx-sender-code', 'rogue-payer@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
     // Still 200 — gateway must not retry on a configuration mismatch.
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     await new Promise((r) => setTimeout(r, 200));
     const inbound = await readInbound(migrator, correlationId);
     expect(inbound).toBeNull();
@@ -295,7 +295,7 @@ describe('Slice AG — NHCX inbound sender-code allowlist', () => {
       .set('x-hcx-operation', 'coverageeligibility/on_check')
       // no x-hcx-sender-code
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     await new Promise((r) => setTimeout(r, 200));
     const inbound = await readInbound(migrator, correlationId);
     expect(inbound).toBeNull();
@@ -319,7 +319,7 @@ describe('Slice AG — NHCX inbound sender-code allowlist', () => {
       .set('x-hcx-operation', 'coverageeligibility/on_check')
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     await new Promise((r) => setTimeout(r, 200));
     // Inactive payer means the allowlist is effectively empty for
     // 'star-health@hcx' AND nothing else is seeded — falls into the

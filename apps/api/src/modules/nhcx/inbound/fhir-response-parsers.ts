@@ -13,6 +13,42 @@ export interface ParsedEligibilityResponse {
   planName?: string;
   sumInsured?: number;
   failureReason?: string;
+  // P2.16 — typed benefits when the payer returns Coverage.benefit[]
+  // entries with the documented type codes. Populated only when the
+  // gateway surfaced them (PMJAY policy callbacks always include
+  // these for the discovery / benefits purpose; private rails omit
+  // them on the validation purpose).
+  benefits?: ParsedBenefits;
+  // P2.16 — wallet usedMoney / remaining balance for PMJAY. Reported
+  // in rupees because the inbound CoverageEligibilityResponse is
+  // already rupee-denominated; downstream code converts at the
+  // service boundary.
+  walletRemainingRupees?: number;
+  walletUsedRupees?: number;
+  // P2.16 — Coverage.class[] entries (PMJAY surfaces hospital tier
+  // and beneficiary group here). Each entry is a {type, value}
+  // pair the operator UI surfaces verbatim — we don't parse
+  // semantics, we relay.
+  coverageClasses?: Array<{ type: string; value: string }>;
+  // P2.16 — MAND-* mandatory document checklist the payer returned.
+  // Each entry is a documented short code; the UI maps each to a
+  // human label via reference/pmjay-mand-docs.ts. We don't enforce
+  // the checklist here — the operator workflow does, on the
+  // claim-submit page.
+  mandatoryDocs?: string[];
+}
+
+// P2.16 — typed benefits from a private-rail eligibility callback.
+// All amounts in rupees (gateway native unit). The InsurancePlan
+// service converts to paise at the storage boundary.
+export interface ParsedBenefits {
+  deductibleRupees?: number;
+  // PMJAY rail is mandated to be 0; private rails may carry any
+  // non-negative integer 0–100. The parser DOES enforce the PMJAY
+  // invariant via clamping (P2.21).
+  coPayPercent?: number;
+  coPayRupees?: number;
+  roomRentLimitRupees?: number;
 }
 
 export interface ParsedPreauthDecision {
@@ -20,9 +56,105 @@ export interface ParsedPreauthDecision {
   approvedAmount?: number;
   reason?: string;
   queryText?: string;
+  // P2.17 — Optional structured audit trail extracted from the
+  // pipe-delimited payer extension. Empty array when the payer
+  // didn't include one.
+  auditTrail?: ParsedAuditTrailEntry[];
 }
 
 export type ParsedClaimDecision = ParsedPreauthDecision;
+
+// P2.17 — PMJAY pipe-delimited audit trail. Surfaced from a
+// ClaimResponse.extension entry, each entry parsed into a structured
+// row so the operator audit trail tab can render it without
+// pipe-string parsing in the UI layer.
+export interface ParsedAuditTrailEntry {
+  // 'submitted' | 'reviewed' | 'queried' | 'partial' | 'approved' | 'rejected' | ...
+  event: string;
+  // IST date string (gateway-native format YYYY-MM-DD HH:mm:ss).
+  occurredAt: string;
+  // Free-form actor handle from the payer side.
+  actor: string;
+}
+
+// P3.22 — PaymentReconciliation parser output. The payer settles a
+// batch of claims in a single PaymentReconciliation bundle. We
+// extract the UTR, settlement total, settlement date, and per-claim
+// detail[] entries so SettlementService can post a Receipt per
+// claim + reconcile against expected amounts.
+export interface ParsedReconciliationDetail {
+  // The payer-side claim reference this detail row settles.
+  claimRefNum: string;
+  // Net amount paid in rupees (settlement currency is INR for all
+  // NHCX payers). Negative for clawbacks / TDS deduction rows.
+  amountRupees: number;
+  // 'payment' | 'tds' | 'penalty' | 'other' — derived from the
+  // type.coding[].code on the detail entry. Falls back to 'payment'
+  // when the payer didn't classify the row.
+  kind: 'payment' | 'tds' | 'penalty' | 'other';
+  // Optional payer-side narrative.
+  note?: string;
+}
+
+export interface ParsedPaymentReconciliation {
+  // UTR / NEFT reference from PaymentReconciliation.identifier[0].value.
+  utr: string;
+  // Net settlement amount in rupees (sum across detail[] minus
+  // deductions; matches PaymentReconciliation.paymentAmount).
+  totalRupees: number;
+  // YYYY-MM-DD settlement date from PaymentReconciliation.paymentDate.
+  paymentDate: string;
+  // Per-claim breakdown.
+  detail: ParsedReconciliationDetail[];
+}
+
+// P3.24 — InsurancePlan full parser. PMJAY package master arrives
+// as an InsurancePlan bundle with up to 32 specialty entries +
+// STG (Standard Treatment Guidelines) references + 24
+// Claim-Condition extensions. The parser surfaces a normalised
+// shape so the operator UI can render the package picker without
+// chasing nested FHIR refs.
+export interface ParsedInsurancePlanFull {
+  // From InsurancePlan.identifier[0].value or .name.
+  planId: string;
+  name: string;
+  // 'active' | 'retired' | 'draft' — pass-through.
+  status: string;
+  // From InsurancePlan.meta.versionId — used by P3.25 version pinning.
+  versionId?: string;
+  // Per-specialty package list. Each specialty carries up to N
+  // packages (procedure codes + names + ceiling amount + STG).
+  specialties: ParsedInsurancePlanSpecialty[];
+  // Per-package Claim-Condition extensions extracted out of the
+  // bundle. NHA defines 24 of these (e.g. mandatory pre-op test,
+  // age-restricted, requires-second-opinion). Each entry pairs a
+  // package code with its applicable extension codes.
+  conditions: ParsedInsurancePlanCondition[];
+}
+
+export interface ParsedInsurancePlanSpecialty {
+  // Short code: 'CT' (cardiology), 'ORTH' (orthopaedics), ... up to 32.
+  specialty: string;
+  packages: ParsedInsurancePlanPackage[];
+}
+
+export interface ParsedInsurancePlanPackage {
+  // PMJAY package code (e.g. 'M-CT-001').
+  code: string;
+  name: string;
+  // Procedure ceiling in rupees.
+  ceilingRupees: number;
+  // Standard Treatment Guideline reference (optional). When present,
+  // points at a separate STG resource the hospital must comply with.
+  stgRef?: string;
+}
+
+export interface ParsedInsurancePlanCondition {
+  packageCode: string;
+  // Short codes from the NHA Claim-Condition CodeSystem.
+  // Examples: 'pre-op-test', 'age-min', 'age-max', 'requires-second-opinion'.
+  conditions: string[];
+}
 
 export interface ParsedCommunication {
   // 'query' = inbound query from payer (creates a PreauthQuery row).
@@ -140,16 +272,230 @@ export function parseEligibilityResponse(
   if (outcome === 'complete' || outcome === 'partial') {
     const planName = extractPlanName(r);
     const sumInsured = extractSumInsured(r);
+    // P2.16 — extract typed benefits + wallet + Coverage.class + MAND docs.
+    // Whether to clamp coPayPercent to 0 depends on the rail; the
+    // parser detects PMJAY from the Coverage.type coding or from the
+    // CoverageEligibilityResponse.contained[] coverage reference.
+    const isPmjay = detectPmjayRail(bundle, r);
+    const benefits = extractBenefits(r, isPmjay);
+    const wallet = extractWalletAmounts(r);
+    const coverageClasses = extractCoverageClasses(bundle);
+    const mandatoryDocs = extractMandatoryDocs(r);
     return {
       verified: true,
       ...(planName !== undefined ? { planName } : {}),
       ...(sumInsured !== undefined ? { sumInsured } : {}),
+      ...(benefits !== undefined ? { benefits } : {}),
+      ...(wallet.remaining !== undefined ? { walletRemainingRupees: wallet.remaining } : {}),
+      ...(wallet.used !== undefined ? { walletUsedRupees: wallet.used } : {}),
+      ...(coverageClasses.length > 0 ? { coverageClasses } : {}),
+      ...(mandatoryDocs.length > 0 ? { mandatoryDocs } : {}),
     };
   }
   // 'error' or anything else — treat as failed; surface disposition
   // so ops can read the reason without scrubbing the raw bundle.
   const disposition = typeof r['disposition'] === 'string' ? r['disposition'] : 'unknown';
   return { verified: false, failureReason: disposition };
+}
+
+// P2.16 — PMJAY rail detection. We check the bundle's Coverage
+// resource for type.coding == 'PMJAY' OR the EligibilityResponse's
+// insurance[].coverage.identifier.system contains 'pmjay'. Either
+// signal alone is sufficient; both are kept for robustness across
+// the gateway's varying response shapes.
+function detectPmjayRail(bundle: unknown, eligibilityResponse: Record<string, unknown>): boolean {
+  const coverage = findResource<{ resourceType: 'Coverage' }>(bundle, 'Coverage') as Record<string, unknown> | null;
+  if (coverage) {
+    const type = coverage['type'];
+    if (isObject(type)) {
+      const coding = type['coding'];
+      if (Array.isArray(coding)) {
+        for (const c of coding) {
+          if (isObject(c) && typeof c['code'] === 'string' && c['code'].toUpperCase() === 'PMJAY') {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  const insurance = eligibilityResponse['insurance'];
+  if (Array.isArray(insurance) && insurance.length > 0 && isObject(insurance[0])) {
+    const cov = (insurance[0] as Record<string, unknown>)['coverage'];
+    if (isObject(cov)) {
+      const ident = cov['identifier'];
+      if (isObject(ident) && typeof ident['system'] === 'string') {
+        if (ident['system'].toLowerCase().includes('pmjay')) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// P2.16 + P2.21 — extract Coverage.benefit[] typed amounts.
+// P2.21 enforces the PMJAY invariant: every PMJAY beneficiary
+// is by-policy zero-copay; we clamp coPayPercent to 0 when the
+// rail is PMJAY, regardless of what the payer returned. This
+// protects against payer-side data-entry bugs that would
+// silently bill PMJAY beneficiaries.
+function extractBenefits(
+  r: Record<string, unknown>,
+  isPmjay: boolean,
+): ParsedBenefits | undefined {
+  const insurance = r['insurance'];
+  if (!Array.isArray(insurance) || insurance.length === 0) return undefined;
+  const result: ParsedBenefits = {};
+  for (const ins of insurance) {
+    if (!isObject(ins)) continue;
+    const items = ins['item'];
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      if (!isObject(item)) continue;
+      const benefits = item['benefit'];
+      if (!Array.isArray(benefits)) continue;
+      for (const b of benefits) {
+        if (!isObject(b)) continue;
+        const code = benefitTypeCode(b);
+        if (code === undefined) continue;
+        if (/deduct/i.test(code)) {
+          const v = readAllowedMoney(b);
+          if (v !== undefined) result.deductibleRupees = v;
+        } else if (/co[- ]?pay/i.test(code)) {
+          const pct = readAllowedPercent(b);
+          if (pct !== undefined) result.coPayPercent = pct;
+          const rs = readAllowedMoney(b);
+          if (rs !== undefined) result.coPayRupees = rs;
+        } else if (/room/i.test(code)) {
+          const v = readAllowedMoney(b);
+          if (v !== undefined) result.roomRentLimitRupees = v;
+        }
+      }
+    }
+  }
+  if (Object.keys(result).length === 0) return undefined;
+  // P2.21 — PMJAY zero-copay invariant.
+  if (isPmjay) {
+    if (result.coPayPercent !== undefined && result.coPayPercent !== 0) {
+      result.coPayPercent = 0;
+    }
+    if (result.coPayRupees !== undefined && result.coPayRupees !== 0) {
+      result.coPayRupees = 0;
+    }
+  }
+  return result;
+}
+
+function benefitTypeCode(b: Record<string, unknown>): string | undefined {
+  const type = b['type'];
+  if (!isObject(type)) return undefined;
+  const coding = type['coding'];
+  if (!Array.isArray(coding)) return undefined;
+  for (const c of coding) {
+    if (isObject(c) && typeof c['code'] === 'string') return c['code'];
+  }
+  return undefined;
+}
+
+function readAllowedMoney(b: Record<string, unknown>): number | undefined {
+  const am = b['allowedMoney'];
+  if (isObject(am)) {
+    const v = am['value'];
+    if (typeof v === 'number' && Number.isFinite(v)) return Math.round(v);
+  }
+  return undefined;
+}
+
+function readAllowedPercent(b: Record<string, unknown>): number | undefined {
+  // Some payers stamp the percent into allowedUnsignedInt, others
+  // into allowedString as "20%". Accept both shapes.
+  const ui = b['allowedUnsignedInt'];
+  if (typeof ui === 'number' && Number.isFinite(ui) && ui >= 0 && ui <= 100) return ui;
+  const s = b['allowedString'];
+  if (typeof s === 'string') {
+    const m = s.match(/^(\d{1,3})\s*%?$/);
+    if (m) {
+      const pct = Number(m[1]);
+      if (pct >= 0 && pct <= 100) return pct;
+    }
+  }
+  return undefined;
+}
+
+// P2.16 — wallet usedMoney / remaining for PMJAY. The gateway
+// returns these under insurance[0].balance[] with category coding
+// 'used' / 'remaining'. Returns rupees.
+function extractWalletAmounts(r: Record<string, unknown>): {
+  remaining?: number;
+  used?: number;
+} {
+  const insurance = r['insurance'];
+  if (!Array.isArray(insurance) || insurance.length === 0) return {};
+  const first = insurance[0];
+  if (!isObject(first)) return {};
+  const balance = first['balance'];
+  if (!Array.isArray(balance)) return {};
+  const out: { remaining?: number; used?: number } = {};
+  for (const b of balance) {
+    if (!isObject(b)) continue;
+    const term = (b['term'] as Record<string, unknown> | undefined)?.['coding'];
+    let code: string | undefined;
+    if (Array.isArray(term)) {
+      for (const c of term) {
+        if (isObject(c) && typeof c['code'] === 'string') {
+          code = c['code'];
+          break;
+        }
+      }
+    }
+    const valueMoney = b['valueMoney'];
+    const value = isObject(valueMoney) ? valueMoney['value'] : undefined;
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    if (code === 'remaining' || code === 'available') out.remaining = Math.round(value);
+    if (code === 'used' || code === 'consumed') out.used = Math.round(value);
+  }
+  return out;
+}
+
+// P2.16 — Coverage.class[] entries. PMJAY beneficiaries get a tier
+// + group entry (e.g. SECC vs RSBY); the operator UI shows these
+// verbatim.
+function extractCoverageClasses(bundle: unknown): Array<{ type: string; value: string }> {
+  const cov = findResource<{ resourceType: 'Coverage' }>(bundle, 'Coverage') as Record<string, unknown> | null;
+  if (!cov) return [];
+  const classes = cov['class'];
+  if (!Array.isArray(classes)) return [];
+  const out: Array<{ type: string; value: string }> = [];
+  for (const c of classes) {
+    if (!isObject(c)) continue;
+    const type = c['type'];
+    const value = c['value'];
+    if (!isObject(type) || typeof value !== 'string') continue;
+    const coding = type['coding'];
+    if (!Array.isArray(coding)) continue;
+    for (const inner of coding) {
+      if (isObject(inner) && typeof inner['code'] === 'string') {
+        out.push({ type: inner['code'], value });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+// P2.16 — MAND-* mandatory documents the payer's adjudication
+// pipeline requires. Returned as a flat list of short codes.
+function extractMandatoryDocs(r: Record<string, unknown>): string[] {
+  const ext = r['extension'];
+  if (!Array.isArray(ext)) return [];
+  const out: string[] = [];
+  for (const e of ext) {
+    if (!isObject(e)) continue;
+    if (e['url'] !== 'https://nrces.in/ndhm/fhir/r4/StructureDefinition/PmjayMandatoryDocs') {
+      continue;
+    }
+    const code = e['valueString'];
+    if (typeof code === 'string' && code.startsWith('MAND-')) out.push(code);
+  }
+  return out;
 }
 
 function extractPlanName(r: Record<string, unknown>): string | undefined {
@@ -229,6 +575,13 @@ function parseClaimLikeResponse(
   }
   const disposition =
     typeof r['disposition'] === 'string' ? r['disposition'].toLowerCase() : '';
+  // P2.17 — payer-side reason coding. PMJAY ships 'queried' as a
+  // separate `reasonCode` extension when they want us to respond
+  // mid-flow without flipping the outcome. We detect it explicitly
+  // so the 'partial' branch below doesn't get false-positives.
+  const reasonCode = extractReasonCode(r);
+  const auditTrail = extractAuditTrail(r);
+  const auditTrailField = auditTrail.length > 0 ? { auditTrail } : {};
 
   if (outcome === 'queued') {
     // Some payers return queued + a question in disposition rather
@@ -237,6 +590,20 @@ function parseClaimLikeResponse(
     return {
       kind: 'query_received',
       queryText: typeof r['disposition'] === 'string' ? r['disposition'] : 'Payer query',
+      ...auditTrailField,
+    };
+  }
+
+  // P2.17 — PMJAY's `outcome='partial'` with `reasonCode='queried'`
+  // is functionally the same as `outcome='queued'`: the payer wants
+  // a response before they finalize. Route to query_received so the
+  // claim flips into CLAIM_QUERY_RAISED rather than the partial
+  // approval branch below.
+  if (outcome === 'partial' && reasonCode === 'queried') {
+    return {
+      kind: 'query_received',
+      queryText: typeof r['disposition'] === 'string' ? r['disposition'] : 'Payer query',
+      ...auditTrailField,
     };
   }
 
@@ -252,12 +619,14 @@ function parseClaimLikeResponse(
         kind: 'partially_approved',
         ...(approvedAmount !== undefined ? { approvedAmount } : {}),
         reason: typeof r['disposition'] === 'string' ? r['disposition'] : undefined,
+        ...auditTrailField,
       };
     }
     return {
       kind: 'approved',
       ...(approvedAmount !== undefined ? { approvedAmount } : {}),
       ...(typeof r['disposition'] === 'string' ? { reason: r['disposition'] } : {}),
+      ...auditTrailField,
     };
   }
 
@@ -266,13 +635,68 @@ function parseClaimLikeResponse(
       kind: 'approved',
       ...(approvedAmount !== undefined ? { approvedAmount } : {}),
       ...(typeof r['disposition'] === 'string' ? { reason: r['disposition'] } : {}),
+      ...auditTrailField,
     };
   }
 
   return {
     kind: 'rejected',
     ...(typeof r['disposition'] === 'string' ? { reason: r['disposition'] } : {}),
+    ...auditTrailField,
   };
+}
+
+// P2.17 — payer-side reason coding extracted from a documented
+// FHIR extension. Returns lowercase string for case-insensitive
+// matching. Returns undefined when the extension is absent.
+function extractReasonCode(r: Record<string, unknown>): string | undefined {
+  const ext = r['extension'];
+  if (!Array.isArray(ext)) return undefined;
+  for (const e of ext) {
+    if (!isObject(e)) continue;
+    if (
+      e['url'] === 'https://nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimResponseReasonCode' ||
+      e['url'] === 'https://hcx.pmjay.nha.gov.in/StructureDefinition/reasonCode'
+    ) {
+      const v = e['valueString'] ?? e['valueCode'];
+      if (typeof v === 'string') return v.toLowerCase();
+    }
+  }
+  return undefined;
+}
+
+// P2.17 — PMJAY pipe-delimited audit-trail parser. The payer puts
+// the case's processing history in a single string extension shaped
+// as `event|YYYY-MM-DD HH:mm:ss|actor` rows separated by newlines.
+// Returns an empty array when the extension is absent or the rows
+// don't match the documented shape.
+function extractAuditTrail(r: Record<string, unknown>): ParsedAuditTrailEntry[] {
+  const ext = r['extension'];
+  if (!Array.isArray(ext)) return [];
+  let raw: string | undefined;
+  for (const e of ext) {
+    if (!isObject(e)) continue;
+    if (
+      e['url'] === 'https://nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimResponseAuditTrail' ||
+      e['url'] === 'https://hcx.pmjay.nha.gov.in/StructureDefinition/auditTrail'
+    ) {
+      const v = e['valueString'];
+      if (typeof v === 'string') {
+        raw = v;
+        break;
+      }
+    }
+  }
+  if (!raw) return [];
+  const out: ParsedAuditTrailEntry[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const parts = line.split('|').map((p) => p.trim());
+    if (parts.length < 3) continue;
+    const [event, occurredAt, actor] = parts;
+    if (!event || !occurredAt || !actor) continue;
+    out.push({ event, occurredAt, actor });
+  }
+  return out;
 }
 
 function extractApprovedAmount(r: Record<string, unknown>): number | undefined {
@@ -494,4 +918,274 @@ export function parseTask(bundle: unknown): ParsedTask {
     }
   }
   return out;
+}
+
+// P3.22 — PaymentReconciliation parser. Extracts UTR, settlement
+// total, payment date, and per-claim detail[] from a
+// PaymentReconciliation bundle. Throws FhirParseError when the
+// canonical fields are missing — settlement runs on the data the
+// payer actually sent, so missing UTR / total is non-recoverable
+// and SettlementService surfaces it as a parse failure rather than
+// posting a zero-rupee receipt.
+//
+// UTR format: 16-22 alphanumeric chars per RBI NEFT/RTGS spec. We
+// don't enforce the format here (some test sandboxes use shorter
+// values), but downstream SettlementService can validate via
+// `/^[A-Z0-9]{12,22}$/i` before persisting.
+export function parsePaymentReconciliation(bundle: unknown): ParsedPaymentReconciliation {
+  const resource = findResource<{ resourceType: 'PaymentReconciliation' }>(
+    bundle,
+    'PaymentReconciliation',
+  );
+  if (!resource) {
+    throw new FhirParseError(
+      'Bundle does not contain a PaymentReconciliation resource.',
+    );
+  }
+  const r = resource as Record<string, unknown>;
+  const identifiers = r['identifier'];
+  if (!Array.isArray(identifiers) || identifiers.length === 0) {
+    throw new FhirParseError(
+      'PaymentReconciliation.identifier is missing — cannot resolve UTR.',
+    );
+  }
+  let utr: string | undefined;
+  for (const id of identifiers) {
+    if (!isObject(id)) continue;
+    const value = id['value'];
+    if (typeof value === 'string' && value.length > 0) {
+      utr = value;
+      break;
+    }
+  }
+  if (!utr) {
+    throw new FhirParseError(
+      'PaymentReconciliation.identifier[].value is missing — cannot resolve UTR.',
+    );
+  }
+  const paymentAmount = r['paymentAmount'];
+  let totalRupees = 0;
+  if (isObject(paymentAmount)) {
+    const v = paymentAmount['value'];
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      totalRupees = Math.round(v);
+    }
+  }
+  const paymentDate = typeof r['paymentDate'] === 'string' ? r['paymentDate'] : '';
+
+  const details: ParsedReconciliationDetail[] = [];
+  const rawDetails = r['detail'];
+  if (Array.isArray(rawDetails)) {
+    for (const d of rawDetails) {
+      if (!isObject(d)) continue;
+      const claimRefNum = readDetailClaimRefNum(d);
+      if (!claimRefNum) continue;
+      const amount = d['amount'];
+      let amountRupees = 0;
+      if (isObject(amount)) {
+        const v = amount['value'];
+        if (typeof v === 'number' && Number.isFinite(v)) {
+          amountRupees = Math.round(v);
+        }
+      }
+      const kind = readDetailKind(d);
+      const note = typeof d['note'] === 'string' ? d['note'] : undefined;
+      details.push({
+        claimRefNum,
+        amountRupees,
+        kind,
+        ...(note ? { note } : {}),
+      });
+    }
+  }
+
+  return {
+    utr,
+    totalRupees,
+    paymentDate,
+    detail: details,
+  };
+}
+
+function readDetailClaimRefNum(d: Record<string, unknown>): string | undefined {
+  const request = d['request'];
+  if (!isObject(request)) return undefined;
+  const ref = request['reference'];
+  if (typeof ref === 'string' && ref.length > 0) return ref;
+  const id = request['identifier'];
+  if (isObject(id) && typeof id['value'] === 'string' && id['value'].length > 0) {
+    return id['value'];
+  }
+  return undefined;
+}
+
+function readDetailKind(d: Record<string, unknown>): ParsedReconciliationDetail['kind'] {
+  const type = d['type'];
+  if (!isObject(type)) return 'payment';
+  const coding = type['coding'];
+  if (!Array.isArray(coding)) return 'payment';
+  for (const c of coding) {
+    if (!isObject(c)) continue;
+    const code = c['code'];
+    if (typeof code !== 'string') continue;
+    const norm = code.toLowerCase();
+    if (norm === 'payment' || norm === 'paid' || norm === 'credit') return 'payment';
+    if (norm === 'tds' || norm.includes('tax')) return 'tds';
+    if (norm === 'penalty' || norm === 'shortfall') return 'penalty';
+  }
+  return 'other';
+}
+
+// P3.24 — InsurancePlan full parser. Walks the bundle's InsurancePlan
+// resource extracting:
+//   1. Plan metadata (id, name, status, versionId for P3.25 pinning)
+//   2. Coverage.benefit specialty packages
+//   3. Per-package Claim-Condition extensions
+// Returns a normalised shape; the InsurancePlan service converts to
+// paise + persists.
+export function parseInsurancePlanFull(bundle: unknown): ParsedInsurancePlanFull {
+  const resource = findResource<{ resourceType: 'InsurancePlan' }>(bundle, 'InsurancePlan');
+  if (!resource) {
+    throw new FhirParseError('Bundle does not contain an InsurancePlan resource.');
+  }
+  const r = resource as Record<string, unknown>;
+  const idents = r['identifier'];
+  let planId = typeof r['name'] === 'string' ? (r['name'] as string) : 'unknown';
+  if (Array.isArray(idents)) {
+    for (const i of idents) {
+      if (isObject(i) && typeof i['value'] === 'string') {
+        planId = i['value'];
+        break;
+      }
+    }
+  }
+  const name = typeof r['name'] === 'string' ? r['name'] : planId;
+  const status = typeof r['status'] === 'string' ? r['status'] : 'active';
+  const meta = r['meta'];
+  let versionId: string | undefined;
+  if (isObject(meta) && typeof meta['versionId'] === 'string') {
+    versionId = meta['versionId'];
+  }
+
+  const specialties: ParsedInsurancePlanSpecialty[] = [];
+  const coverages = r['coverage'];
+  if (Array.isArray(coverages)) {
+    for (const cov of coverages) {
+      if (!isObject(cov)) continue;
+      const specialty = readSpecialtyCode(cov);
+      if (!specialty) continue;
+      const benefits = cov['benefit'];
+      const packages: ParsedInsurancePlanPackage[] = [];
+      if (Array.isArray(benefits)) {
+        for (const b of benefits) {
+          if (!isObject(b)) continue;
+          const pkg = readPackage(b);
+          if (pkg) packages.push(pkg);
+        }
+      }
+      specialties.push({ specialty, packages });
+    }
+  }
+
+  const conditions: ParsedInsurancePlanCondition[] = [];
+  const ext = r['extension'];
+  if (Array.isArray(ext)) {
+    for (const e of ext) {
+      if (!isObject(e)) continue;
+      if (
+        e['url'] !==
+        'https://nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimConditionExtension'
+      ) {
+        continue;
+      }
+      const cond = readClaimCondition(e);
+      if (cond) conditions.push(cond);
+    }
+  }
+
+  return { planId, name, status, ...(versionId ? { versionId } : {}), specialties, conditions };
+}
+
+function readSpecialtyCode(coverage: Record<string, unknown>): string | undefined {
+  const type = coverage['type'];
+  if (!isObject(type)) return undefined;
+  const coding = type['coding'];
+  if (!Array.isArray(coding)) return undefined;
+  for (const c of coding) {
+    if (isObject(c) && typeof c['code'] === 'string') return c['code'];
+  }
+  return undefined;
+}
+
+function readPackage(benefit: Record<string, unknown>): ParsedInsurancePlanPackage | undefined {
+  const type = benefit['type'];
+  if (!isObject(type)) return undefined;
+  const coding = type['coding'];
+  if (!Array.isArray(coding)) return undefined;
+  let code: string | undefined;
+  let name: string | undefined;
+  for (const c of coding) {
+    if (!isObject(c)) continue;
+    if (typeof c['code'] === 'string' && !code) code = c['code'];
+    if (typeof c['display'] === 'string' && !name) name = c['display'];
+  }
+  if (!code) return undefined;
+  // Ceiling lives on limit[0].value.value (a Money). Fall back to 0
+  // when the payer omitted it — the operator UI surfaces a warning.
+  let ceilingRupees = 0;
+  const limit = benefit['limit'];
+  if (Array.isArray(limit) && limit.length > 0 && isObject(limit[0])) {
+    const value = (limit[0] as Record<string, unknown>)['value'];
+    if (isObject(value)) {
+      const v = value['value'];
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        ceilingRupees = Math.round(v);
+      }
+    }
+  }
+  // STG reference lives on a documented extension on the benefit
+  // entry. Absent for packages without an STG (rare on PMJAY).
+  let stgRef: string | undefined;
+  const ext = benefit['extension'];
+  if (Array.isArray(ext)) {
+    for (const e of ext) {
+      if (!isObject(e)) continue;
+      if (
+        e['url'] === 'https://nrces.in/ndhm/fhir/r4/StructureDefinition/StgReference'
+      ) {
+        const r = e['valueReference'];
+        if (isObject(r) && typeof r['reference'] === 'string') {
+          stgRef = r['reference'];
+          break;
+        }
+      }
+    }
+  }
+  return {
+    code,
+    name: name ?? code,
+    ceilingRupees,
+    ...(stgRef ? { stgRef } : {}),
+  };
+}
+
+function readClaimCondition(
+  ext: Record<string, unknown>,
+): ParsedInsurancePlanCondition | undefined {
+  const subs = ext['extension'];
+  if (!Array.isArray(subs)) return undefined;
+  let packageCode: string | undefined;
+  const conditions: string[] = [];
+  for (const sub of subs) {
+    if (!isObject(sub)) continue;
+    if (sub['url'] === 'package') {
+      const v = sub['valueCode'] ?? sub['valueString'];
+      if (typeof v === 'string') packageCode = v;
+    } else if (sub['url'] === 'condition') {
+      const v = sub['valueCode'] ?? sub['valueString'];
+      if (typeof v === 'string') conditions.push(v);
+    }
+  }
+  if (!packageCode || conditions.length === 0) return undefined;
+  return { packageCode, conditions };
 }

@@ -2,17 +2,17 @@
   "resourceType": "Bundle",
   "id": "00000000-0000-4000-8000-000000000001",
   "meta": {
-    "lastUpdated": "2026-05-01T10:00:00.000Z",
+    "lastUpdated": "2026-05-01T15:30:00+05:30",
     "profile": [
-      "https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-ClaimRequestBundle.html"
+      "https://nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimRequestBundle"
     ]
   },
   "identifier": {
-    "system": "https://ig.hcxprotocol.io",
+    "system": "https://nrces.in/ndhm/fhir/r4/Bundle",
     "value": "00000000-0000-4000-8000-000000000001"
   },
   "type": "collection",
-  "timestamp": "2026-05-01T10:00:00.000Z",
+  "timestamp": "2026-05-01T15:30:00+05:30",
   "entry": [
     {
       "fullUrl": "urn:uuid:00000000-0000-4000-8000-000000000006-claim",
@@ -29,6 +29,11 @@
         "type": {
           "coding": [
             {
+              "system": "http://snomed.info/sct",
+              "code": "737481003",
+              "display": "Inpatient encounter"
+            },
+            {
               "system": "http://terminology.hl7.org/CodeSystem/claim-type",
               "code": "institutional"
             }
@@ -38,7 +43,7 @@
         "patient": {
           "reference": "urn:uuid:00000000-0000-4000-8000-000000000002-patient"
         },
-        "created": "2026-05-01T10:00:00.000Z",
+        "created": "2026-05-01T15:30:00+05:30",
         "insurer": {
           "reference": "urn:uuid:00000000-0000-4000-8000-000000000003-insurer"
         },
@@ -80,29 +85,31 @@
         ],
         "supportingInfo": [
           {
-            "sequence": 100,
+            "sequence": 1,
             "category": {
               "coding": [
                 {
-                  "code": "attachment"
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/claim-supporting-info-category",
+                  "code": "OTHER"
                 }
               ]
             },
-            "valueReference": {
-              "reference": "Binary/doc-1"
+            "valueAttachment": {
+              "url": "Binary/doc-1"
             }
           },
           {
-            "sequence": 101,
+            "sequence": 2,
             "category": {
               "coding": [
                 {
-                  "code": "attachment"
+                  "system": "https://nrces.in/ndhm/fhir/r4/CodeSystem/claim-supporting-info-category",
+                  "code": "OTHER"
                 }
               ]
             },
-            "valueReference": {
-              "reference": "Binary/doc-2"
+            "valueAttachment": {
+              "url": "Binary/doc-2"
             }
           }
         ]
@@ -115,10 +122,26 @@
         "id": "urn:uuid:00000000-0000-4000-8000-000000000002-patient",
         "identifier": [
           {
+            "type": {
+              "coding": [
+                {
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203",
+                  "code": "MR"
+                }
+              ]
+            },
             "system": "urn:digisparsh:hospital:mrn",
             "value": "MRN-001"
           },
           {
+            "type": {
+              "coding": [
+                {
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203",
+                  "code": "ABHA"
+                }
+              ]
+            },
             "system": "https://healthid.abdm.gov.in",
             "value": "12-3456-7890-1234"
           }

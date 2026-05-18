@@ -339,7 +339,7 @@ describe('Slice BC — paymentnotice/request inbound', () => {
       .set('x-hcx-operation', 'paymentnotice/request')
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
 
     const out = await waitForInboundStatus(migrator, correlationId);
     expect(out.status).toBe('succeeded');
@@ -375,7 +375,7 @@ describe('Slice BC — paymentnotice/request inbound', () => {
       .set('x-hcx-operation', 'paymentnotice/request')
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
 
     const out = await waitForInboundStatus(migrator, correlationId);
     expect(out.status).toBe('succeeded');
@@ -440,7 +440,7 @@ describe('Slice BC — paymentnotice/request inbound', () => {
       .set('x-hcx-operation', 'paymentnotice/request')
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
 
     const out = await waitForInboundStatus(migrator, correlationId);
     expect(out.status).toBe('succeeded');

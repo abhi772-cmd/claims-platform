@@ -153,10 +153,20 @@ export const NhcxInboundRequestSchema = z.object({
 });
 export type NhcxInboundRequest = z.infer<typeof NhcxInboundRequestSchema>;
 
+// P0.4 — HCX Protocol 0.7.1 §6.7 result body shape for callbacks the
+// recipient queues for async processing. The 202 response carries:
+//   - `timestamp` — the gateway's IST naive ISO of when the recipient
+//     queued the message. Used for SLA timers + audit-trail joins.
+//   - `status` — always 'accepted' on the happy path; 'queued' is a
+//     synonym in older payer implementations and we accept both
+//     on the inbound side via Zod literal union.
+//   - `correlation_id` — echoed for log-stitching. snake_case per the
+//     HCX 0.7.1 wire format (we deliberately mirror the spec on
+//     responses; on requests we use camelCase per our internal
+//     contract style).
 export const NhcxInboundAcceptSchema = z.object({
-  status: z.literal('accepted'),
-  // Echoed back so the gateway can correlate logs even before the
-  // worker finishes processing. Same id we wrote to integration_message.
-  correlationId: z.string(),
+  timestamp: z.string(),
+  status: z.union([z.literal('accepted'), z.literal('queued')]),
+  correlation_id: z.string(),
 });
 export type NhcxInboundAccept = z.infer<typeof NhcxInboundAcceptSchema>;

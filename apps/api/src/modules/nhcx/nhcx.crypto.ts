@@ -48,10 +48,16 @@ async function loadPublicKey(pem: string): Promise<KeyLike> {
 // select the right private key on its side. Outbound calls pass our
 // active private-key version so the gateway can verify which key we
 // signed with.
+//
+// `extraHeader` lets the adapter inject the NHCX protocol fields
+// (`x-hcx-sender_code`, `x-hcx-correlation_id`, etc.) into the JWE
+// protected header — these MUST be authenticated by the AEAD tag so
+// a gateway can detect tampering before decrypting the payload.
 export async function encryptToParticipant(
   payload: unknown,
   recipientPublicKeyPem: string,
   kid?: string,
+  extraHeader?: Readonly<Record<string, string | number | boolean>>,
 ): Promise<string> {
   const recipientKey = await loadPublicKey(recipientPublicKeyPem);
   const plaintext = new TextEncoder().encode(JSON.stringify(payload));
@@ -60,8 +66,20 @@ export async function encryptToParticipant(
       alg: KEY_ALG,
       enc: CONTENT_ENC,
       ...(kid !== undefined ? { kid } : {}),
+      ...(extraHeader ?? {}),
     })
     .encrypt(recipientKey);
+}
+
+// Decode the full JWE protected header so callers can verify the NHCX
+// x-hcx-* fields without decrypting the payload. Returns an empty
+// object when the header is malformed (caller treats as missing).
+export function readJweProtectedHeader(compactJwe: string): Readonly<Record<string, unknown>> {
+  try {
+    return decodeProtectedHeader(compactJwe) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
 }
 
 // Read the `kid` header off a compact JWE without attempting to
