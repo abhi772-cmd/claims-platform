@@ -65,10 +65,17 @@ const s3Provider: Provider = {
 // Exported for the regression spec at storage.module.spec.ts.
 const STORAGE_PROXY_SAFE_DESCRIPTOR = '[S3StorageAdapter STORAGE_MODE=stub stand-in]';
 
-// String-keyed runtime hooks that JS uses to convert / introspect the
-// proxy. toString + valueOf must be functions (otherwise String(x)
-// throws "Cannot convert object to primitive value"); the rest just
-// need to read as undefined.
+// String-keyed runtime hooks that JS / Node / Nest read on every
+// provider, regardless of whether anyone calls the adapter's
+// methods. toString + valueOf must be functions (otherwise String(x)
+// throws "Cannot convert object to primitive value"); the Nest
+// lifecycle hooks must read as undefined so Nest treats them as
+// "no-op present" rather than throwing during module destroy.
+//
+// Without onModuleDestroy in here, every integration test that
+// closes its NestJS module instance hits the fail-fast throw during
+// teardown — surfaces as "Test suite failed to run" with the proxy
+// diagnostic and zero tests run.
 const STORAGE_PROXY_INTROSPECTION_PROPS: Readonly<Record<string, unknown>> = {
   toString: () => STORAGE_PROXY_SAFE_DESCRIPTOR,
   valueOf: () => STORAGE_PROXY_SAFE_DESCRIPTOR,
@@ -78,6 +85,12 @@ const STORAGE_PROXY_INTROSPECTION_PROPS: Readonly<Record<string, unknown>> = {
   asymmetricMatch: undefined,
   nodeType: undefined,
   $$typeof: undefined,
+  // Nest module lifecycle hooks — read on every provider at shutdown.
+  onModuleInit: undefined,
+  onModuleDestroy: undefined,
+  onApplicationBootstrap: undefined,
+  onApplicationShutdown: undefined,
+  beforeApplicationShutdown: undefined,
 };
 
 export function makeStubModeS3StorageAdapter(): S3StorageAdapter {
