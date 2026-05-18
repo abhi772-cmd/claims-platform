@@ -235,6 +235,22 @@ export const EnvSchema = z.object({
   // re-edit the preauth draft" against "stale verification can be
   // reused for a different admission".
   BIOMETRIC_VERIFICATION_TTL_MINUTES: z.coerce.number().int().positive().default(60),
+  // P5.30 — short-term registration-ceremony TTL. The auth token
+  // ABDM issues immediately after a Mangalkamna Patra-backed
+  // registration is valid for 30 minutes; it covers the operator
+  // chaining from registration into preauth without re-capturing
+  // biometrics. After 30m we require a fresh init/verify.
+  BIOMETRIC_REGISTRATION_TTL_MINUTES: z.coerce.number().int().positive().default(30),
+  // P5.30 — long-term refresh TTL. PMJAY's documented refresh
+  // token TTL is 15 days — covers the standard admission window
+  // (preauth, enhancement, discharge, claim, query response) without
+  // forcing a fresh biometric capture per phase. SettlementService
+  // keys clean-up sweeps on this.
+  BIOMETRIC_REFRESH_TTL_DAYS: z.coerce.number().int().positive().default(15),
+  // P5.30 — OTP TTL. The SMS / Aadhaar OTP is valid for 5 minutes
+  // per ABDM spec; the operator UI shows a countdown so they don't
+  // re-issue before it expires.
+  BIOMETRIC_OTP_TTL_MINUTES: z.coerce.number().int().positive().default(5),
 
   // Slice AT — global rate limit on the public `/nhcx/inbound` webhook.
   // The whole gateway shows up as a single egress IP from our side, so

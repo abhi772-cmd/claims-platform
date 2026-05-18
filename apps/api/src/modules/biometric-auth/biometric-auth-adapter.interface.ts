@@ -114,8 +114,83 @@ export interface BiometricRefreshResult {
   error?: string;
 }
 
+// P5.30 — Registration / OTP-mode fallback. When the beneficiary
+// doesn't have an ABHA ID yet OR the biometric device is unreachable,
+// the operator falls back to either:
+//   a) the registration ceremony (creates an ABHA on the spot via
+//      a sequence of: bio-capture + OTP confirmation + Mangalkamna
+//      Patra consent capture), or
+//   b) OTP-only verification against the beneficiary's registered
+//      mobile (lower-trust; some payers don't accept it for high-
+//      value preauths).
+
+export interface BiometricRegisterInput {
+  // Operator-captured beneficiary identifier the OTP / biometric
+  // links to. 'aadhaar' is required for first-time ABHA creation;
+  // 'mobile' is required for verification step.
+  aadhaar: string;
+  mobile: string;
+  // Operator-captured beneficiary name (matches the Aadhaar record).
+  fullName: string;
+  // PMJAY card / Mangalkamna Patra reference number captured at
+  // intake. Required when the rail is PMJAY — the gateway uses
+  // this to bind the new ABHA to the beneficiary's existing
+  // PMJAY wallet without a separate enrolment call.
+  mangalkamnaRef?: string;
+  bearerToken: string;
+  payerId: string;
+}
+
+export interface BiometricRegisterResult {
+  status: 'registered' | 'failed' | 'disabled';
+  abhaId?: string;
+  // Short-lived auth token to chain into the next preauth call so
+  // the operator doesn't have to re-capture biometrics immediately
+  // after registration.
+  authToken?: string;
+  error?: string;
+}
+
+export interface BiometricOtpInitiateInput {
+  loginId: string;
+  loginHint: BiometricLoginHint;
+  // 'mobile' triggers an SMS OTP; 'aadhaar' triggers an Aadhaar
+  // demographic OTP via UIDAI.
+  channel: 'mobile' | 'aadhaar';
+  bearerToken: string;
+  payerId: string;
+}
+
+export interface BiometricOtpInitiateResult {
+  status: 'otp_sent' | 'failed' | 'disabled';
+  txnId?: string;
+  error?: string;
+}
+
+export interface BiometricOtpVerifyInput {
+  txnId: string;
+  otp: string;
+  bearerToken: string;
+  payerId: string;
+}
+
+export interface BiometricOtpVerifyResult {
+  status: 'verified' | 'failed' | 'disabled';
+  authToken?: string;
+  refreshToken?: string;
+  error?: string;
+}
+
 export interface BiometricAuthAdapter {
   init(input: BiometricInitInput): Promise<BiometricInitResult>;
   verify(input: BiometricVerifyInput): Promise<BiometricVerifyResult>;
   refreshToken(input: BiometricRefreshInput): Promise<BiometricRefreshResult>;
+  // P5.30 — registration ceremony. Optional on the adapter
+  // interface so existing adapters (disabled, stub, http) keep
+  // working unchanged; implementations that don't yet support
+  // it can return { status: 'disabled' }.
+  register?(input: BiometricRegisterInput): Promise<BiometricRegisterResult>;
+  // P5.30 — OTP fallback flow. Same back-compat consideration.
+  otpInitiate?(input: BiometricOtpInitiateInput): Promise<BiometricOtpInitiateResult>;
+  otpVerify?(input: BiometricOtpVerifyInput): Promise<BiometricOtpVerifyResult>;
 }

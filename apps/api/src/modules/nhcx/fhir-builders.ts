@@ -216,6 +216,13 @@ export interface FhirPreauthSubmitInput extends FhirDeterminismDeps {
   // P1.14 — Optional EDT / ADDD / DTH dates. Builder maps each to
   // a supportingInfo entry with the spec-mandated category code.
   encounterDates?: FhirEncounterDates;
+  // P5.29 — Optional X-Auth Token from a fresh biometric verification.
+  // When present, the builder emits a Claim.extension entry under
+  // the documented PMJAY authentication extension URL so the payer
+  // can confirm the beneficiary was biometrically verified for this
+  // specific submission. The token itself is opaque — the gateway
+  // verifies it against ABDM on receipt.
+  xAuthToken?: string;
 }
 
 export interface FhirClaimSubmitInput extends FhirPreauthSubmitInput {
@@ -664,6 +671,19 @@ function claimResource(
     ],
     total: { value: amount / 100, currency: 'INR' },
   };
+  // P5.29 — X-Auth Token from a fresh biometric verification.
+  // Emitted as a Claim.extension entry under the canonical PMJAY
+  // URL; the payer's adjudication pipeline pulls the token and
+  // round-trips it against ABDM to confirm verification was
+  // performed for this specific case.
+  if (input.xAuthToken) {
+    claim['extension'] = [
+      {
+        url: 'https://hcx.pmjay.nha.gov.in/StructureDefinition/biometricAuthToken',
+        valueString: input.xAuthToken,
+      },
+    ];
+  }
   // P1.12 — careTeam[] references the treating physician's
   // Practitioner resource when one was supplied. The role coding
   // marks the entry as 'primary' so payers can identify the
