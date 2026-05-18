@@ -77,6 +77,9 @@ const TRANSITIONS: readonly Transition[] = [
 
   // -- discharge --
   { from: 'DISCHARGE_PENDING',                 event: 'discharge.submitted',           to: 'DISCHARGE_SUBMITTED' },
+  // P2.20 — PMJAY rail: same terminal status, no outbound wire-call.
+  // DischargeService.submit() fires this when claim.primaryRail==='pmjay'.
+  { from: 'DISCHARGE_PENDING',                 event: 'discharge.skipped',             to: 'DISCHARGE_SUBMITTED' },
   { from: 'DISCHARGE_SUBMITTED',               event: 'claim.drafting_started',        to: 'CLAIM_DRAFTING' },
 
   // -- claim --

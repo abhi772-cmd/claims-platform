@@ -13,6 +13,42 @@ export interface ParsedEligibilityResponse {
   planName?: string;
   sumInsured?: number;
   failureReason?: string;
+  // P2.16 — typed benefits when the payer returns Coverage.benefit[]
+  // entries with the documented type codes. Populated only when the
+  // gateway surfaced them (PMJAY policy callbacks always include
+  // these for the discovery / benefits purpose; private rails omit
+  // them on the validation purpose).
+  benefits?: ParsedBenefits;
+  // P2.16 — wallet usedMoney / remaining balance for PMJAY. Reported
+  // in rupees because the inbound CoverageEligibilityResponse is
+  // already rupee-denominated; downstream code converts at the
+  // service boundary.
+  walletRemainingRupees?: number;
+  walletUsedRupees?: number;
+  // P2.16 — Coverage.class[] entries (PMJAY surfaces hospital tier
+  // and beneficiary group here). Each entry is a {type, value}
+  // pair the operator UI surfaces verbatim — we don't parse
+  // semantics, we relay.
+  coverageClasses?: Array<{ type: string; value: string }>;
+  // P2.16 — MAND-* mandatory document checklist the payer returned.
+  // Each entry is a documented short code; the UI maps each to a
+  // human label via reference/pmjay-mand-docs.ts. We don't enforce
+  // the checklist here — the operator workflow does, on the
+  // claim-submit page.
+  mandatoryDocs?: string[];
+}
+
+// P2.16 — typed benefits from a private-rail eligibility callback.
+// All amounts in rupees (gateway native unit). The InsurancePlan
+// service converts to paise at the storage boundary.
+export interface ParsedBenefits {
+  deductibleRupees?: number;
+  // PMJAY rail is mandated to be 0; private rails may carry any
+  // non-negative integer 0–100. The parser DOES enforce the PMJAY
+  // invariant via clamping (P2.21).
+  coPayPercent?: number;
+  coPayRupees?: number;
+  roomRentLimitRupees?: number;
 }
 
 export interface ParsedPreauthDecision {
@@ -140,16 +176,230 @@ export function parseEligibilityResponse(
   if (outcome === 'complete' || outcome === 'partial') {
     const planName = extractPlanName(r);
     const sumInsured = extractSumInsured(r);
+    // P2.16 — extract typed benefits + wallet + Coverage.class + MAND docs.
+    // Whether to clamp coPayPercent to 0 depends on the rail; the
+    // parser detects PMJAY from the Coverage.type coding or from the
+    // CoverageEligibilityResponse.contained[] coverage reference.
+    const isPmjay = detectPmjayRail(bundle, r);
+    const benefits = extractBenefits(r, isPmjay);
+    const wallet = extractWalletAmounts(r);
+    const coverageClasses = extractCoverageClasses(bundle);
+    const mandatoryDocs = extractMandatoryDocs(r);
     return {
       verified: true,
       ...(planName !== undefined ? { planName } : {}),
       ...(sumInsured !== undefined ? { sumInsured } : {}),
+      ...(benefits !== undefined ? { benefits } : {}),
+      ...(wallet.remaining !== undefined ? { walletRemainingRupees: wallet.remaining } : {}),
+      ...(wallet.used !== undefined ? { walletUsedRupees: wallet.used } : {}),
+      ...(coverageClasses.length > 0 ? { coverageClasses } : {}),
+      ...(mandatoryDocs.length > 0 ? { mandatoryDocs } : {}),
     };
   }
   // 'error' or anything else — treat as failed; surface disposition
   // so ops can read the reason without scrubbing the raw bundle.
   const disposition = typeof r['disposition'] === 'string' ? r['disposition'] : 'unknown';
   return { verified: false, failureReason: disposition };
+}
+
+// P2.16 — PMJAY rail detection. We check the bundle's Coverage
+// resource for type.coding == 'PMJAY' OR the EligibilityResponse's
+// insurance[].coverage.identifier.system contains 'pmjay'. Either
+// signal alone is sufficient; both are kept for robustness across
+// the gateway's varying response shapes.
+function detectPmjayRail(bundle: unknown, eligibilityResponse: Record<string, unknown>): boolean {
+  const coverage = findResource<{ resourceType: 'Coverage' }>(bundle, 'Coverage') as Record<string, unknown> | null;
+  if (coverage) {
+    const type = coverage['type'];
+    if (isObject(type)) {
+      const coding = type['coding'];
+      if (Array.isArray(coding)) {
+        for (const c of coding) {
+          if (isObject(c) && typeof c['code'] === 'string' && c['code'].toUpperCase() === 'PMJAY') {
+            return true;
+          }
+        }
+      }
+    }
+  }
+  const insurance = eligibilityResponse['insurance'];
+  if (Array.isArray(insurance) && insurance.length > 0 && isObject(insurance[0])) {
+    const cov = (insurance[0] as Record<string, unknown>)['coverage'];
+    if (isObject(cov)) {
+      const ident = cov['identifier'];
+      if (isObject(ident) && typeof ident['system'] === 'string') {
+        if (ident['system'].toLowerCase().includes('pmjay')) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// P2.16 + P2.21 — extract Coverage.benefit[] typed amounts.
+// P2.21 enforces the PMJAY invariant: every PMJAY beneficiary
+// is by-policy zero-copay; we clamp coPayPercent to 0 when the
+// rail is PMJAY, regardless of what the payer returned. This
+// protects against payer-side data-entry bugs that would
+// silently bill PMJAY beneficiaries.
+function extractBenefits(
+  r: Record<string, unknown>,
+  isPmjay: boolean,
+): ParsedBenefits | undefined {
+  const insurance = r['insurance'];
+  if (!Array.isArray(insurance) || insurance.length === 0) return undefined;
+  const result: ParsedBenefits = {};
+  for (const ins of insurance) {
+    if (!isObject(ins)) continue;
+    const items = ins['item'];
+    if (!Array.isArray(items)) continue;
+    for (const item of items) {
+      if (!isObject(item)) continue;
+      const benefits = item['benefit'];
+      if (!Array.isArray(benefits)) continue;
+      for (const b of benefits) {
+        if (!isObject(b)) continue;
+        const code = benefitTypeCode(b);
+        if (code === undefined) continue;
+        if (/deduct/i.test(code)) {
+          const v = readAllowedMoney(b);
+          if (v !== undefined) result.deductibleRupees = v;
+        } else if (/co[- ]?pay/i.test(code)) {
+          const pct = readAllowedPercent(b);
+          if (pct !== undefined) result.coPayPercent = pct;
+          const rs = readAllowedMoney(b);
+          if (rs !== undefined) result.coPayRupees = rs;
+        } else if (/room/i.test(code)) {
+          const v = readAllowedMoney(b);
+          if (v !== undefined) result.roomRentLimitRupees = v;
+        }
+      }
+    }
+  }
+  if (Object.keys(result).length === 0) return undefined;
+  // P2.21 — PMJAY zero-copay invariant.
+  if (isPmjay) {
+    if (result.coPayPercent !== undefined && result.coPayPercent !== 0) {
+      result.coPayPercent = 0;
+    }
+    if (result.coPayRupees !== undefined && result.coPayRupees !== 0) {
+      result.coPayRupees = 0;
+    }
+  }
+  return result;
+}
+
+function benefitTypeCode(b: Record<string, unknown>): string | undefined {
+  const type = b['type'];
+  if (!isObject(type)) return undefined;
+  const coding = type['coding'];
+  if (!Array.isArray(coding)) return undefined;
+  for (const c of coding) {
+    if (isObject(c) && typeof c['code'] === 'string') return c['code'];
+  }
+  return undefined;
+}
+
+function readAllowedMoney(b: Record<string, unknown>): number | undefined {
+  const am = b['allowedMoney'];
+  if (isObject(am)) {
+    const v = am['value'];
+    if (typeof v === 'number' && Number.isFinite(v)) return Math.round(v);
+  }
+  return undefined;
+}
+
+function readAllowedPercent(b: Record<string, unknown>): number | undefined {
+  // Some payers stamp the percent into allowedUnsignedInt, others
+  // into allowedString as "20%". Accept both shapes.
+  const ui = b['allowedUnsignedInt'];
+  if (typeof ui === 'number' && Number.isFinite(ui) && ui >= 0 && ui <= 100) return ui;
+  const s = b['allowedString'];
+  if (typeof s === 'string') {
+    const m = s.match(/^(\d{1,3})\s*%?$/);
+    if (m) {
+      const pct = Number(m[1]);
+      if (pct >= 0 && pct <= 100) return pct;
+    }
+  }
+  return undefined;
+}
+
+// P2.16 — wallet usedMoney / remaining for PMJAY. The gateway
+// returns these under insurance[0].balance[] with category coding
+// 'used' / 'remaining'. Returns rupees.
+function extractWalletAmounts(r: Record<string, unknown>): {
+  remaining?: number;
+  used?: number;
+} {
+  const insurance = r['insurance'];
+  if (!Array.isArray(insurance) || insurance.length === 0) return {};
+  const first = insurance[0];
+  if (!isObject(first)) return {};
+  const balance = first['balance'];
+  if (!Array.isArray(balance)) return {};
+  const out: { remaining?: number; used?: number } = {};
+  for (const b of balance) {
+    if (!isObject(b)) continue;
+    const term = (b['term'] as Record<string, unknown> | undefined)?.['coding'];
+    let code: string | undefined;
+    if (Array.isArray(term)) {
+      for (const c of term) {
+        if (isObject(c) && typeof c['code'] === 'string') {
+          code = c['code'];
+          break;
+        }
+      }
+    }
+    const valueMoney = b['valueMoney'];
+    const value = isObject(valueMoney) ? valueMoney['value'] : undefined;
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    if (code === 'remaining' || code === 'available') out.remaining = Math.round(value);
+    if (code === 'used' || code === 'consumed') out.used = Math.round(value);
+  }
+  return out;
+}
+
+// P2.16 — Coverage.class[] entries. PMJAY beneficiaries get a tier
+// + group entry (e.g. SECC vs RSBY); the operator UI shows these
+// verbatim.
+function extractCoverageClasses(bundle: unknown): Array<{ type: string; value: string }> {
+  const cov = findResource<{ resourceType: 'Coverage' }>(bundle, 'Coverage') as Record<string, unknown> | null;
+  if (!cov) return [];
+  const classes = cov['class'];
+  if (!Array.isArray(classes)) return [];
+  const out: Array<{ type: string; value: string }> = [];
+  for (const c of classes) {
+    if (!isObject(c)) continue;
+    const type = c['type'];
+    const value = c['value'];
+    if (!isObject(type) || typeof value !== 'string') continue;
+    const coding = type['coding'];
+    if (!Array.isArray(coding)) continue;
+    for (const inner of coding) {
+      if (isObject(inner) && typeof inner['code'] === 'string') {
+        out.push({ type: inner['code'], value });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+// P2.16 — MAND-* mandatory documents the payer's adjudication
+// pipeline requires. Returned as a flat list of short codes.
+function extractMandatoryDocs(r: Record<string, unknown>): string[] {
+  const ext = r['extension'];
+  if (!Array.isArray(ext)) return [];
+  const out: string[] = [];
+  for (const e of ext) {
+    if (!isObject(e)) continue;
+    if (e['url'] !== 'https://nrces.in/ndhm/fhir/r4/StructureDefinition/PmjayMandatoryDocs') {
+      continue;
+    }
+    const code = e['valueString'];
+    if (typeof code === 'string' && code.startsWith('MAND-')) out.push(code);
+  }
+  return out;
 }
 
 function extractPlanName(r: Record<string, unknown>): string | undefined {

@@ -113,6 +113,12 @@ export const ClaimEventTypeSchema = z.enum([
   // discharge / claim
   'discharge.initiated',
   'discharge.submitted',
+  // P2.20 — PMJAY has no separate discharge wire-call. The operator's
+  // 'submit discharge' click on a PMJAY claim fires this non-wire
+  // event so the state machine still records the transition out of
+  // DISCHARGE_PENDING. Distinct from .submitted so audit trails make
+  // it clear no outbound bundle was sent.
+  'discharge.skipped',
   'claim.drafting_started',
   'claim.submitted_internally',
   'claim.acknowledged',

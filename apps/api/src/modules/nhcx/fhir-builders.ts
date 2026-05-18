@@ -101,11 +101,17 @@ export interface FhirOrganizationIdentifiers {
   niip?: string;
 }
 
-// Slice BK — PMJAY runs eligibility with a single-purpose array per
-// scenario (validation / benefits / auth-requirements). When
+// Slice BK + P2.15 — PMJAY runs eligibility with a single-purpose array
+// per scenario. 'discovery' is the PMJAY-specific phase where a hospital
+// asks the gateway "does this beneficiary have a wallet anywhere?" before
+// running the validation/benefits flow against a specific payer. When
 // `purpose` is omitted we keep the legacy private-rail combined value
 // `['benefits','validation']` to preserve existing callers.
-export type FhirEligibilityPurpose = 'validation' | 'benefits' | 'auth-requirements';
+export type FhirEligibilityPurpose =
+  | 'validation'
+  | 'benefits'
+  | 'auth-requirements'
+  | 'discovery';
 
 export interface FhirEligibilityRequestInput extends FhirDeterminismDeps {
   actors: FhirActorIds;
@@ -228,11 +234,27 @@ export interface FhirCommunicationInput extends FhirDeterminismDeps {
   payload: string;
 }
 
-// Slice BH — outbound `task/submit` bundle for PMJAY preauth cancel.
-// Task.status = 'cancelled', Task.code carries the operation
+// Slice BH + P2.18 — outbound `task/submit` bundle for PMJAY preauth
+// cancel. Task.status = 'cancelled', Task.code carries the operation
 // ('cancel'), Task.input[] carries the inputType + value pair
 // (`ClaimNumber` + the previously-submitted preauthRefNum). Optional
 // `note` records the operator's cancel reason on the audit trail.
+//
+// P2.18 reason-code enum mirrors the PMJAY cancel reason vocabulary
+// from the Integration Handbook §6.8 — exact string values matter
+// because the payer's adjudication pipeline keys on them for
+// downstream wallet-debit reversal.
+export type FhirTaskCancelReasonCode =
+  | 'duplicate' // duplicate preauth submitted
+  | 'patient-discharged-against-medical-advice'
+  | 'patient-shifted'
+  | 'patient-deceased'
+  | 'wrong-beneficiary'
+  | 'wrong-payer'
+  | 'wrong-package'
+  | 'planned-treatment-deferred'
+  | 'other';
+
 export interface FhirTaskCancelInput extends FhirDeterminismDeps {
   actors: FhirActorIds;
   // The preauth reference issued by the gateway on the original
@@ -240,6 +262,16 @@ export interface FhirTaskCancelInput extends FhirDeterminismDeps {
   // input.
   preauthRefNum: string;
   reason?: string;
+  // P2.18 — Optional canonical reason code. When supplied, the
+  // builder emits an additional Task.input[] entry under the
+  // ReasonCode type carrying this value.
+  reasonCode?: FhirTaskCancelReasonCode;
+  // P2.18 — Optional Task.basedOn reference to the original
+  // submit's NHCX intimationNumber. PMJAY uses this to thread the
+  // cancel onto the same audit record. NOTE the spelling is
+  // 'initimationNumber' (sic) on the payer side — we preserve the
+  // typo verbatim because the gateway rejects the corrected spelling.
+  initimationNumber?: string;
 }
 
 // Slice BI — outbound `task/submit` bundle for PMJAY claim
@@ -982,6 +1014,43 @@ export function buildTaskCancelBundle(input: FhirTaskCancelInput): FhirBundle {
   const recipientUrn = URN('recipient');
   const taskUrn = URN('task');
 
+  const input_entries: Array<Record<string, unknown>> = [
+    {
+      type: {
+        coding: [
+          {
+            system: PMJAY_TASK_CODE_SYSTEM,
+            code: 'ClaimNumber',
+            display: 'Payer-issued claim number',
+          },
+        ],
+      },
+      valueIdentifier: {
+        system: PMJAY_CLAIM_NUMBER_SYSTEM,
+        value: input.preauthRefNum,
+      },
+    },
+  ];
+  // P2.18 — emit a ReasonCode Task.input entry with the canonical
+  // PMJAY cancel reason vocabulary when supplied.
+  if (input.reasonCode) {
+    input_entries.push({
+      type: {
+        coding: [
+          {
+            system: PMJAY_TASK_REASON_SYSTEM,
+            code: 'ReasonCode',
+            display: 'Cancel reason code',
+          },
+        ],
+      },
+      valueCoding: {
+        system: PMJAY_TASK_REASON_SYSTEM,
+        code: input.reasonCode,
+      },
+    });
+  }
+
   const task: Record<string, unknown> = {
     resourceType: 'Task',
     id: taskUrn,
@@ -999,24 +1068,22 @@ export function buildTaskCancelBundle(input: FhirTaskCancelInput): FhirBundle {
         },
       ],
     },
-    input: [
+    input: input_entries,
+  };
+  // P2.18 — Task.basedOn references the original intimationNumber so
+  // the payer can thread the cancel onto the same audit record. NHCX
+  // PMJAY rejects the corrected spelling 'intimationNumber' — we MUST
+  // preserve the typo 'initimationNumber' in the system URI verbatim.
+  if (input.initimationNumber) {
+    task['basedOn'] = [
       {
-        type: {
-          coding: [
-            {
-              system: PMJAY_TASK_CODE_SYSTEM,
-              code: 'ClaimNumber',
-              display: 'Payer-issued claim number',
-            },
-          ],
-        },
-        valueIdentifier: {
-          system: PMJAY_CLAIM_NUMBER_SYSTEM,
-          value: input.preauthRefNum,
+        identifier: {
+          system: 'https://hcx.pmjay.nha.gov.in/initimationNumber',
+          value: input.initimationNumber,
         },
       },
-    ],
-  };
+    ];
+  }
   if (input.reason) {
     task['note'] = [{ text: input.reason, time: ts }];
   }

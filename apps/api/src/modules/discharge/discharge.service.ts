@@ -40,6 +40,41 @@ export class DischargeService {
   }
 
   async submit(input: DischargeInput): Promise<{ status: string }> {
+    // P2.20 — PMJAY has no separate discharge wire-call. The payer's
+    // adjudication pipeline derives discharge from the claim/submit
+    // payload (DTH date code) and we MUST NOT post a discharge/submit
+    // bundle for PMJAY cases, or the gateway returns a 400 "wrong rail
+    // for operation" error. Resolve the rail from the claim record
+    // before any document checks so the operator gets a fast skip-ack
+    // instead of a "missing discharge_summary" validation error on
+    // PMJAY admissions where the discharge summary lives on the
+    // claim/submit bundle alongside the final bill.
+    const claim = await this.prisma.runInTenantContext(
+      input.tenantId,
+      'platform_admin',
+      (tx) =>
+        tx.claim.findUniqueOrThrow({
+          where: { id: input.claimId },
+          select: { rail: true, status: true },
+        }),
+    );
+    if (claim.rail === 'pmjay') {
+      // Drive the same terminal transition the inbound discharge ack
+      // would have triggered on a private-rail case, but skip the
+      // adapter call entirely. The operator UI surfaces a "PMJAY:
+      // discharge is bundled with claim submit" hint.
+      const snap = await this.claims.transition({
+        tenantId: input.tenantId,
+        claimId: input.claimId,
+        eventType: 'discharge.skipped',
+        actorUserId: input.actorUserId,
+      });
+      this.log.log(
+        `discharge skipped for PMJAY claim=${input.claimId} status=${snap.status}`,
+      );
+      return { status: snap.status };
+    }
+
     // Required-doc check: at least one discharge_summary on the claim.
     const hasSummary = await this.documents.hasDocumentType(
       input.tenantId,
