@@ -11,6 +11,11 @@ const MAX_ATTEMPTS_DEFAULT = 5;
 const TICK_INTERVAL_MS_DEFAULT = 30_000;
 const BATCH_SIZE = 25;
 
+// Used for cross-tenant sweep — the worker reads queued/failed rows
+// from every tenant under platform_admin. set_config('app.tenant_id', ...)
+// still needs a UUID-shaped value; this sentinel signals "no specific tenant".
+const CROSS_TENANT_SENTINEL_UUID = '00000000-0000-0000-0000-000000000000';
+
 // Worker that drains notification_outbox rows in 'queued' or 'failed'
 // state with attempts < cap. Runs in-process — every API instance ticks
 // independently. Concurrency is bounded by the row-level lock the
@@ -76,17 +81,25 @@ export class NotificationRetryWorker implements OnApplicationBootstrap, OnApplic
     let failed = 0;
     const now = new Date();
 
-    // Pull a small batch of rows. Filter on tenantId IS NOT NULL — the
-    // worker only handles tenant-scoped rows; the platform_admin role
-    // bypasses RLS so we can sweep across tenants in one query.
-    const rows = await this.prisma.notificationOutbox.findMany({
-      where: {
-        status: { in: ['queued', 'failed'] },
-        attempts: { lt: this.maxAttempts },
-      },
-      orderBy: { scheduledAt: 'asc' },
-      take: BATCH_SIZE,
-    });
+    // Pull a small batch of rows under platform_admin so the FORCE-RLS
+    // SELECT predicate on notification_outbox admits rows from every
+    // tenant. The runtime role is claims_app (NOSUPERUSER NOBYPASSRLS) —
+    // without runInTenantContext + 'platform_admin', the policy returns
+    // zero rows and the worker silently no-ops every tick. Mirrors
+    // DocumentLifecycleWorker.runOnce.
+    const rows = await this.prisma.runInTenantContext(
+      CROSS_TENANT_SENTINEL_UUID,
+      'platform_admin',
+      (tx) =>
+        tx.notificationOutbox.findMany({
+          where: {
+            status: { in: ['queued', 'failed'] },
+            attempts: { lt: this.maxAttempts },
+          },
+          orderBy: { scheduledAt: 'asc' },
+          take: BATCH_SIZE,
+        }),
+    );
 
     for (const row of rows) {
       const nextEligibleAt = computeNextEligibleAt(row.scheduledAt, row.attempts);
