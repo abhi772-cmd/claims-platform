@@ -289,6 +289,26 @@ export interface FhirTaskReprocessInput extends FhirDeterminismDeps {
   reason?: string;
 }
 
+// P3.23 — paymentack outbound. Builds the FHIR PaymentReconciliation
+// resource the hospital sends back to the payer acknowledging
+// receipt of a settlement. NHCX requires this ACK within 24h of the
+// inbound PaymentReconciliation; the gateway uses it to flip the
+// settlement to 'reconciled' on the payer-side ledger.
+export interface FhirPaymentAckInput extends FhirDeterminismDeps {
+  actors: FhirActorIds;
+  // UTR from the inbound PaymentReconciliation we're ack'ing.
+  utr: string;
+  // Net total we received (rupees). Must match the inbound for the
+  // payer's reconciliation pipeline to accept the ack.
+  totalRupees: number;
+  // 'reconciled' | 'short-paid' | 'disputed' — hospital's stance.
+  // 'reconciled' is the happy path; the other two open a CRC.
+  outcome: 'reconciled' | 'short-paid' | 'disputed';
+  // Free-form note (e.g. "TDS amount higher than expected"). Empty
+  // is fine on the reconciled path.
+  note?: string;
+}
+
 // ---- Bundle helpers ------------------------------------------
 
 interface BundleEntry {
@@ -1200,6 +1220,72 @@ export function buildTaskReprocessBundle(input: FhirTaskReprocessInput): FhirBun
       { fullUrl: taskUrn, resource: task },
       { fullUrl: senderUrn, resource: organizationResource(input.actors.senderCode, undefined) },
       { fullUrl: recipientUrn, resource: organizationResource(input.actors.receiverCode, undefined) },
+    ],
+  };
+}
+
+// P3.23 — paymentack outbound bundle. Builds a PaymentReconciliation
+// resource the hospital sends back to the payer to acknowledge a
+// settlement receipt. Gateway routes via the `paymentack` operation
+// (workflow ID 30 per HCX 0.7.1).
+export function buildPaymentAckBundle(input: FhirPaymentAckInput): FhirBundle {
+  const uuid = input.uuid ?? randomUUID;
+  const ts = nhcxIstIso((input.now ?? (() => new Date()))());
+  const URN = makeUrn(uuid);
+  const bundleId = uuid();
+  const senderUrn = URN('sender');
+  const recipientUrn = URN('recipient');
+  const reconciliationUrn = URN('payment-reconciliation');
+
+  // FHIR outcome codes: 'queued' | 'complete' | 'partial' | 'error'.
+  // Map our coarse semantic outcome onto the documented values.
+  const fhirOutcome: 'complete' | 'partial' | 'error' =
+    input.outcome === 'reconciled'
+      ? 'complete'
+      : input.outcome === 'short-paid'
+        ? 'partial'
+        : 'error';
+
+  const reconciliation: Record<string, unknown> = {
+    resourceType: 'PaymentReconciliation',
+    id: reconciliationUrn,
+    status: 'active',
+    period: { start: ts, end: ts },
+    created: ts,
+    paymentIssuer: { reference: recipientUrn },
+    requestor: { reference: senderUrn },
+    outcome: fhirOutcome,
+    disposition: input.outcome,
+    paymentDate: ts.slice(0, 10),
+    paymentAmount: { value: input.totalRupees, currency: 'INR' },
+    identifier: [
+      {
+        system: 'urn:rbi:utr',
+        value: input.utr,
+      },
+    ],
+  };
+  if (input.note) {
+    reconciliation['processNote'] = [{ type: 'display', text: input.note }];
+  }
+
+  return {
+    resourceType: 'Bundle',
+    id: bundleId,
+    meta: {
+      lastUpdated: ts,
+      profile: [NRCES_PROFILE_PAYMENT_RECON],
+    },
+    identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
+    type: 'collection',
+    timestamp: ts,
+    entry: [
+      { fullUrl: reconciliationUrn, resource: reconciliation },
+      { fullUrl: senderUrn, resource: organizationResource(input.actors.senderCode, undefined) },
+      {
+        fullUrl: recipientUrn,
+        resource: organizationResource(input.actors.receiverCode, undefined),
+      },
     ],
   };
 }

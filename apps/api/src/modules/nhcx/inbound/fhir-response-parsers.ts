@@ -77,6 +77,85 @@ export interface ParsedAuditTrailEntry {
   actor: string;
 }
 
+// P3.22 — PaymentReconciliation parser output. The payer settles a
+// batch of claims in a single PaymentReconciliation bundle. We
+// extract the UTR, settlement total, settlement date, and per-claim
+// detail[] entries so SettlementService can post a Receipt per
+// claim + reconcile against expected amounts.
+export interface ParsedReconciliationDetail {
+  // The payer-side claim reference this detail row settles.
+  claimRefNum: string;
+  // Net amount paid in rupees (settlement currency is INR for all
+  // NHCX payers). Negative for clawbacks / TDS deduction rows.
+  amountRupees: number;
+  // 'payment' | 'tds' | 'penalty' | 'other' — derived from the
+  // type.coding[].code on the detail entry. Falls back to 'payment'
+  // when the payer didn't classify the row.
+  kind: 'payment' | 'tds' | 'penalty' | 'other';
+  // Optional payer-side narrative.
+  note?: string;
+}
+
+export interface ParsedPaymentReconciliation {
+  // UTR / NEFT reference from PaymentReconciliation.identifier[0].value.
+  utr: string;
+  // Net settlement amount in rupees (sum across detail[] minus
+  // deductions; matches PaymentReconciliation.paymentAmount).
+  totalRupees: number;
+  // YYYY-MM-DD settlement date from PaymentReconciliation.paymentDate.
+  paymentDate: string;
+  // Per-claim breakdown.
+  detail: ParsedReconciliationDetail[];
+}
+
+// P3.24 — InsurancePlan full parser. PMJAY package master arrives
+// as an InsurancePlan bundle with up to 32 specialty entries +
+// STG (Standard Treatment Guidelines) references + 24
+// Claim-Condition extensions. The parser surfaces a normalised
+// shape so the operator UI can render the package picker without
+// chasing nested FHIR refs.
+export interface ParsedInsurancePlanFull {
+  // From InsurancePlan.identifier[0].value or .name.
+  planId: string;
+  name: string;
+  // 'active' | 'retired' | 'draft' — pass-through.
+  status: string;
+  // From InsurancePlan.meta.versionId — used by P3.25 version pinning.
+  versionId?: string;
+  // Per-specialty package list. Each specialty carries up to N
+  // packages (procedure codes + names + ceiling amount + STG).
+  specialties: ParsedInsurancePlanSpecialty[];
+  // Per-package Claim-Condition extensions extracted out of the
+  // bundle. NHA defines 24 of these (e.g. mandatory pre-op test,
+  // age-restricted, requires-second-opinion). Each entry pairs a
+  // package code with its applicable extension codes.
+  conditions: ParsedInsurancePlanCondition[];
+}
+
+export interface ParsedInsurancePlanSpecialty {
+  // Short code: 'CT' (cardiology), 'ORTH' (orthopaedics), ... up to 32.
+  specialty: string;
+  packages: ParsedInsurancePlanPackage[];
+}
+
+export interface ParsedInsurancePlanPackage {
+  // PMJAY package code (e.g. 'M-CT-001').
+  code: string;
+  name: string;
+  // Procedure ceiling in rupees.
+  ceilingRupees: number;
+  // Standard Treatment Guideline reference (optional). When present,
+  // points at a separate STG resource the hospital must comply with.
+  stgRef?: string;
+}
+
+export interface ParsedInsurancePlanCondition {
+  packageCode: string;
+  // Short codes from the NHA Claim-Condition CodeSystem.
+  // Examples: 'pre-op-test', 'age-min', 'age-max', 'requires-second-opinion'.
+  conditions: string[];
+}
+
 export interface ParsedCommunication {
   // 'query' = inbound query from payer (creates a PreauthQuery row).
   // 'response' = inbound response to a query we sent (recorded but
@@ -839,4 +918,274 @@ export function parseTask(bundle: unknown): ParsedTask {
     }
   }
   return out;
+}
+
+// P3.22 — PaymentReconciliation parser. Extracts UTR, settlement
+// total, payment date, and per-claim detail[] from a
+// PaymentReconciliation bundle. Throws FhirParseError when the
+// canonical fields are missing — settlement runs on the data the
+// payer actually sent, so missing UTR / total is non-recoverable
+// and SettlementService surfaces it as a parse failure rather than
+// posting a zero-rupee receipt.
+//
+// UTR format: 16-22 alphanumeric chars per RBI NEFT/RTGS spec. We
+// don't enforce the format here (some test sandboxes use shorter
+// values), but downstream SettlementService can validate via
+// `/^[A-Z0-9]{12,22}$/i` before persisting.
+export function parsePaymentReconciliation(bundle: unknown): ParsedPaymentReconciliation {
+  const resource = findResource<{ resourceType: 'PaymentReconciliation' }>(
+    bundle,
+    'PaymentReconciliation',
+  );
+  if (!resource) {
+    throw new FhirParseError(
+      'Bundle does not contain a PaymentReconciliation resource.',
+    );
+  }
+  const r = resource as Record<string, unknown>;
+  const identifiers = r['identifier'];
+  if (!Array.isArray(identifiers) || identifiers.length === 0) {
+    throw new FhirParseError(
+      'PaymentReconciliation.identifier is missing — cannot resolve UTR.',
+    );
+  }
+  let utr: string | undefined;
+  for (const id of identifiers) {
+    if (!isObject(id)) continue;
+    const value = id['value'];
+    if (typeof value === 'string' && value.length > 0) {
+      utr = value;
+      break;
+    }
+  }
+  if (!utr) {
+    throw new FhirParseError(
+      'PaymentReconciliation.identifier[].value is missing — cannot resolve UTR.',
+    );
+  }
+  const paymentAmount = r['paymentAmount'];
+  let totalRupees = 0;
+  if (isObject(paymentAmount)) {
+    const v = paymentAmount['value'];
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      totalRupees = Math.round(v);
+    }
+  }
+  const paymentDate = typeof r['paymentDate'] === 'string' ? r['paymentDate'] : '';
+
+  const details: ParsedReconciliationDetail[] = [];
+  const rawDetails = r['detail'];
+  if (Array.isArray(rawDetails)) {
+    for (const d of rawDetails) {
+      if (!isObject(d)) continue;
+      const claimRefNum = readDetailClaimRefNum(d);
+      if (!claimRefNum) continue;
+      const amount = d['amount'];
+      let amountRupees = 0;
+      if (isObject(amount)) {
+        const v = amount['value'];
+        if (typeof v === 'number' && Number.isFinite(v)) {
+          amountRupees = Math.round(v);
+        }
+      }
+      const kind = readDetailKind(d);
+      const note = typeof d['note'] === 'string' ? d['note'] : undefined;
+      details.push({
+        claimRefNum,
+        amountRupees,
+        kind,
+        ...(note ? { note } : {}),
+      });
+    }
+  }
+
+  return {
+    utr,
+    totalRupees,
+    paymentDate,
+    detail: details,
+  };
+}
+
+function readDetailClaimRefNum(d: Record<string, unknown>): string | undefined {
+  const request = d['request'];
+  if (!isObject(request)) return undefined;
+  const ref = request['reference'];
+  if (typeof ref === 'string' && ref.length > 0) return ref;
+  const id = request['identifier'];
+  if (isObject(id) && typeof id['value'] === 'string' && id['value'].length > 0) {
+    return id['value'];
+  }
+  return undefined;
+}
+
+function readDetailKind(d: Record<string, unknown>): ParsedReconciliationDetail['kind'] {
+  const type = d['type'];
+  if (!isObject(type)) return 'payment';
+  const coding = type['coding'];
+  if (!Array.isArray(coding)) return 'payment';
+  for (const c of coding) {
+    if (!isObject(c)) continue;
+    const code = c['code'];
+    if (typeof code !== 'string') continue;
+    const norm = code.toLowerCase();
+    if (norm === 'payment' || norm === 'paid' || norm === 'credit') return 'payment';
+    if (norm === 'tds' || norm.includes('tax')) return 'tds';
+    if (norm === 'penalty' || norm === 'shortfall') return 'penalty';
+  }
+  return 'other';
+}
+
+// P3.24 — InsurancePlan full parser. Walks the bundle's InsurancePlan
+// resource extracting:
+//   1. Plan metadata (id, name, status, versionId for P3.25 pinning)
+//   2. Coverage.benefit specialty packages
+//   3. Per-package Claim-Condition extensions
+// Returns a normalised shape; the InsurancePlan service converts to
+// paise + persists.
+export function parseInsurancePlanFull(bundle: unknown): ParsedInsurancePlanFull {
+  const resource = findResource<{ resourceType: 'InsurancePlan' }>(bundle, 'InsurancePlan');
+  if (!resource) {
+    throw new FhirParseError('Bundle does not contain an InsurancePlan resource.');
+  }
+  const r = resource as Record<string, unknown>;
+  const idents = r['identifier'];
+  let planId = typeof r['name'] === 'string' ? (r['name'] as string) : 'unknown';
+  if (Array.isArray(idents)) {
+    for (const i of idents) {
+      if (isObject(i) && typeof i['value'] === 'string') {
+        planId = i['value'];
+        break;
+      }
+    }
+  }
+  const name = typeof r['name'] === 'string' ? r['name'] : planId;
+  const status = typeof r['status'] === 'string' ? r['status'] : 'active';
+  const meta = r['meta'];
+  let versionId: string | undefined;
+  if (isObject(meta) && typeof meta['versionId'] === 'string') {
+    versionId = meta['versionId'];
+  }
+
+  const specialties: ParsedInsurancePlanSpecialty[] = [];
+  const coverages = r['coverage'];
+  if (Array.isArray(coverages)) {
+    for (const cov of coverages) {
+      if (!isObject(cov)) continue;
+      const specialty = readSpecialtyCode(cov);
+      if (!specialty) continue;
+      const benefits = cov['benefit'];
+      const packages: ParsedInsurancePlanPackage[] = [];
+      if (Array.isArray(benefits)) {
+        for (const b of benefits) {
+          if (!isObject(b)) continue;
+          const pkg = readPackage(b);
+          if (pkg) packages.push(pkg);
+        }
+      }
+      specialties.push({ specialty, packages });
+    }
+  }
+
+  const conditions: ParsedInsurancePlanCondition[] = [];
+  const ext = r['extension'];
+  if (Array.isArray(ext)) {
+    for (const e of ext) {
+      if (!isObject(e)) continue;
+      if (
+        e['url'] !==
+        'https://nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimConditionExtension'
+      ) {
+        continue;
+      }
+      const cond = readClaimCondition(e);
+      if (cond) conditions.push(cond);
+    }
+  }
+
+  return { planId, name, status, ...(versionId ? { versionId } : {}), specialties, conditions };
+}
+
+function readSpecialtyCode(coverage: Record<string, unknown>): string | undefined {
+  const type = coverage['type'];
+  if (!isObject(type)) return undefined;
+  const coding = type['coding'];
+  if (!Array.isArray(coding)) return undefined;
+  for (const c of coding) {
+    if (isObject(c) && typeof c['code'] === 'string') return c['code'];
+  }
+  return undefined;
+}
+
+function readPackage(benefit: Record<string, unknown>): ParsedInsurancePlanPackage | undefined {
+  const type = benefit['type'];
+  if (!isObject(type)) return undefined;
+  const coding = type['coding'];
+  if (!Array.isArray(coding)) return undefined;
+  let code: string | undefined;
+  let name: string | undefined;
+  for (const c of coding) {
+    if (!isObject(c)) continue;
+    if (typeof c['code'] === 'string' && !code) code = c['code'];
+    if (typeof c['display'] === 'string' && !name) name = c['display'];
+  }
+  if (!code) return undefined;
+  // Ceiling lives on limit[0].value.value (a Money). Fall back to 0
+  // when the payer omitted it — the operator UI surfaces a warning.
+  let ceilingRupees = 0;
+  const limit = benefit['limit'];
+  if (Array.isArray(limit) && limit.length > 0 && isObject(limit[0])) {
+    const value = (limit[0] as Record<string, unknown>)['value'];
+    if (isObject(value)) {
+      const v = value['value'];
+      if (typeof v === 'number' && Number.isFinite(v)) {
+        ceilingRupees = Math.round(v);
+      }
+    }
+  }
+  // STG reference lives on a documented extension on the benefit
+  // entry. Absent for packages without an STG (rare on PMJAY).
+  let stgRef: string | undefined;
+  const ext = benefit['extension'];
+  if (Array.isArray(ext)) {
+    for (const e of ext) {
+      if (!isObject(e)) continue;
+      if (
+        e['url'] === 'https://nrces.in/ndhm/fhir/r4/StructureDefinition/StgReference'
+      ) {
+        const r = e['valueReference'];
+        if (isObject(r) && typeof r['reference'] === 'string') {
+          stgRef = r['reference'];
+          break;
+        }
+      }
+    }
+  }
+  return {
+    code,
+    name: name ?? code,
+    ceilingRupees,
+    ...(stgRef ? { stgRef } : {}),
+  };
+}
+
+function readClaimCondition(
+  ext: Record<string, unknown>,
+): ParsedInsurancePlanCondition | undefined {
+  const subs = ext['extension'];
+  if (!Array.isArray(subs)) return undefined;
+  let packageCode: string | undefined;
+  const conditions: string[] = [];
+  for (const sub of subs) {
+    if (!isObject(sub)) continue;
+    if (sub['url'] === 'package') {
+      const v = sub['valueCode'] ?? sub['valueString'];
+      if (typeof v === 'string') packageCode = v;
+    } else if (sub['url'] === 'condition') {
+      const v = sub['valueCode'] ?? sub['valueString'];
+      if (typeof v === 'string') conditions.push(v);
+    }
+  }
+  if (!packageCode || conditions.length === 0) return undefined;
+  return { packageCode, conditions };
 }
