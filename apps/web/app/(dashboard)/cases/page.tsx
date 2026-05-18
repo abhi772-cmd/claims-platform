@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useErrorModal } from '../../../components/modals/ErrorModal/ErrorModalProvider';
 import { SlaPill } from '../../../components/sla/SlaPill';
+import { LoadingShimmer } from '../../../components/ui/LoadingShimmer';
 import { AuthApi } from '../../../lib/api/auth.api';
 import { CaseApi } from '../../../lib/api/case.api';
 
@@ -334,9 +335,7 @@ export default function CasesListPage(): JSX.Element {
 
       {/* Body */}
       {cases === null ? (
-        <div className="glass rounded-xl p-6">
-          <p className="text-body text-on-surface-variant">Loading…</p>
-        </div>
+        <LoadingShimmer variant="row" rows={6} label="Loading cases" />
       ) : cases.length === 0 ? (
         <EmptyState activeFilters={activeFilterCount} onClearAll={clearAll} />
       ) : (
