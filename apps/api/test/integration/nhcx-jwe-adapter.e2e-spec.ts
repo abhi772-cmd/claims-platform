@@ -49,16 +49,20 @@ async function startMockGateway(
     let body = '';
     for await (const chunk of req) body += chunk;
     try {
+      // P0.3 — request body is the `{ payload: <jwe> }` JSON envelope
+      // the production adapter sends. Unwrap it before decrypt.
+      const envelopeIn = JSON.parse(body) as { payload: string };
       const decrypted = await decryptFromParticipant<{
         meta: { operation: string };
         payload: unknown;
-      }>(body, gateway.privatePem);
+      }>(envelopeIn.payload, gateway.privatePem);
       lastReq = decrypted;
       const payload = responder({ operation: decrypted.meta.operation, body: decrypted });
-      const envelope = { meta: { acknowledged: true }, payload };
-      const encrypted = await encryptToParticipant(envelope, participant.publicPem);
-      res.writeHead(200, { 'content-type': 'application/jose' });
-      res.end(encrypted);
+      const encryptedBundle = { meta: { acknowledged: true }, payload };
+      const encrypted = await encryptToParticipant(encryptedBundle, participant.publicPem);
+      // P0.3 — response also wrapped in the JSON envelope.
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ payload: encrypted }));
     } catch (err) {
       res.writeHead(500, { 'content-type': 'text/plain' });
       res.end(String(err));
@@ -219,13 +223,14 @@ describe('Slice P — NhcxJweAdapter against mock gateway', () => {
     let rawBytes = '';
     const raw = createServer(async (req, res) => {
       for await (const chunk of req) rawBytes += chunk;
-      const envelope = {
+      const innerBundle = {
         meta: { acknowledged: true },
         payload: { verified: true },
       };
-      const enc = await encryptToParticipant(envelope, participant.publicPem);
-      res.writeHead(200, { 'content-type': 'application/jose' });
-      res.end(enc);
+      const enc = await encryptToParticipant(innerBundle, participant.publicPem);
+      // P0.3 — respond with the documented `{ payload: <jwe> }` envelope.
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ payload: enc }));
     });
     await new Promise<void>((resolve) => raw.listen(0, '127.0.0.1', resolve));
     const addr = raw.address() as AddressInfo;
@@ -243,10 +248,13 @@ describe('Slice P — NhcxJweAdapter against mock gateway', () => {
         patientName: 'Patient',
       });
 
-      // The MRN must NOT appear in the wire bytes.
+      // The MRN must NOT appear in the wire bytes (PII opacity check).
       expect(rawBytes).not.toContain('MRN-OPAQUE');
-      // It IS a compact JWE: 5 dot-separated segments.
-      expect(rawBytes.split('.')).toHaveLength(5);
+      // P0.3 — the body is the JSON envelope `{ "payload": "<compact-jwe>" }`.
+      // The JWE itself still has 5 dot-separated segments; we verify by
+      // unwrapping the envelope first.
+      const parsed = JSON.parse(rawBytes) as { payload: string };
+      expect(parsed.payload.split('.')).toHaveLength(5);
     } finally {
       await new Promise<void>((resolve) => raw.close(() => resolve()));
     }

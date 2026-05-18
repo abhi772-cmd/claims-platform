@@ -235,7 +235,7 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
     const res = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email, password: PASSWORD });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     const raw = res.headers['set-cookie'] as unknown as string[] | string | undefined;
     return (Array.isArray(raw) ? raw : raw ? [raw] : [])
       .map((c) => c.split(';')[0])
@@ -253,7 +253,7 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
       .set('x-hcx-correlation-id', correlationId)
       .set('x-hcx-operation', operation)
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
   }
 
   it('claim submit → QUEUED; claim/on_submit → APPROVED, no state-machine error', async () => {
@@ -399,7 +399,7 @@ describe('Slice AE — claim submit callback-driven in real mode', () => {
         .set('x-hcx-correlation-id', dsCorr!)
         .set('x-hcx-operation', 'communication/request')
         .send({ payload: jwe, type: 'JWEPayload' });
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(202);
     }
     await waitForInbound(migrator, dsCorr!, 'communication/request');
 

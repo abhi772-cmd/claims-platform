@@ -282,7 +282,7 @@ describe('Slice Z — NHCX inbound webhook', () => {
     const res = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email, password: PASSWORD });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     const raw = res.headers['set-cookie'] as unknown as string[] | string | undefined;
     return (Array.isArray(raw) ? raw : raw ? [raw] : [])
       .map((c) => c.split(';')[0])
@@ -400,7 +400,7 @@ describe('Slice Z — NHCX inbound webhook', () => {
       .set('x-hcx-operation', 'preauth/on_submit')
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
 
     const out = await waitForStatusChange(migrator, preauthCorrelationId);
     expect(out.status).toBe('succeeded');
@@ -448,7 +448,7 @@ describe('Slice Z — NHCX inbound webhook', () => {
       .set('x-hcx-correlation-id', orphanCorrelationId)
       .set('x-hcx-operation', 'coverageeligibility/on_check')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     const rows = await readInboundRows(migrator, orphanCorrelationId);
     expect(rows.length).toBe(0);
   });
@@ -474,7 +474,7 @@ describe('Slice Z — NHCX inbound webhook', () => {
       .set('x-hcx-correlation-id', eligibilityCorrelationId)
       .set('x-hcx-operation', 'coverageeligibility/on_check')
       .send({ payload: 'not-a-real-jwe.aaa.bbb.ccc.ddd', type: 'JWEPayload' });
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
 
     const out = await waitForStatusChange(migrator, eligibilityCorrelationId);
     expect(out.status).toBe('failed');
