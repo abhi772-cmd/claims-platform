@@ -22,6 +22,7 @@ import {
 import { useEffect, useState } from 'react';
 
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
+import { LoadingShimmer } from '../../../../components/ui/LoadingShimmer';
 import { VarianceApi } from '../../../../lib/api/variance.api';
 
 const BUCKET_LABEL: Record<VarianceAgingBucket, string> = {
@@ -123,7 +124,7 @@ export default function VariancePage(): JSX.Element {
 
       {/* KPI tiles */}
       {loading && !summary ? (
-        <p className="text-body-sm text-on-surface-variant">Loading…</p>
+        <LoadingShimmer variant="page" label="Loading variance summary" />
       ) : summary ? (
         <>
           {/* When the tenant has zero adjudicated claims, all five

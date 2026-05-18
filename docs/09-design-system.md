@@ -8,7 +8,7 @@ The actual design tokens live in **`packages/ui-tokens/src/tokens.css`** (CSS va
 
 ## Brand identity (carried over)
 
-- **Primary color** — Teal `#008F99` (DigiSparsh brand teal). Used for navigation, headings, primary semantic emphasis, glass tints and ambient shadows.
+- **Primary color** — Teal `#00666E` in the live token set (Stitch-canonical primary at `--color-primary-600` in `packages/ui-tokens/src/tokens.css`). The original DigiSparsh brand teal `#008F99` lives on as the lighter mid-tone `--color-primary-500` (and is kept verbatim in the now-historical `reference/tokens.css`). Used for navigation, headings, primary semantic emphasis, glass tints and ambient shadows.
 - **Accent color** — Amber `#FAA71A`. Reserved for primary CTAs, action confirmations, and critical status — kept sparing so it "pops" against the cool glass.
 - **Body text** — Dark slate `#363A44`. Same as the existing platform's `label` color.
 - **Surface** — Frosted-glass white cards floating over a teal-and-amber radial mesh wash on warm off-white `#F4F8FA`.
@@ -33,14 +33,14 @@ Depth comes from glass and ambient light, not hard drop-shadows.
 | 2 — Modals / overlays | Dialogs, the auth card | `.glass-strong` → `rgba(255,255,255,.85)`, `blur(40px) saturate(160%)`, `--shadow-lg` (use `--shadow-modal` for true overlays) |
 | — | Teal-tinted glass for "resolved/positive" callouts | `.glass-tint` → `rgba(232,246,247,.58)` with a `rgba(0,143,153,.18)` border |
 
-`.glass-card` adds `border-radius: var(--radius-lg)` (14px) + `padding: var(--space-5)`.
+`.glass-card` adds `border-radius: var(--radius-lg)` (12px) + `padding: var(--space-5)`.
 
 **Shadows are ambient teal**, never pure black: `--shadow-{sm,md,lg,xl}` are `rgba(0,105,112, .07/.10/.12/.16)`; `--shadow-modal` is `rgba(0,105,112,.18)`.
 
 ### Shape language (hybrid)
 
-- **Containers / cards / glass surfaces** → `--radius-lg` = **14px**.
-- **Inputs, sidebar items, inner panels** → `--radius-md` = **12px**.
+- **Containers / cards / glass surfaces** → `--radius-lg` = **12px** (Stitch xl).
+- **Inputs, sidebar items, inner panels** → `--radius-md` = **8px** (Stitch lg).
 - **Action elements — CTAs and status pills** → `--radius-pill` = **9999px** (full pill). The radius contrast between rounded containers and pill triggers is intentional: it tells the user what's clickable.
 
 ### App shell
@@ -68,7 +68,8 @@ Uppercase, `--tracking-eyebrow` = `0.12em`, `--font-size-eyebrow` = `10.5px`, we
 The full token set is in `packages/ui-tokens/src/tokens.css`. Summary:
 
 ```
---color-primary-600    #008F99    Brand teal (kept exactly)
+--color-primary-600    #00666E    Stitch-canonical primary (live)
+--color-primary-500    #008F99    Original DigiSparsh brand teal (lighter mid-tone)
 --color-accent-500     #FAA71A    CTA amber (kept exactly)
 --color-neutral-700    #363A44    Body text (kept exactly)
 --bg-page              #F8FAFC    Page background (modernised from #F5F5F5)

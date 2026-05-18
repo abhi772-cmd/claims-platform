@@ -145,7 +145,7 @@ export default function NewCasePage(): JSX.Element {
     <div className="mx-auto w-full max-w-[720px]">
       {/* Page Header */}
       <div className="mb-6">
-        <h2 className="text-h2 font-h2 text-primary">New Case Intake</h2>
+        <h2 className="text-h2 font-h2 text-primary">New case intake</h2>
         <p className="mt-1 text-body text-on-surface-variant">
           Initiate a new claim by capturing patient and clinical details.
         </p>
@@ -336,7 +336,7 @@ export default function NewCasePage(): JSX.Element {
               </span>
               <div>
                 <h3 className="text-h3 font-h3 text-on-surface">
-                  DPDP Act 2023 Consent Capture
+                  DPDP Act 2023 consent capture
                 </h3>
                 <p className="mt-1 text-body-sm text-on-surface-variant">
                   Mandatory Section 6 compliance — auto-derives consent type from the primary

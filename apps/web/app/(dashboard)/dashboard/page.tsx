@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
 import { useErrorModal } from '../../../components/modals/ErrorModal/ErrorModalProvider';
+import { LoadingShimmer } from '../../../components/ui/LoadingShimmer';
 import { AuthApi } from '../../../lib/api/auth.api';
 import { ApiError } from '../../../lib/api/client';
 import { ComplianceApi } from '../../../lib/api/compliance.api';
@@ -50,11 +51,7 @@ export default function DashboardPage(): JSX.Element {
   }, [me.error, router, showApiError]);
 
   if (me.isLoading) {
-    return (
-      <div className="glass max-w-md rounded-lg p-6">
-        <p className="text-body text-on-surface-variant">Loading…</p>
-      </div>
-    );
+    return <LoadingShimmer variant="page" label="Loading dashboard" />;
   }
   if (!me.data) return <></>;
 
@@ -230,9 +227,9 @@ export default function DashboardPage(): JSX.Element {
         />
       </div>
 
-      {/* Quick Actions */}
+      {/* Quick actions */}
       <div>
-        <h3 className="mb-4 mt-2 text-h3 font-h3 text-on-surface">Quick Actions</h3>
+        <h3 className="mb-4 mt-2 text-h3 font-h3 text-on-surface">Quick actions</h3>
         <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
           <QuickAction href="/cases/new" label="New case" icon="post_add" />
           <QuickAction href="/cases" label="Open cases" icon="folder_open" />

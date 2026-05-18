@@ -21,6 +21,7 @@ import { PreauthPanel } from '../../../../components/preauth/PreauthPanel';
 import { EobLineMatchesPanel } from '../../../../components/settlement/EobLineMatchesPanel';
 import { SettlementPanel } from '../../../../components/settlement/SettlementPanel';
 import { SlaPill } from '../../../../components/sla/SlaPill';
+import { LoadingShimmer } from '../../../../components/ui/LoadingShimmer';
 import { CaseApi } from '../../../../lib/api/case.api';
 
 interface PageProps {
@@ -93,11 +94,7 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
   }, [params.id]);
 
   if (!detail) {
-    return (
-      <div className="glass max-w-md rounded-xl p-6">
-        <p className="text-body text-on-surface-variant">Loading…</p>
-      </div>
-    );
+    return <LoadingShimmer variant="page" label="Loading case detail" />;
   }
   const claim = detail.claims[0];
 
@@ -229,7 +226,7 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
         {/* Financial summary (2 cols on lg) */}
         <section className="glass col-span-1 flex flex-col justify-center rounded-xl p-6 lg:col-span-2">
           <h3 className="mb-4 text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
-            Financial Summary
+            Financial summary
           </h3>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
             <MiniStat
