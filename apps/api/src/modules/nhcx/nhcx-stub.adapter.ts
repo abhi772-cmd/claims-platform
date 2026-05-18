@@ -67,6 +67,15 @@ export class NhcxStubAdapter implements NhcxAdapter {
           correlationId,
           rawResponse,
           latencyMs: 5,
+          // Preflight benefits — what the new-case form auto-fills
+          // into the Room & coverage card. Values mirror the
+          // representative-policy fixture the stub adapter has
+          // synthesised since Sprint 4 demos.
+          benefits: {
+            deductibleRupees: 5_000,
+            coPayPercent: 10,
+            roomRentLimitRupees: 4_000,
+          },
         }
       : {
           verified: false,

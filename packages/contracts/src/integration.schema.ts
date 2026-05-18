@@ -170,3 +170,54 @@ export const NhcxInboundAcceptSchema = z.object({
   correlation_id: z.string(),
 });
 export type NhcxInboundAccept = z.infer<typeof NhcxInboundAcceptSchema>;
+
+// Preflight eligibility — operator calls this from /cases/new BEFORE
+// creating the case. We bypass the case + claim ID chain so we can
+// surface the policy details (plan name, sum insured, deductible,
+// co-pay, room-rent limit) up front and auto-fill the intake form.
+//
+// At least one of policyNumber / abhaId / aadhaar must be present —
+// the gateway needs SOME identifier to look up the policy. The
+// .refine fires a friendly error when the operator hasn't yet
+// captured any.
+export const VerifyCoverageByIdentifiersRequestSchema = z
+  .object({
+    patientName: z.string().min(1, 'Patient name is required.'),
+    hospitalMrn: z.string().min(1, 'Hospital MRN is required.'),
+    payerCode: z.string().min(1, 'Payer is required.'),
+    policyNumber: z.string().optional(),
+    abhaId: z.string().optional(),
+    aadhaar: z.string().optional(),
+    // Optional — when the operator already knows the planned admission
+    // date we forward it to the gateway as servicedDate so the response
+    // applies to the right policy period (deductible rolls over annually).
+    serviceDate: z.string().optional(),
+  })
+  .refine(
+    (d) => Boolean(d.policyNumber || d.abhaId || d.aadhaar),
+    {
+      message: 'Provide at least one of policyNumber, abhaId, or aadhaar.',
+      path: ['policyNumber'],
+    },
+  );
+export type VerifyCoverageByIdentifiersRequest = z.infer<
+  typeof VerifyCoverageByIdentifiersRequestSchema
+>;
+
+export const VerifyCoverageByIdentifiersResponseSchema = z.object({
+  verified: z.boolean(),
+  correlationId: z.string(),
+  // Rupee-denominated to match what the operator UI displays. Service
+  // converts to paise at the storage boundary when the case is finally
+  // created. All fields nullable so callers narrow at the UI layer.
+  planName: z.string().nullable(),
+  sumInsuredRupees: z.number().nullable(),
+  deductibleRupees: z.number().nullable(),
+  coPayPercent: z.number().nullable(),
+  coPayRupees: z.number().nullable(),
+  roomRentLimitRupees: z.number().nullable(),
+  failureReason: z.string().nullable(),
+});
+export type VerifyCoverageByIdentifiersResponse = z.infer<
+  typeof VerifyCoverageByIdentifiersResponseSchema
+>;

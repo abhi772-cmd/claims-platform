@@ -48,6 +48,20 @@ export interface AdapterEligibilityRequest {
   purpose?: AdapterEligibilityPurpose;
 }
 
+// Preflight benefits — surfaced synchronously by the stub so the
+// new-case preflight flow can display deductible / co-pay / room
+// limits before the case is even created. In real mode the JWE
+// adapter currently returns these only via the inbound callback
+// (parser already extracts them per P2.16); the preflight endpoint
+// surfaces an empty benefits block in that case and the operator
+// proceeds with the eligibility-after path.
+export interface AdapterEligibilityBenefits {
+  deductibleRupees?: number;
+  coPayPercent?: number;
+  coPayRupees?: number;
+  roomRentLimitRupees?: number;
+}
+
 export interface AdapterEligibilityResponse {
   verified: boolean;
   planName?: string;
@@ -56,6 +70,9 @@ export interface AdapterEligibilityResponse {
   correlationId: string;
   rawResponse: Record<string, unknown>;
   latencyMs: number;
+  // Optional — populated by the stub for preflight; the JWE adapter
+  // omits it because real-mode benefits arrive asynchronously.
+  benefits?: AdapterEligibilityBenefits;
 }
 
 export interface AdapterPreauthSubmitInput {
