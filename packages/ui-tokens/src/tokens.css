@@ -1,7 +1,10 @@
 /* DigiSparsh Claims Platform — Design Tokens
- * Aligned to the Stitch "DigiSparsh Healthcare Claims Platform" design system
- * (Material 3 token vocabulary, primary teal #00666e, amber #FEAA1E).
+ * Anchored to the login page (apps/web/app/(auth)/login/page.tsx) as the
+ * canonical source-of-truth. Login uses #008F99 as TEAL and #FAA719 →
+ * #E89510 as amber. The earlier drift toward #00666E is rejected; this
+ * realignment brings every surface in line with login.
  *
+ * Reference: docs/design/digisparsh-login-source-of-truth.md
  * Import this file once in apps/web/app/globals.css.
  * Tailwind theme references these via CSS variables.
  */
@@ -9,48 +12,51 @@
 :root {
   /* ============================================================ */
   /* BRAND — TEAL (primary)                                        */
-  /* Anchored to Stitch primary #00666e at 600.                    */
+  /* Anchored to login canonical #008F99.                          */
   /* ============================================================ */
-  --color-primary-50:  #E0F7FA;   /* surface tint, chips, hover backgrounds */
+  --color-primary-50:  #E8F6F7;   /* on-primary-container — surface tint, hover backgrounds */
   --color-primary-100: #C5E9EC;
-  --color-primary-200: #8AF2FD;   /* M3 primary-fixed (very light teal) */
-  --color-primary-300: #6CD6E0;   /* M3 inverse-primary / primary-fixed-dim */
-  --color-primary-400: #00818A;   /* M3 primary-container */
-  --color-primary-500: #006970;   /* M3 surface-tint (used for elevation tinting) */
-  --color-primary-600: #00666E;   /* BRAND — Stitch primary */
-  --color-primary-700: #004F55;   /* M3 on-primary-fixed-variant — hover state */
+  --color-primary-200: #7FE5EC;   /* primary-fixed (very light teal, from login) */
+  --color-primary-300: #5FCFDB;   /* primary-fixed-dim / inverse-primary */
+  --color-primary-400: #0B7A82;   /* primary-container (login canonical) */
+  --color-primary-500: #008F99;   /* surface-tint */
+  --color-primary-600: #008F99;   /* BRAND — login canonical primary */
+  --color-primary-700: #004F55;   /* on-primary-fixed-variant — hover state */
   --color-primary-800: #003E43;
-  --color-primary-900: #002022;   /* M3 on-primary-fixed — near-black teal */
+  --color-primary-900: #002022;   /* on-primary-fixed — near-black teal */
 
   /* ============================================================ */
   /* BRAND — AMBER (accent / CTA)                                  */
+  /* Anchored to login canonical #FAA719 → #E89510.                */
   /* ============================================================ */
-  --color-accent-50:   #FFDDB5;   /* M3 secondary-fixed */
-  --color-accent-100:  #FFB957;   /* M3 secondary-fixed-dim */
+  --color-accent-50:   #FFE0B5;   /* secondary-fixed (login canonical) */
+  --color-accent-100:  #FFC36A;   /* secondary-fixed-dim */
   --color-accent-300:  #FFC560;
-  --color-accent-500:  #FEAA1E;   /* CTA / M3 secondary-container */
-  --color-accent-600:  #E89412;
-  --color-accent-700:  #835400;   /* M3 secondary — darker amber for text */
-  --color-accent-900:  #2A1800;   /* M3 on-secondary-fixed */
+  --color-accent-500:  #FAA719;   /* CTA — login canonical amber */
+  --color-accent-600:  #E89510;   /* CTA hover — login canonical amber-hover */
+  --color-accent-700:  #5C3A00;   /* on-secondary-fixed-variant — darker amber for text */
+  --color-accent-900:  #2A1800;   /* on-secondary-fixed */
 
   /* ============================================================ */
   /* NEUTRALS                                                      */
   /* ============================================================ */
-  /* Cooled toward Stitch's teal-tinted surface family. */
+  /* Anchored to login: warm off-white surface, TEAL_DEEP text,    */
+  /* LABEL secondary, MUTED tertiary. The earlier cool-gray drift  */
+  /* (#171C1D / #3D494A / #6D797A) is rejected.                    */
   --color-neutral-0:   #FFFFFF;
-  --color-neutral-50:  #F6FAFA;   /* M3 surface — page background */
-  --color-neutral-100: #F0F4F5;   /* M3 surface-container-low — alt surface */
-  --color-neutral-150: #EAEFEF;   /* M3 surface-container */
-  --color-neutral-200: #E4E9E9;   /* M3 surface-container-high — borders */
-  --color-neutral-250: #DFE3E4;   /* M3 surface-container-highest */
-  --color-neutral-300: #D6DBDB;   /* M3 surface-dim */
-  --color-neutral-350: #BCC9CA;   /* M3 outline-variant */
-  --color-neutral-400: #6D797A;   /* M3 outline */
-  --color-neutral-500: #3D494A;   /* M3 on-surface-variant — secondary text */
-  --color-neutral-600: #2C3132;   /* M3 inverse-surface */
-  --color-neutral-700: #171C1D;   /* M3 on-surface / on-background — body text */
-  --color-neutral-800: #0F1518;
-  --color-neutral-900: #08090A;
+  --color-neutral-50:  #F4F8FA;   /* warm off-white — page background (login canonical) */
+  --color-neutral-100: #EEF4F5;   /* surface-container-low — alt surface */
+  --color-neutral-150: #E8EFF0;   /* surface-container */
+  --color-neutral-200: #E2EAEB;   /* surface-container-high — borders */
+  --color-neutral-250: #DDE5E6;   /* surface-container-highest */
+  --color-neutral-300: #D6DDDE;   /* surface-dim */
+  --color-neutral-350: #BCC9CA;   /* outline-variant */
+  --color-neutral-400: #6B8589;   /* MUTED from login — outline / secondary text */
+  --color-neutral-500: #3A5256;   /* LABEL from login — on-surface-variant */
+  --color-neutral-600: #1F3A3D;   /* inverse-surface */
+  --color-neutral-700: #0B2A2C;   /* TEAL_DEEP from login — body text, headings */
+  --color-neutral-800: #07181A;
+  --color-neutral-900: #041011;
 
   /* ============================================================ */
   /* SEMANTIC                                                      */
@@ -79,15 +85,16 @@
   --bg-surface-alt:    var(--color-neutral-100);
   --bg-overlay:        rgba(15, 17, 22, 0.45);
 
-  /* Page-level mesh gradient — Stitch reference: 4-corner low-opacity
-     radials over a teal-cooled white base. Calmer than the previous
-     wash so glass panels read as the dominant elevation. */
+  /* Page-level mesh gradient — login canonical: teal radial top-left
+     (25% opacity) + amber radial top-right (10% opacity, much fainter
+     because amber is meant to be rare). Plus a softer mirror pair at
+     the bottom so deep-scroll surfaces don't go flat. */
   --bg-app-gradient:
-    radial-gradient(at 0% 0%,   rgba(0, 102, 110, 0.05) 0px, transparent 50%),
-    radial-gradient(at 100% 0%, rgba(254, 170, 30, 0.08) 0px, transparent 50%),
-    radial-gradient(at 100% 100%, rgba(0, 102, 110, 0.05) 0px, transparent 50%),
-    radial-gradient(at 0% 100%, rgba(254, 170, 30, 0.08) 0px, transparent 50%);
-  --bg-app-base: #F6FAFA;   /* paired with --bg-app-gradient as background-color */
+    radial-gradient(at 0% 0%,   rgba(0, 143, 153, 0.25) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(250, 167, 25, 0.10) 0px, transparent 45%),
+    radial-gradient(at 100% 100%, rgba(0, 143, 153, 0.08) 0px, transparent 50%),
+    radial-gradient(at 0% 100%, rgba(250, 167, 25, 0.05) 0px, transparent 45%);
+  --bg-app-base: #F4F8FA;   /* warm off-white — login canonical */
 
   /* Sidebar — deep teal, carried from the legacy DigiSparsh shell */
   --sidebar-bg:           linear-gradient(180deg, #0d7a82 0%, #075c63 100%);
@@ -101,19 +108,20 @@
   --sidebar-divider:      rgba(255, 255, 255, 0.12);
 
   /* ============================================================ */
-  /* GLASSMORPHISM — Stitch "DigiSparsh Glass Interface" reference */
-  /* Light source upper-left: thicker lit edges on top + left,    */
-  /* thinner hairline on right + bottom.                          */
-  /* Level 1 (cards): rgba white .70 + 24px blur                  */
-  /* Level 2 (modals/overlays): rgba white .85 + 40px blur        */
+  /* GLASSMORPHISM — login canonical                                */
+  /* Login card recipe is the source-of-truth:                      */
+  /*   rgba(255,255,255,0.72) + backdrop-blur(28px) saturate(160%) */
+  /*   1px rgba(255,255,255,0.9) hairline + 28px corner radius     */
+  /*   ambient teal shadow 0 40px 80px -24px rgba(0,80,86,0.32)   */
+  /* Level 2 (modals/overlays) bumps alpha to 0.85, blur to 40px.  */
   /* ============================================================ */
-  --glass-bg:           rgba(255, 255, 255, 0.70);
+  --glass-bg:           rgba(255, 255, 255, 0.72);
   --glass-bg-strong:    rgba(255, 255, 255, 0.85);
-  --glass-bg-tint:      rgba(224, 247, 250, 0.58);  /* teal-tinted glass */
-  --glass-border:       rgba(255, 255, 255, 0.40);  /* base hairline */
-  --glass-border-lit:   rgba(255, 255, 255, 0.80);  /* top + left lit edges */
-  --glass-stroke:       rgba(0, 105, 112, 0.08);
-  --glass-blur:         24px;
+  --glass-bg-tint:      rgba(0, 143, 153, 0.06);    /* teal-tinted glass (login amber accent var) */
+  --glass-border:       rgba(255, 255, 255, 0.90);  /* hairline (login canonical) */
+  --glass-border-lit:   rgba(255, 255, 255, 1.00);  /* top + left lit edges */
+  --glass-stroke:       rgba(0, 143, 153, 0.10);
+  --glass-blur:         28px;
   --glass-blur-strong:  40px;
 
   --border-default:    var(--color-neutral-200);
@@ -144,90 +152,102 @@
   --status-accent:      var(--color-accent-500);
 
   /* ============================================================ */
-  /* MATERIAL 3 ALIASES — Stitch HTML uses these class names     */
-  /* directly (bg-primary, text-on-surface, border-outline...).   */
-  /* Surfaced into Tailwind via tailwind.config.ts.              */
+  /* MATERIAL 3 ALIASES — login canonical                          */
+  /* Stitch-generated screens and component recipes reference     */
+  /* bg-primary / text-on-surface / border-outline etc. directly. */
+  /* Surfaced into Tailwind via tailwind.config.ts.                */
   /* ============================================================ */
-  --m3-primary:                       #00666E;
+  --m3-primary:                       #008F99;
   --m3-on-primary:                    #FFFFFF;
-  --m3-primary-container:             #00818A;
-  --m3-on-primary-container:          #F5FEFF;
-  --m3-primary-fixed:                 #8AF2FD;
-  --m3-primary-fixed-dim:             #6CD6E0;
+  --m3-primary-container:             #0B7A82;
+  --m3-on-primary-container:          #E8F6F7;
+  --m3-primary-fixed:                 #7FE5EC;
+  --m3-primary-fixed-dim:             #5FCFDB;
   --m3-on-primary-fixed:              #002022;
   --m3-on-primary-fixed-variant:      #004F55;
-  --m3-inverse-primary:               #6CD6E0;
-  --m3-surface-tint:                  #006970;
+  --m3-inverse-primary:               #7FE5EC;
+  --m3-surface-tint:                  #008F99;
 
-  --m3-secondary:                     #835400;
+  --m3-secondary:                     #FAA719;
   --m3-on-secondary:                  #FFFFFF;
-  --m3-secondary-container:           #FEAA1E;
-  --m3-on-secondary-container:        #694300;
-  --m3-secondary-fixed:               #FFDDB5;
-  --m3-secondary-fixed-dim:           #FFB957;
+  --m3-secondary-container:           #E89510;
+  --m3-on-secondary-container:        #311A00;
+  --m3-secondary-fixed:               #FFE0B5;
+  --m3-secondary-fixed-dim:           #FFC36A;
   --m3-on-secondary-fixed:            #2A1800;
-  --m3-on-secondary-fixed-variant:    #643F00;
+  --m3-on-secondary-fixed-variant:    #5C3A00;
 
-  --m3-tertiary:                      #8D4A17;
+  /* Tertiary is the green check / "verified" surface from login. */
+  --m3-tertiary:                      #4FA88A;
   --m3-on-tertiary:                   #FFFFFF;
-  --m3-tertiary-container:            #AB622D;
-  --m3-on-tertiary-container:         #FFFBFF;
-  --m3-tertiary-fixed:                #FFDBC7;
-  --m3-tertiary-fixed-dim:            #FFB688;
-  --m3-on-tertiary-fixed:             #311300;
-  --m3-on-tertiary-fixed-variant:     #723601;
+  --m3-tertiary-container:            #C8EBDA;
+  --m3-on-tertiary-container:         #003B26;
+  --m3-tertiary-fixed:                #C8EBDA;
+  --m3-tertiary-fixed-dim:            #9FD6BB;
+  --m3-on-tertiary-fixed:             #003B26;
+  --m3-on-tertiary-fixed-variant:     #1F5F47;
 
   --m3-error:                         #BA1A1A;
   --m3-on-error:                      #FFFFFF;
   --m3-error-container:               #FFDAD6;
   --m3-on-error-container:            #93000A;
 
-  --m3-background:                    #F6FAFA;
-  --m3-on-background:                 #171C1D;
-  --m3-surface:                       #F6FAFA;
-  --m3-on-surface:                    #171C1D;
+  --m3-background:                    #F4F8FA;
+  --m3-on-background:                 #0B2A2C;
+  --m3-surface:                       #F4F8FA;
+  --m3-on-surface:                    #0B2A2C;
   --m3-surface-variant:               #DFE3E4;
-  --m3-on-surface-variant:            #3D494A;
-  --m3-surface-dim:                   #D6DBDB;
-  --m3-surface-bright:                #F6FAFA;
+  --m3-on-surface-variant:            #3A5256;
+  --m3-surface-dim:                   #D6DDDE;
+  --m3-surface-bright:                #FBFEFE;
   --m3-surface-container-lowest:      #FFFFFF;
-  --m3-surface-container-low:         #F0F4F5;
-  --m3-surface-container:             #EAEFEF;
-  --m3-surface-container-high:        #E4E9E9;
-  --m3-surface-container-highest:     #DFE3E4;
-  --m3-inverse-surface:               #2C3132;
-  --m3-inverse-on-surface:            #EDF2F2;
+  --m3-surface-container-low:         #EEF4F5;
+  --m3-surface-container:             #E8EFF0;
+  --m3-surface-container-high:        #E2EAEB;
+  --m3-surface-container-highest:     #DDE5E6;
+  --m3-inverse-surface:               #0B2A2C;
+  --m3-inverse-on-surface:            #EDF4F5;
 
-  --m3-outline:                       #6D797A;
+  --m3-outline:                       #6B8589;
   --m3-outline-variant:               #BCC9CA;
 
   /* ============================================================ */
   /* ELEVATION / SHADOWS                                           */
-  /* Ambient — low-opacity tints of Primary Teal (#006970), never  */
-  /* pure black, so glass surfaces feel lit rather than printed.   */
+  /* Ambient — low-opacity tints of login deep-teal (rgba 0,80,86) */
+  /* never pure black, so glass surfaces feel lit rather than      */
+  /* printed. Black shadows on glass look cheap.                   */
   /* ============================================================ */
-  --shadow-sm:    0 1px 2px rgba(0, 105, 112, 0.07);
-  --shadow-md:    0 4px 14px rgba(0, 105, 112, 0.10);
-  --shadow-lg:    0 12px 32px rgba(0, 105, 112, 0.12);
-  --shadow-xl:    0 24px 48px rgba(0, 105, 112, 0.16);
-  --shadow-modal: 0 16px 44px rgba(0, 105, 112, 0.18);   /* diffused Level-2 overlay */
+  --shadow-sm:    0 1px 2px rgba(0, 80, 86, 0.07);
+  --shadow-md:    0 4px 14px rgba(0, 80, 86, 0.10);
+  --shadow-lg:    0 12px 32px rgba(0, 80, 86, 0.14);
+  --shadow-xl:    0 24px 48px rgba(0, 80, 86, 0.18);
+  --shadow-modal: 0 16px 44px rgba(0, 80, 86, 0.22);   /* Level-2 overlay */
+  /* Login canonical card shadow — ambient teal lift used by the
+     glass-card-xl recipe on large content panels. */
+  --shadow-glass-card: 0 40px 80px -24px rgba(0, 80, 86, 0.32),
+                       0 12px 24px -8px rgba(0, 80, 86, 0.12);
+  /* Amber CTA shadow — teal-tinted ambient + amber halo */
+  --shadow-cta-amber: 0 12px 28px -8px rgba(250, 167, 25, 0.50),
+                      inset 0 1px 0 rgba(255, 255, 255, 0.30);
 
   --shadow-focus-primary: 0 0 0 3px rgba(0, 143, 153, 0.25);
-  --shadow-focus-accent:  0 0 0 3px rgba(250, 167, 26, 0.30);
-  --shadow-focus-danger:  0 0 0 3px rgba(217, 59, 59, 0.25);
+  --shadow-focus-accent:  0 0 0 3px rgba(250, 167, 25, 0.30);
+  --shadow-focus-danger:  0 0 0 3px rgba(186, 26, 26, 0.25);
 
   /* ============================================================ */
-  /* RADIUS — Stitch "DigiSparsh Healthcare Claims" scale         */
-  /* Containers/cards: 12px. Inputs/sidebar items: 8px.           */
-  /* Action elements (CTAs, status pills): full pill.             */
+  /* RADIUS — login canonical scale                                */
+  /* Glass cards: 28px. Inputs: 12px. CTAs: 14px. Chips: 6px.     */
+  /* Status pills: full pill (9999px).                            */
   /* ============================================================ */
   --radius-xs:   4px;
-  --radius-sm:   6px;
-  --radius-base: 4px;     /* Stitch DEFAULT */
-  --radius-md:   8px;     /* Stitch lg — inputs, sidebar items, inner panels */
-  --radius-lg:   12px;    /* Stitch xl — cards / glass surfaces */
-  --radius-xl:   16px;    /* deeper panels, modals */
-  --radius-pill: 9999px;  /* CTAs & status pills */
+  --radius-sm:   6px;       /* chips */
+  --radius-base: 8px;       /* default (matches login inline input radius) */
+  --radius-md:   12px;      /* inputs, sidebar items, inner panels (login canonical) */
+  --radius-cta:  14px;      /* CTAs — login canonical */
+  --radius-lg:   14px;      /* alias for CTAs */
+  --radius-xl:   28px;      /* glass cards — login canonical */
+  --radius-glass-card: 28px;/* explicit alias for login-style glass cards */
+  --radius-pill: 9999px;    /* status pills, action chips */
 
   /* ============================================================ */
   /* TYPOGRAPHY                                                    */
@@ -235,15 +255,15 @@
   --font-sans: 'Inter', 'DM Sans', 'Segoe UI', Roboto, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, 'Cascadia Code', monospace;
 
-  --font-size-eyebrow: 10.5px;  /* uppercase section labels / eyebrows */
+  --font-size-eyebrow: 12px;    /* login canonical — uppercase section labels */
   --font-size-xs:   11px;
   --font-size-sm:   13px;
-  --font-size-base: 14px;
+  --font-size-base: 14.5px;     /* login canonical body */
   --font-size-md:   16px;
   --font-size-lg:   18px;
-  --font-size-xl:   22px;       /* h3 */
-  --font-size-2xl:  28px;       /* h2 */
-  --font-size-3xl:  36px;       /* h1 */
+  --font-size-xl:   22px;       /* h3 — login canonical */
+  --font-size-2xl:  28px;       /* h2 — login canonical */
+  --font-size-3xl:  36px;       /* h1 — login canonical */
 
   --line-height-xs:   16px;
   --line-height-sm:   18px;
@@ -259,10 +279,11 @@
   --font-weight-semibold: 600;
   --font-weight-bold:     700;
 
-  /* Letter-spacing — tight headings, generous uppercase eyebrows. */
+  /* Letter-spacing — login canonical: tight headings, 0.04em eyebrows. */
   --tracking-h1:      -0.02em;
-  --tracking-h2:      -0.01em;
-  --tracking-eyebrow:  0.12em;
+  --tracking-h2:      -0.015em;
+  --tracking-h3:      -0.01em;
+  --tracking-eyebrow:  0.04em;
 
   /* ============================================================ */
   /* SPACING (4-pt scale)                                          */
@@ -339,39 +360,57 @@ h2 { letter-spacing: var(--tracking-h2); }
 /* COMPONENT RECIPES — glass surfaces, bento, sidebar items      */
 /* ============================================================ */
 
-/* Frosted surface used for stat cards, panel chrome, modals.
-   `backdrop-filter` falls back gracefully on browsers that
-   don't support it — the underlying rgba() white still reads. */
+/* Frosted surface — login canonical recipe. The login card is the
+   reference: rgba(255,255,255,0.72) + backdrop-blur(28px) saturate(160%)
+   + 1px hairline + ambient teal shadow. Every panel inherits this. */
 .glass {
   background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
   border: 1px solid var(--glass-border);
-  border-top: 1.5px solid var(--glass-border-lit);
-  border-left: 1.5px solid var(--glass-border-lit);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-lg),
+              inset 0 1px 0 rgba(255, 255, 255, 0.40);
 }
 .glass-strong {
   background: var(--glass-bg-strong);
   backdrop-filter: blur(var(--glass-blur-strong)) saturate(160%);
   -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(160%);
   border: 1px solid var(--glass-border);
-  border-top: 1.5px solid var(--glass-border-lit);
-  border-left: 1.5px solid var(--glass-border-lit);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl),
+              inset 0 1px 0 rgba(255, 255, 255, 0.50);
 }
 .glass-tint {
   background: var(--glass-bg-tint);
   backdrop-filter: blur(var(--glass-blur)) saturate(160%);
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
-  border: 1px solid rgba(0, 102, 110, 0.18);
-  border-top: 1.5px solid var(--glass-border-lit);
-  border-left: 1.5px solid var(--glass-border-lit);
-  box-shadow: var(--shadow-md);
+  border: 1px solid rgba(0, 143, 153, 0.18);
+  box-shadow: var(--shadow-md),
+              inset 0 1px 0 rgba(255, 255, 255, 0.40);
 }
+
+/* Default glass-card — backwards-compatible 14px radius for legacy
+   surfaces that already cap their visual hierarchy at the inner-panel
+   tier. Promote to .glass-card-xl for login-style hero panels. */
 .glass-card {
   border-radius: var(--radius-lg);
   padding: var(--space-5);
+}
+
+/* Login-canonical hero card — 28px radius + heavy ambient teal
+   shadow. Use for top-level dashboard panels, the case-detail header,
+   the verify-coverage card on /cases/new, etc. */
+.glass-card-xl {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-glass-card);
+  padding: var(--space-8);
+  box-shadow: var(--shadow-glass-card),
+              inset 0 1px 0 rgba(255, 255, 255, 0.60);
+}
+@media (max-width: 640px) {
+  .glass-card-xl { padding: var(--space-6); }
 }
 
 /* Bento grid — autoflow dense so feature tiles can claim
@@ -439,30 +478,33 @@ h2 { letter-spacing: var(--tracking-h2); }
   margin: 18px 0 6px;
 }
 
-/* Accent-amber CTA pill used across the app. Pill-shaped — the radius
-   contrast with the 14px cards signals "interactive trigger" vs "container". */
+/* Accent-amber CTA — login canonical. Gradient #FAA719 → #E89510,
+   14px radius, teal-tinted ambient shadow + amber halo + inset
+   white-30% highlight. Reserved for "do this now" actions —
+   strictly one amber CTA per screen so the urgency signal stays sharp. */
 .btn-cta {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  background: linear-gradient(180deg, #FAB23A 0%, var(--color-accent-500) 100%);
-  color: var(--color-neutral-900);
+  background: linear-gradient(180deg, var(--color-accent-500) 0%, var(--color-accent-600) 100%);
+  color: #FFFFFF;
   font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-sm);
-  padding: 10px 20px;
-  border-radius: var(--radius-pill);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.5) inset,
-    0 4px 15px rgba(250, 167, 26, 0.30);
+  font-size: var(--font-size-base);
+  padding: 12px 24px;
+  border-radius: var(--radius-cta);
+  box-shadow: var(--shadow-cta-amber);
   transition: transform var(--motion-duration-fast) var(--motion-easing-standard),
               box-shadow var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .btn-cta:hover {
   transform: translateY(-1px);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.5) inset,
-    0 8px 22px rgba(250, 167, 26, 0.36);
+    0 16px 32px -8px rgba(250, 167, 25, 0.55),
+    inset 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.btn-cta:active {
+  transform: scale(0.99);
 }
 .btn-cta:disabled {
   opacity: 0.55;
@@ -471,31 +513,34 @@ h2 { letter-spacing: var(--tracking-h2); }
   box-shadow: none;
 }
 
-/* Teal primary gradient — used for inline "Update", "Save", "Submit" actions
-   inside the dashboard chrome (the amber CTA is reserved for top-level moves
-   like Sign in / New case). Stitch reference: primary → primary-container. */
+/* Teal primary — login canonical. Used for inline "Update", "Save",
+   "Submit" actions inside the dashboard chrome. Amber CTA is reserved
+   for top-level moves (Sign in, New case, Verify coverage). */
 .btn-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  background: linear-gradient(180deg, var(--m3-primary-container) 0%, var(--m3-primary) 100%);
+  background: linear-gradient(180deg, var(--m3-primary) 0%, var(--m3-primary-container) 100%);
   color: var(--m3-on-primary);
   font-weight: var(--font-weight-semibold);
-  font-size: var(--font-size-sm);
-  padding: 10px 20px;
-  border-radius: var(--radius-pill);
+  font-size: var(--font-size-base);
+  padding: 12px 24px;
+  border-radius: var(--radius-cta);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.18) inset,
-    0 4px 15px rgba(0, 102, 110, 0.20);
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 12px 28px -8px rgba(0, 80, 86, 0.30);
   transition: transform var(--motion-duration-fast) var(--motion-easing-standard),
               box-shadow var(--motion-duration-fast) var(--motion-easing-standard);
 }
 .btn-primary:hover {
   transform: translateY(-1px);
   box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.18) inset,
-    0 8px 22px rgba(0, 102, 110, 0.28);
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 16px 32px -8px rgba(0, 80, 86, 0.40);
+}
+.btn-primary:active {
+  transform: scale(0.99);
 }
 .btn-primary:disabled {
   opacity: 0.55;
