@@ -52,15 +52,41 @@ const s3Provider: Provider = {
 // factory routes STORAGE_ADAPTER to StubStorageAdapter in stub mode,
 // so this proxy is only ever reached if test/runtime code injects
 // S3StorageAdapter *directly* — which is wrong in stub mode. Any
-// property access throws with a message that names the misuse.
-// Symbol access (toString, inspect, etc.) returns undefined so the
-// proxy survives logging and Nest's internal introspection.
+// adapter-method access throws with a message that names the misuse.
+//
+// Introspection access (Symbol keys + the string-keyed runtime
+// hooks `toString` / `valueOf` / `inspect` / `then` / `constructor`)
+// is handled specially so the proxy survives Node logging,
+// util.inspect, JSON.stringify, and Nest's promise-detection heuristic.
+// Without these escape hatches a stray `console.log(adapter)` or an
+// `await` against a not-actually-a-promise would crash the bootstrap
+// that the proxy is supposed to keep alive.
 //
 // Exported for the regression spec at storage.module.spec.ts.
+const STORAGE_PROXY_SAFE_DESCRIPTOR = '[S3StorageAdapter STORAGE_MODE=stub stand-in]';
+
+// String-keyed runtime hooks that JS uses to convert / introspect the
+// proxy. toString + valueOf must be functions (otherwise String(x)
+// throws "Cannot convert object to primitive value"); the rest just
+// need to read as undefined.
+const STORAGE_PROXY_INTROSPECTION_PROPS: Readonly<Record<string, unknown>> = {
+  toString: () => STORAGE_PROXY_SAFE_DESCRIPTOR,
+  valueOf: () => STORAGE_PROXY_SAFE_DESCRIPTOR,
+  inspect: () => STORAGE_PROXY_SAFE_DESCRIPTOR,
+  then: undefined,
+  constructor: undefined,
+  asymmetricMatch: undefined,
+  nodeType: undefined,
+  $$typeof: undefined,
+};
+
 export function makeStubModeS3StorageAdapter(): S3StorageAdapter {
   return new Proxy({} as S3StorageAdapter, {
     get(_target, prop) {
       if (typeof prop === 'symbol') return undefined;
+      if (prop in STORAGE_PROXY_INTROSPECTION_PROPS) {
+        return STORAGE_PROXY_INTROSPECTION_PROPS[prop];
+      }
       throw new Error(
         `S3StorageAdapter accessed with STORAGE_MODE=stub (property "${String(prop)}"). ` +
           'Set STORAGE_MODE=real, or inject StubStorageAdapter / STORAGE_ADAPTER instead.',
