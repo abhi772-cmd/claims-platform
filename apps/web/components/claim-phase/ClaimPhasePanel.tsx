@@ -7,6 +7,7 @@ import {
 } from '@claims/contracts';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
+import { EligibilityPurposeButton } from '../eligibility/EligibilityPurposeButton';
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
 import { useToast } from '../toast/ToastProvider';
 import { CaseApi } from '../../lib/api/case.api';
@@ -59,10 +60,20 @@ interface Props {
   caseId: string;
   claimId: string;
   status: ClaimStatus;
+  // PMJAY needs a `purpose=auth-requirements` eligibility cycle right
+  // before claim submit so the operator gets the latest doc checklist.
+  // Private rails (NHCX) skip the purpose field; self-pay hides it.
+  rail: 'nhcx' | 'pmjay' | 'self_pay';
   onChanged: () => void;
 }
 
-export function ClaimPhasePanel({ caseId, claimId, status, onChanged }: Props): JSX.Element | null {
+export function ClaimPhasePanel({
+  caseId,
+  claimId,
+  status,
+  rail,
+  onChanged,
+}: Props): JSX.Element | null {
   const { showApiError } = useErrorModal();
   const showToast = useToast();
   const [docs, setDocs] = useState<Document[]>([]);
@@ -234,6 +245,16 @@ export function ClaimPhasePanel({ caseId, claimId, status, onChanged }: Props): 
         <span className="material-symbols-outlined text-primary">medical_information</span>
         <h3 className="text-h3 font-h3 text-on-surface">Discharge &amp; claim</h3>
       </div>
+
+      {rail !== 'self_pay' ? (
+        <EligibilityPurposeButton
+          caseId={caseId}
+          claimId={claimId}
+          rail={rail}
+          purpose="auth-requirements"
+          onCompleted={() => onChanged()}
+        />
+      ) : null}
 
       {/* Documents */}
       <div className="space-y-3">

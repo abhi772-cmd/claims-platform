@@ -9,6 +9,7 @@ import {
 import { useEffect, useState } from 'react';
 
 import { AppealPanel } from '../../../../components/appeal/AppealPanel';
+import { BiometricGateCard } from '../../../../components/biometric/BiometricGateCard';
 import { ClaimPhasePanel } from '../../../../components/claim-phase/ClaimPhasePanel';
 import { CommunicationsPanel } from '../../../../components/communication/CommunicationsPanel';
 import { NonMedicalStripCalculator } from '../../../../components/discharge/NonMedicalStripCalculator';
@@ -248,6 +249,13 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
         </section>
       </div>
 
+      {/* PMJAY beneficiary BIS biometric gate. Self-hides for
+          non-PMJAY cases and after the operator records a
+          verification (or OTP fallback). */}
+      {claim ? (
+        <BiometricGateCard caseId={detail.id} rail={detail.primaryRail} />
+      ) : null}
+
       {/* Insurance plan preview */}
       {claim ? (
         <PlanPreviewCard
@@ -307,6 +315,7 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
           caseId={detail.id}
           claimId={claim.id}
           status={claim.status as ClaimStatus}
+          rail={detail.primaryRail}
           onChanged={() => void reload()}
         />
       ) : null}
@@ -341,6 +350,7 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
           caseId={detail.id}
           claimId={claim.id}
           status={claim.status as ClaimStatus}
+          rail={detail.primaryRail}
           onChanged={() => void reload()}
         />
       ) : null}
