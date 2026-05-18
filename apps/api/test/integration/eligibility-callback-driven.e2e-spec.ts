@@ -47,11 +47,14 @@ async function startMockGateway(
     let body = '';
     for await (const chunk of req) body += chunk;
     try {
-      await decryptFromParticipant(body, gatewayPrivPem);
-      const envelope = { meta: { acknowledged: true }, payload: { acknowledged: true } };
-      const encrypted = await encryptToParticipant(envelope, participantPubPem);
-      res.writeHead(200, { 'content-type': 'application/jose' });
-      res.end(encrypted);
+      // P0.3 — outbound body is { payload: <jwe> } JSON envelope.
+      const envelopeIn = JSON.parse(body) as { payload: string };
+      await decryptFromParticipant(envelopeIn.payload, gatewayPrivPem);
+      const responseBundle = { meta: { acknowledged: true }, payload: { acknowledged: true } };
+      const encrypted = await encryptToParticipant(responseBundle, participantPubPem);
+      // P0.3 — wrap response in JSON envelope too.
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ payload: encrypted }));
     } catch (err) {
       res.writeHead(500, { 'content-type': 'text/plain' });
       res.end(String(err));

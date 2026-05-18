@@ -40,8 +40,10 @@ async function startMockGateway(
     let body = '';
     for await (const chunk of req) body += chunk;
     try {
+      // P0.3 — outbound body is { payload: <jwe> } JSON envelope.
+      const envelopeIn = JSON.parse(body) as { payload: string };
       const decrypted = await decryptFromParticipant<{ meta: { operation: string } }>(
-        body,
+        envelopeIn.payload,
         gatewayPrivPem,
       );
       const op = decrypted.meta?.operation ?? '';
@@ -51,10 +53,11 @@ async function startMockGateway(
           : op === 'claim/submit'
             ? { acknowledged: true, claimRefNum: 'PR-MOCK-CL' }
             : { acknowledged: true };
-      const envelope = { meta: { acknowledged: true }, payload };
-      const encrypted = await encryptToParticipant(envelope, participantPubPem);
-      res.writeHead(200, { 'content-type': 'application/jose' });
-      res.end(encrypted);
+      const responseBundle = { meta: { acknowledged: true }, payload };
+      const encrypted = await encryptToParticipant(responseBundle, participantPubPem);
+      // P0.3 — wrap response in JSON envelope too.
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ payload: encrypted }));
     } catch (err) {
       res.writeHead(500, { 'content-type': 'text/plain' });
       res.end(String(err));
