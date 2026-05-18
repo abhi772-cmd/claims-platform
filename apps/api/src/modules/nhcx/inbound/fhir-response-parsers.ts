@@ -56,9 +56,26 @@ export interface ParsedPreauthDecision {
   approvedAmount?: number;
   reason?: string;
   queryText?: string;
+  // P2.17 — Optional structured audit trail extracted from the
+  // pipe-delimited payer extension. Empty array when the payer
+  // didn't include one.
+  auditTrail?: ParsedAuditTrailEntry[];
 }
 
 export type ParsedClaimDecision = ParsedPreauthDecision;
+
+// P2.17 — PMJAY pipe-delimited audit trail. Surfaced from a
+// ClaimResponse.extension entry, each entry parsed into a structured
+// row so the operator audit trail tab can render it without
+// pipe-string parsing in the UI layer.
+export interface ParsedAuditTrailEntry {
+  // 'submitted' | 'reviewed' | 'queried' | 'partial' | 'approved' | 'rejected' | ...
+  event: string;
+  // IST date string (gateway-native format YYYY-MM-DD HH:mm:ss).
+  occurredAt: string;
+  // Free-form actor handle from the payer side.
+  actor: string;
+}
 
 export interface ParsedCommunication {
   // 'query' = inbound query from payer (creates a PreauthQuery row).
@@ -479,6 +496,13 @@ function parseClaimLikeResponse(
   }
   const disposition =
     typeof r['disposition'] === 'string' ? r['disposition'].toLowerCase() : '';
+  // P2.17 — payer-side reason coding. PMJAY ships 'queried' as a
+  // separate `reasonCode` extension when they want us to respond
+  // mid-flow without flipping the outcome. We detect it explicitly
+  // so the 'partial' branch below doesn't get false-positives.
+  const reasonCode = extractReasonCode(r);
+  const auditTrail = extractAuditTrail(r);
+  const auditTrailField = auditTrail.length > 0 ? { auditTrail } : {};
 
   if (outcome === 'queued') {
     // Some payers return queued + a question in disposition rather
@@ -487,6 +511,20 @@ function parseClaimLikeResponse(
     return {
       kind: 'query_received',
       queryText: typeof r['disposition'] === 'string' ? r['disposition'] : 'Payer query',
+      ...auditTrailField,
+    };
+  }
+
+  // P2.17 — PMJAY's `outcome='partial'` with `reasonCode='queried'`
+  // is functionally the same as `outcome='queued'`: the payer wants
+  // a response before they finalize. Route to query_received so the
+  // claim flips into CLAIM_QUERY_RAISED rather than the partial
+  // approval branch below.
+  if (outcome === 'partial' && reasonCode === 'queried') {
+    return {
+      kind: 'query_received',
+      queryText: typeof r['disposition'] === 'string' ? r['disposition'] : 'Payer query',
+      ...auditTrailField,
     };
   }
 
@@ -502,12 +540,14 @@ function parseClaimLikeResponse(
         kind: 'partially_approved',
         ...(approvedAmount !== undefined ? { approvedAmount } : {}),
         reason: typeof r['disposition'] === 'string' ? r['disposition'] : undefined,
+        ...auditTrailField,
       };
     }
     return {
       kind: 'approved',
       ...(approvedAmount !== undefined ? { approvedAmount } : {}),
       ...(typeof r['disposition'] === 'string' ? { reason: r['disposition'] } : {}),
+      ...auditTrailField,
     };
   }
 
@@ -516,13 +556,68 @@ function parseClaimLikeResponse(
       kind: 'approved',
       ...(approvedAmount !== undefined ? { approvedAmount } : {}),
       ...(typeof r['disposition'] === 'string' ? { reason: r['disposition'] } : {}),
+      ...auditTrailField,
     };
   }
 
   return {
     kind: 'rejected',
     ...(typeof r['disposition'] === 'string' ? { reason: r['disposition'] } : {}),
+    ...auditTrailField,
   };
+}
+
+// P2.17 — payer-side reason coding extracted from a documented
+// FHIR extension. Returns lowercase string for case-insensitive
+// matching. Returns undefined when the extension is absent.
+function extractReasonCode(r: Record<string, unknown>): string | undefined {
+  const ext = r['extension'];
+  if (!Array.isArray(ext)) return undefined;
+  for (const e of ext) {
+    if (!isObject(e)) continue;
+    if (
+      e['url'] === 'https://nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimResponseReasonCode' ||
+      e['url'] === 'https://hcx.pmjay.nha.gov.in/StructureDefinition/reasonCode'
+    ) {
+      const v = e['valueString'] ?? e['valueCode'];
+      if (typeof v === 'string') return v.toLowerCase();
+    }
+  }
+  return undefined;
+}
+
+// P2.17 — PMJAY pipe-delimited audit-trail parser. The payer puts
+// the case's processing history in a single string extension shaped
+// as `event|YYYY-MM-DD HH:mm:ss|actor` rows separated by newlines.
+// Returns an empty array when the extension is absent or the rows
+// don't match the documented shape.
+function extractAuditTrail(r: Record<string, unknown>): ParsedAuditTrailEntry[] {
+  const ext = r['extension'];
+  if (!Array.isArray(ext)) return [];
+  let raw: string | undefined;
+  for (const e of ext) {
+    if (!isObject(e)) continue;
+    if (
+      e['url'] === 'https://nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimResponseAuditTrail' ||
+      e['url'] === 'https://hcx.pmjay.nha.gov.in/StructureDefinition/auditTrail'
+    ) {
+      const v = e['valueString'];
+      if (typeof v === 'string') {
+        raw = v;
+        break;
+      }
+    }
+  }
+  if (!raw) return [];
+  const out: ParsedAuditTrailEntry[] = [];
+  for (const line of raw.split(/\r?\n/)) {
+    const parts = line.split('|').map((p) => p.trim());
+    if (parts.length < 3) continue;
+    const [event, occurredAt, actor] = parts;
+    if (!event || !occurredAt || !actor) continue;
+    out.push({ event, occurredAt, actor });
+  }
+  return out;
 }
 
 function extractApprovedAmount(r: Record<string, unknown>): number | undefined {
