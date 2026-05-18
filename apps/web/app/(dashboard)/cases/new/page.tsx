@@ -254,7 +254,7 @@ export default function NewCasePage(): JSX.Element {
               <h3 className="text-h3 font-h3 text-on-surface">Verify coverage</h3>
             </div>
             <p className="mb-4 text-body-sm text-on-surface-variant">
-              Look up the patient's policy before creating the case. Auto-fills
+              Look up the patient&apos;s policy before creating the case. Auto-fills
               the room-rent limit below and previews the plan, sum insured,
               deductible, and co-pay.
             </p>
