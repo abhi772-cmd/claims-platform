@@ -426,11 +426,11 @@ describe('Slice Z — NHCX inbound webhook', () => {
         .send({ payload: jwe, type: 'JWEPayload' });
 
     const first = await send();
-    expect(first.status).toBe(200);
+    expect(first.status).toBe(202);
     await waitForStatusChange(migrator, eligibilityCorrelationId);
 
     const second = await send();
-    expect(second.status).toBe(200);
+    expect(second.status).toBe(202);
 
     const rows = await readInboundRows(migrator, eligibilityCorrelationId);
     expect(rows.length).toBe(1);

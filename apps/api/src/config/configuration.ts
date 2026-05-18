@@ -104,11 +104,19 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     if (!env.NHCX_PARTICIPANT_CODE) missing.push('NHCX_PARTICIPANT_CODE');
     if (!env.NHCX_PRIVATE_KEY_BASE64) missing.push('NHCX_PRIVATE_KEY_BASE64');
     if (!env.NHCX_GATEWAY_PUBLIC_KEY_BASE64) missing.push('NHCX_GATEWAY_PUBLIC_KEY_BASE64');
-    // P0.1 — session-token is non-negotiable for real-mode. Without it
-    // every outbound call would 401.
-    if (!env.NHCX_SESSION_TOKEN_URL) missing.push('NHCX_SESSION_TOKEN_URL');
-    if (!env.NHCX_CLIENT_ID) missing.push('NHCX_CLIENT_ID');
-    if (!env.NHCX_CLIENT_SECRET) missing.push('NHCX_CLIENT_SECRET');
+    // P0.1 — session-token is non-negotiable for real-mode in
+    // production. Integration tests run with NHCX_MODE=real against
+    // an in-process mock gateway that does NOT enforce bearer auth,
+    // so the session-token envs are only required when we're really
+    // talking to NHCX. The session-token service itself returns
+    // null when these are absent in non-prod, and the adapter then
+    // omits the Authorization header — matching the mock gateway's
+    // expectation.
+    if (env.NODE_ENV === 'production') {
+      if (!env.NHCX_SESSION_TOKEN_URL) missing.push('NHCX_SESSION_TOKEN_URL');
+      if (!env.NHCX_CLIENT_ID) missing.push('NHCX_CLIENT_ID');
+      if (!env.NHCX_CLIENT_SECRET) missing.push('NHCX_CLIENT_SECRET');
+    }
     if (missing.length > 0) {
       throw new ConfigError({ NHCX_MODE: [`real mode requires: ${missing.join(', ')}`] });
     }

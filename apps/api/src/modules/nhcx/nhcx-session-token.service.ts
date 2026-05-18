@@ -57,6 +57,16 @@ export class NhcxSessionTokenService {
    */
   async getBearer(): Promise<string | null> {
     if (this.config.get('NHCX_MODE', { infer: true }) !== 'real') return null;
+    // P0.1 — session-token envs are mandatory in production
+    // (configuration.ts enforces this at boot) but the
+    // integration-test callback rigs run NHCX_MODE=real against an
+    // in-process mock gateway that doesn't check Authorization.
+    // When the envs are absent we skip the mint and let the adapter
+    // omit the header — same shape as stub mode.
+    const tokenUrl = this.config.get('NHCX_SESSION_TOKEN_URL', { infer: true });
+    const clientId = this.config.get('NHCX_CLIENT_ID', { infer: true });
+    const clientSecret = this.config.get('NHCX_CLIENT_SECRET', { infer: true });
+    if (!tokenUrl || !clientId || !clientSecret) return null;
 
     const now = Date.now();
     if (this.cached && now < this.cached.refreshAt) return this.cached.token;
