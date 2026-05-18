@@ -374,10 +374,20 @@ function CaptchaField({
   verified: boolean;
   setVerified: (v: boolean) => void;
 }): JSX.Element {
-  const [code, setCode] = useState<string>(() => genCode());
+  // Captcha code is generated on the client only — calling Math.random
+   // during initial state would produce a different value on the server
+   // render vs the client hydration, triggering a React hydration
+   // mismatch (Next.js surfaces this as "1 error" in the dev indicator).
+   // We start with an empty string and seed the real code in useEffect
+   // so SSR + first client render agree.
+  const [code, setCode] = useState<string>('');
   const [value, setValue] = useState('');
   const [shake, setShake] = useState(false);
   const [focused, setFocused] = useState(false);
+
+  useEffect(() => {
+    if (code === '') setCode(genCode());
+  }, [code]);
 
   // Deterministic per-character visual jitter, recomputed when code changes.
   const styled = useMemo(() => {
@@ -397,6 +407,13 @@ function CaptchaField({
   }, [setVerified]);
 
   useEffect(() => {
+    // Before the post-mount useEffect seeds the captcha, code === ''.
+    // Skip verification in that window so a blank input can't be
+    // interpreted as "value matches code".
+    if (code.length === 0) {
+      setVerified(false);
+      return undefined;
+    }
     if (value.length === code.length) {
       if (value.toUpperCase() === code) {
         setVerified(true);
@@ -448,35 +465,39 @@ function CaptchaField({
             preserveAspectRatio="none"
             className="pointer-events-none absolute inset-0"
           >
-            <path
-              d={`M0 ${10 + (code.charCodeAt(0) % 20)} Q 60 ${
-                40 + (code.charCodeAt(1) % 10)
-              } 120 ${20 + (code.charCodeAt(2) % 18)} T 200 ${
-                24 + (code.charCodeAt(3) % 16)
-              }`}
-              stroke="rgba(11,42,44,0.18)"
-              strokeWidth={1.2}
-              fill="none"
-            />
-            <path
-              d={`M0 ${36 - (code.charCodeAt(1) % 14)} Q 80 ${
-                10 + (code.charCodeAt(2) % 20)
-              } 160 ${42 - (code.charCodeAt(3) % 18)} T 200 ${
-                30 + (code.charCodeAt(4) % 12)
-              }`}
-              stroke="rgba(11,42,44,0.18)"
-              strokeWidth={1}
-              fill="none"
-            />
-            {styled.map((s, i) => (
-              <circle
-                key={i}
-                cx={20 + i * 30 + (s.rot % 5)}
-                cy={28 + s.dy}
-                r={1}
-                fill="rgba(11,42,44,0.18)"
-              />
-            ))}
+            {code.length > 0 ? (
+              <>
+                <path
+                  d={`M0 ${10 + (code.charCodeAt(0) % 20)} Q 60 ${
+                    40 + (code.charCodeAt(1) % 10)
+                  } 120 ${20 + (code.charCodeAt(2) % 18)} T 200 ${
+                    24 + (code.charCodeAt(3) % 16)
+                  }`}
+                  stroke="rgba(11,42,44,0.18)"
+                  strokeWidth={1.2}
+                  fill="none"
+                />
+                <path
+                  d={`M0 ${36 - (code.charCodeAt(1) % 14)} Q 80 ${
+                    10 + (code.charCodeAt(2) % 20)
+                  } 160 ${42 - (code.charCodeAt(3) % 18)} T 200 ${
+                    30 + (code.charCodeAt(4) % 12)
+                  }`}
+                  stroke="rgba(11,42,44,0.18)"
+                  strokeWidth={1}
+                  fill="none"
+                />
+                {styled.map((s, i) => (
+                  <circle
+                    key={i}
+                    cx={20 + i * 30 + (s.rot % 5)}
+                    cy={28 + s.dy}
+                    r={1}
+                    fill="rgba(11,42,44,0.18)"
+                  />
+                ))}
+              </>
+            ) : null}
           </svg>
           <div
             className="relative flex"
