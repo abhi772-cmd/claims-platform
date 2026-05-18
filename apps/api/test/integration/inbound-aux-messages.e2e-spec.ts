@@ -173,7 +173,7 @@ describe('Slice BD — auxiliary inbound messages (insuranceplan + task)', () =>
     const res = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email, password: PASSWORD });
-    expect(res.status).toBe(202);
+    expect(res.status).toBe(200);
     const raw = res.headers['set-cookie'] as unknown as string[] | string | undefined;
     return (Array.isArray(raw) ? raw : raw ? [raw] : [])
       .map((c) => c.split(';')[0])
