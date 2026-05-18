@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { EligibilityPreflightController } from './eligibility-preflight.controller';
 import { EligibilityController } from './eligibility.controller';
 import { EligibilityService } from './eligibility.service';
 import { CaseModule } from '../case';
@@ -12,7 +13,7 @@ import { TenantModule } from '../tenant/tenant.module';
 // PMJAY-mode lookup that drives the three-purpose dispatch gate.
 @Module({
   imports: [ClaimModule, CaseModule, TenantModule],
-  controllers: [EligibilityController],
+  controllers: [EligibilityController, EligibilityPreflightController],
   providers: [EligibilityService],
   exports: [EligibilityService],
 })

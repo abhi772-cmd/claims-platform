@@ -535,4 +535,78 @@ export class EligibilityService implements OnApplicationBootstrap {
     );
     return 'succeeded';
   }
+
+  // ---- Preflight (new-case eligibility-first flow) ---------------
+  //
+  // The operator on /cases/new calls this BEFORE creating the case
+  // so they can see plan + sum insured + deductible + co-pay + room
+  // limit and auto-fill the intake form. Deliberately bypasses the
+  // case/claim/integration_message chain — it's a sandbox lookup
+  // with no audit footprint until the operator commits the case.
+  //
+  // Stub mode returns synthesised benefits; the JWE adapter returns
+  // them as null because real-mode NHCX surfaces benefits via the
+  // async callback (parser already handles that in the post-case
+  // path). When that happens the form falls back to "Coverage
+  // verified — details will appear after the gateway responds."
+  async verifyByIdentifiers(
+    tenantId: string,
+    input: {
+      patientName: string;
+      hospitalMrn: string;
+      payerCode: string;
+      policyNumber?: string;
+      abhaId?: string;
+      aadhaar?: string;
+      serviceDate?: string;
+    },
+  ): Promise<{
+    verified: boolean;
+    correlationId: string;
+    planName: string | null;
+    sumInsuredRupees: number | null;
+    deductibleRupees: number | null;
+    coPayPercent: number | null;
+    coPayRupees: number | null;
+    roomRentLimitRupees: number | null;
+    failureReason: string | null;
+  }> {
+    // Placeholder claimId for the adapter — it expects one for
+    // idempotency / log-stitching but no DB row is associated.
+    const placeholderClaimId = randomUUID();
+    const memberId = input.policyNumber ?? input.abhaId ?? input.aadhaar ?? '';
+    const result = await this.nhcx.verifyEligibility({
+      tenantId,
+      claimId: placeholderClaimId,
+      hospitalMrn: input.hospitalMrn,
+      patientName: input.patientName,
+      ...(input.policyNumber ? { policyNumber: input.policyNumber } : {}),
+      payerCode: input.payerCode,
+      patient: {
+        fullName: input.patientName,
+        hospitalMrn: input.hospitalMrn,
+        ...(input.abhaId ? { abhaId: input.abhaId } : {}),
+        ...(input.policyNumber ? { policyNumber: input.policyNumber } : {}),
+      },
+      coverage: {
+        payerCode: input.payerCode,
+        memberId,
+      },
+      ...(input.serviceDate ? { serviceDate: input.serviceDate } : {}),
+    });
+    this.log.log(
+      `eligibility preflight tenantId=${tenantId} mrn=${input.hospitalMrn} verified=${result.verified} correlationId=${result.correlationId}`,
+    );
+    return {
+      verified: result.verified,
+      correlationId: result.correlationId,
+      planName: result.planName ?? null,
+      sumInsuredRupees: result.sumInsured ?? null,
+      deductibleRupees: result.benefits?.deductibleRupees ?? null,
+      coPayPercent: result.benefits?.coPayPercent ?? null,
+      coPayRupees: result.benefits?.coPayRupees ?? null,
+      roomRentLimitRupees: result.benefits?.roomRentLimitRupees ?? null,
+      failureReason: result.failureReason ?? null,
+    };
+  }
 }
