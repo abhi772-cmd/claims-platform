@@ -9,6 +9,7 @@ import {
   NHCX_KEY_RESOLVER,
   NhcxKeyResolverProvider,
 } from './nhcx-key-resolver';
+import { NhcxProcessingIdCacheService } from './nhcx-processing-id-cache.service';
 import { NhcxSessionTokenService } from './nhcx-session-token.service';
 import { NhcxStubAdapter } from './nhcx-stub.adapter';
 import { type AppConfig } from '../../config/configuration';
@@ -38,6 +39,7 @@ const adapterProvider: Provider = {
     EnvKeyResolver,
     NhcxKeyResolverProvider,
     NhcxSessionTokenService,
+    NhcxProcessingIdCacheService,
     adapterProvider,
     FhirContextService,
   ],
@@ -47,6 +49,7 @@ const adapterProvider: Provider = {
     NhcxStubAdapter,
     NhcxJweAdapter,
     NhcxSessionTokenService,
+    NhcxProcessingIdCacheService,
     EnvKeyResolver,
     FhirContextService,
   ],

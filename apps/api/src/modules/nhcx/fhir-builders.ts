@@ -44,6 +44,16 @@ export interface FhirPatientFields {
   // Adapter logs redact these per CLAUDE.md rule 8 before write.
   abhaId?: string;
   policyNumber?: string;
+  // P1.8 — PMJAY-specific identifiers. The bundle builder maps each
+  // to its NRCeS-defined system URI + identifier 'type' coding so
+  // the payer can disambiguate when the same patient carries
+  // multiple government health IDs.
+  pmjayBeneficiaryId?: string; // 'PMJAY' identifier type
+  jhn?: string; // Jan Health Number — 'JHN' identifier type
+  personalIdentifier?: string; // generic personal identifier — 'PI' type
+  // Aadhaar — only included when the operator captured it with explicit
+  // consent. Adapter logs MUST redact via RedactedLogger per rule 8.
+  aadhaar?: string;
 }
 
 export interface FhirCoverageFields {
@@ -53,6 +63,42 @@ export interface FhirCoverageFields {
   // Member id on the policy. May be the policy number for private
   // rails, the PMJAY beneficiary id for the gov rail.
   memberId: string;
+  // P1.11 — Coverage richness. NHCX requires the policy holder
+  // (subscriber/employer/family-head depending on the rail), the
+  // policy period, and a coverage type coding. Optional because
+  // PMJAY discovery flows omit the type entirely.
+  policyHolderName?: string;
+  periodStart?: string; // YYYY-MM-DD
+  periodEnd?: string; // YYYY-MM-DD
+  // FHIR Coverage.type code — typically 'EHCPOL' (extended health
+  // care policy) for private cashless, 'PMJAY' for the gov rail.
+  // The builder maps this to the canonical coverage-type system.
+  coverageType?: 'EHCPOL' | 'PUBLICPOL' | 'PMJAY';
+}
+
+// P1.9 — Practitioner with HPIN. Used on Claim.careTeam[] to identify
+// the treating physician with their NHA-issued Health Professional ID.
+export interface FhirPractitionerFields {
+  fullName: string;
+  // 14-digit Health Professional Identifier issued by NHA HPR.
+  hpin: string;
+  // Optional registered qualification code (MD / MBBS / etc.).
+  qualification?: string;
+}
+
+// P1.10 — Organization (hospital/provider) NHA identifiers. The
+// builder also emits the payer's HFR Facility ID when available
+// on the receiver actor. NPI / NIIP optional; HFR strongly
+// recommended by NHCX.
+export interface FhirOrganizationIdentifiers {
+  // NHA Health Facility Registry ID (10-digit) — primary canonical
+  // identifier for any registered hospital.
+  hfrFacilityId?: string;
+  // National Provider Identifier — NHA + IRDAI cross-rail code.
+  npi?: string;
+  // National Insurance Industry Portal code — used by some payers
+  // to map participants back to their internal master.
+  niip?: string;
 }
 
 // Slice BK — PMJAY runs eligibility with a single-purpose array per
@@ -67,6 +113,70 @@ export interface FhirEligibilityRequestInput extends FhirDeterminismDeps {
   coverage: FhirCoverageFields;
   serviceDate: string; // YYYY-MM-DD
   purpose?: FhirEligibilityPurpose;
+}
+
+// P1.13 — supportingInfo category split. NHCX requires structured
+// data (diagnosis, history, clinical) to land under specific
+// categories so the payer's adjudication pipeline can index them
+// separately from unstructured proof-of-identity / OT-notes
+// attachments. Each entry pairs a category code with either a
+// value (structured) or an attachment reference (unstructured).
+export type FhirSupportingInfoCategory =
+  // structured
+  | 'DIA' // diagnosis support
+  | 'HDS' // history / discharge summary
+  | 'CD' // clinical data
+  | 'INF' // information
+  // unstructured / attachment
+  | 'POI' // proof of identity
+  | 'OTHER';
+
+export interface FhirSupportingInfoStructured {
+  category: 'DIA' | 'HDS' | 'CD' | 'INF';
+  text: string;
+}
+
+export interface FhirSupportingInfoAttachment {
+  category: 'POI' | 'OTHER';
+  // Reference to the Binary resource the payer pulls via a separate
+  // Document operation. The builder emits a Binary/{id} URN.
+  documentId: string;
+  // Optional content-type for typed attachment guards. NHCX rejects
+  // attachments without a contentType when the category is POI.
+  contentType?: string;
+  // Optional file size for attachment guards. The builder emits a
+  // Communication-bound .size extension when both contentType and
+  // sizeBytes are provided.
+  sizeBytes?: number;
+  // Optional SHA-256 hash for attachment integrity verification.
+  // Hex-encoded. The builder maps to FHIR Attachment.hash.
+  sha256?: string;
+}
+
+export type FhirSupportingInfoEntry =
+  | FhirSupportingInfoStructured
+  | FhirSupportingInfoAttachment;
+
+// Discriminator — TypeScript's CFA can't narrow the union solely on a
+// list of category strings, so we make the predicate explicit. Used
+// once inside the bundle builder.
+function isStructuredSupportingInfo(
+  e: FhirSupportingInfoEntry,
+): e is FhirSupportingInfoStructured {
+  return e.category === 'DIA' || e.category === 'HDS' || e.category === 'CD' || e.category === 'INF';
+}
+
+// P1.14 — Mandatory date codes. PMJAY rejects bundles missing the
+// admission/discharge/EDT codes for inpatient encounters. The
+// builder maps each to a supportingInfo entry with the documented
+// category code so the payer can index them on intake.
+export interface FhirEncounterDates {
+  // EDT — Estimated Date of Treatment (planned admission)
+  edt?: string; // YYYY-MM-DD
+  // ADDD — Admission Date (actual)
+  addd?: string; // YYYY-MM-DD
+  // DTH — Date of Discharge
+  dth?: string; // YYYY-MM-DD
 }
 
 export interface FhirPreauthSubmitInput extends FhirDeterminismDeps {
@@ -84,6 +194,22 @@ export interface FhirPreauthSubmitInput extends FhirDeterminismDeps {
   estimatedLengthOfStayDays?: number | null;
   requestedAmount?: number | null; // paise; converted to FHIR Money
   clinicalJustification?: string;
+  // P1.9 — Optional treating-physician Practitioner. When supplied,
+  // the builder emits a Practitioner resource with the HPIN identifier
+  // and references it from Claim.careTeam[].
+  practitioner?: FhirPractitionerFields;
+  // P1.10 — Optional provider organization identifiers. The
+  // sender's Organization resource carries these as Identifier
+  // entries beside the participant code.
+  providerIdentifiers?: FhirOrganizationIdentifiers;
+  // P1.13 — Optional supportingInfo split. Existing
+  // (diagnosis/procedure/estimatedLengthOfStayDays) keep working
+  // unchanged; supportingInfo[] is additive and lets callers stamp
+  // the documented DIA/HDS/CD/INF/POI/OTHER categories cleanly.
+  supportingInfo?: FhirSupportingInfoEntry[];
+  // P1.14 — Optional EDT / ADDD / DTH dates. Builder maps each to
+  // a supportingInfo entry with the spec-mandated category code.
+  encounterDates?: FhirEncounterDates;
 }
 
 export interface FhirClaimSubmitInput extends FhirPreauthSubmitInput {
@@ -189,17 +315,64 @@ const DEFAULT_BUNDLE_SYSTEM = 'https://nrces.in/ndhm/fhir/r4/Bundle';
 const makeUrn = (uuid: () => string) => (resource: string): string =>
   `urn:uuid:${uuid()}-${resource}`;
 
+// Canonical NRCeS / NHA identifier systems. Kept in one place so the
+// gateway's URI-equality check sees the same string everywhere.
+const IDENT_SYSTEM_MRN = 'urn:digisparsh:hospital:mrn';
+const IDENT_SYSTEM_ABHA = 'https://healthid.abdm.gov.in';
+const IDENT_SYSTEM_PMJAY = 'https://pmjay.gov.in/beneficiary';
+const IDENT_SYSTEM_JHN = 'https://hcx.pmjay.nha.gov.in/jhn';
+const IDENT_SYSTEM_PI = 'urn:nrces:fhir:r4:CodeSystem:personal-identifier';
+const IDENT_SYSTEM_AADHAAR = 'https://uidai.gov.in';
+const IDENT_SYSTEM_HPIN = 'https://hpr.abdm.gov.in/hpid';
+const IDENT_SYSTEM_HFR = 'https://facility.abdm.gov.in';
+const IDENT_SYSTEM_NPI = 'https://nha.gov.in/CodeSystem/npi';
+const IDENT_SYSTEM_NIIP = 'https://niip.irdai.gov.in/participant';
+const IDENT_TYPE_SYSTEM_V2 = 'http://terminology.hl7.org/CodeSystem/v2-0203';
+
 function patientResource(p: FhirPatientFields, urn: string): Record<string, unknown> {
   const identifier: Array<Record<string, unknown>> = [
     {
-      system: 'urn:digisparsh:hospital:mrn',
+      type: { coding: [{ system: IDENT_TYPE_SYSTEM_V2, code: 'MR' }] },
+      system: IDENT_SYSTEM_MRN,
       value: p.hospitalMrn,
     },
   ];
   if (p.abhaId) {
     identifier.push({
-      system: 'https://healthid.abdm.gov.in',
+      type: { coding: [{ system: IDENT_TYPE_SYSTEM_V2, code: 'ABHA' }] },
+      system: IDENT_SYSTEM_ABHA,
       value: p.abhaId,
+    });
+  }
+  // P1.8 — PMJAY / JHN / PI / Aadhaar identifier types. Order
+  // matters for payer adjudication: the first identifier the payer
+  // recognises wins, so we put the most-specific (PMJAY) first.
+  if (p.pmjayBeneficiaryId) {
+    identifier.push({
+      type: { coding: [{ system: IDENT_TYPE_SYSTEM_V2, code: 'PMJAY' }] },
+      system: IDENT_SYSTEM_PMJAY,
+      value: p.pmjayBeneficiaryId,
+    });
+  }
+  if (p.jhn) {
+    identifier.push({
+      type: { coding: [{ system: IDENT_TYPE_SYSTEM_V2, code: 'JHN' }] },
+      system: IDENT_SYSTEM_JHN,
+      value: p.jhn,
+    });
+  }
+  if (p.personalIdentifier) {
+    identifier.push({
+      type: { coding: [{ system: IDENT_TYPE_SYSTEM_V2, code: 'PI' }] },
+      system: IDENT_SYSTEM_PI,
+      value: p.personalIdentifier,
+    });
+  }
+  if (p.aadhaar) {
+    identifier.push({
+      type: { coding: [{ system: IDENT_TYPE_SYSTEM_V2, code: 'NI' }] },
+      system: IDENT_SYSTEM_AADHAAR,
+      value: p.aadhaar,
     });
   }
   const nameParts = p.fullName.trim().split(/\s+/);
@@ -222,13 +395,70 @@ function patientResource(p: FhirPatientFields, urn: string): Record<string, unkn
   return resource;
 }
 
-function organizationResource(code: string, displayName: string | undefined): Record<string, unknown> {
+function organizationResource(
+  code: string,
+  displayName: string | undefined,
+  // P1.10 — optional NHA identifiers (HFR / NPI / NIIP). The participant
+  // code stays as the first identifier for back-compat with existing
+  // payer-side allowlists.
+  extra?: FhirOrganizationIdentifiers,
+): Record<string, unknown> {
+  const identifier: Array<Record<string, unknown>> = [
+    { system: 'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-organization', value: code },
+  ];
+  if (extra?.hfrFacilityId) {
+    identifier.push({
+      type: { coding: [{ system: IDENT_TYPE_SYSTEM_V2, code: 'HFR' }] },
+      system: IDENT_SYSTEM_HFR,
+      value: extra.hfrFacilityId,
+    });
+  }
+  if (extra?.npi) {
+    identifier.push({
+      type: { coding: [{ system: IDENT_TYPE_SYSTEM_V2, code: 'NPI' }] },
+      system: IDENT_SYSTEM_NPI,
+      value: extra.npi,
+    });
+  }
+  if (extra?.niip) {
+    identifier.push({
+      type: { coding: [{ system: IDENT_TYPE_SYSTEM_V2, code: 'NIIP' }] },
+      system: IDENT_SYSTEM_NIIP,
+      value: extra.niip,
+    });
+  }
   return {
     resourceType: 'Organization',
     id: `urn:digisparsh:org:${code}`,
-    identifier: [{ system: 'https://nrces.in/ndhm/fhir/r4/CodeSystem/ndhm-organization', value: code }],
+    identifier,
     name: displayName ?? code,
   };
+}
+
+function practitionerResource(
+  p: FhirPractitionerFields,
+  urn: string,
+): Record<string, unknown> {
+  const resource: Record<string, unknown> = {
+    resourceType: 'Practitioner',
+    id: urn,
+    identifier: [
+      {
+        type: { coding: [{ system: IDENT_TYPE_SYSTEM_V2, code: 'HPIN' }] },
+        system: IDENT_SYSTEM_HPIN,
+        value: p.hpin,
+      },
+    ],
+    name: [{ text: p.fullName }],
+  };
+  if (p.qualification) {
+    resource['qualification'] = [
+      {
+        code: { text: p.qualification },
+      },
+    ];
+  }
+  return resource;
 }
 
 function coverageResource(
@@ -237,7 +467,7 @@ function coverageResource(
   payerUrn: string,
   urn: string,
 ): Record<string, unknown> {
-  return {
+  const resource: Record<string, unknown> = {
     resourceType: 'Coverage',
     id: urn,
     status: 'active',
@@ -245,6 +475,29 @@ function coverageResource(
     beneficiary: { reference: patientUrn },
     payor: [{ reference: payerUrn }],
   };
+  // P1.11 — Coverage.type / period / policyHolder. NHCX rejects
+  // private-rail bundles missing the type coding; PMJAY rejects
+  // bundles missing the period.
+  if (c.coverageType) {
+    resource['type'] = {
+      coding: [
+        {
+          system: 'http://terminology.hl7.org/CodeSystem/coverage-selfpay',
+          code: c.coverageType,
+        },
+      ],
+    };
+  }
+  if (c.policyHolderName) {
+    resource['policyHolder'] = { display: c.policyHolderName };
+  }
+  if (c.periodStart || c.periodEnd) {
+    resource['period'] = {
+      ...(c.periodStart ? { start: c.periodStart } : {}),
+      ...(c.periodEnd ? { end: c.periodEnd } : {}),
+    };
+  }
+  return resource;
 }
 
 // ---- Public builders ----------------------------------------
@@ -314,6 +567,7 @@ function claimResource(
   ts: string,
   finalAmountPaise?: number,
   documentIds?: string[],
+  practitionerUrn?: string,
 ): Record<string, unknown> {
   const amount = finalAmountPaise ?? input.requestedAmount ?? 0;
   const claim: Record<string, unknown> = {
@@ -326,8 +580,17 @@ function claimResource(
       },
     ],
     status: 'active',
+    // P1.12 — NHCX uses SNOMED 737481003 ("Inpatient encounter") as
+    // the canonical Claim.type for hospitalization. We keep the HL7
+    // institutional code as a parallel coding for back-compat with
+    // payer-side dashboards that haven't migrated to SNOMED yet.
     type: {
       coding: [
+        {
+          system: 'http://snomed.info/sct',
+          code: '737481003',
+          display: 'Inpatient encounter',
+        },
         {
           system: 'http://terminology.hl7.org/CodeSystem/claim-type',
           code: 'institutional',
@@ -349,6 +612,26 @@ function claimResource(
     ],
     total: { value: amount / 100, currency: 'INR' },
   };
+  // P1.12 — careTeam[] references the treating physician's
+  // Practitioner resource when one was supplied. The role coding
+  // marks the entry as 'primary' so payers can identify the
+  // attending physician at a glance.
+  if (practitionerUrn) {
+    claim['careTeam'] = [
+      {
+        sequence: 1,
+        provider: { reference: practitionerUrn },
+        role: {
+          coding: [
+            {
+              system: 'http://terminology.hl7.org/CodeSystem/claimcareteamrole',
+              code: 'primary',
+            },
+          ],
+        },
+      },
+    ];
+  }
   if (input.diagnosisIcdCode || input.diagnosisDescription) {
     claim['diagnosis'] = [
       {
@@ -393,27 +676,143 @@ function claimResource(
       },
     ];
   }
+  // P1.13 / P1.14 — supportingInfo is the union of:
+  //   1. estimatedLengthOfStay (legacy quantity, kept for back-compat)
+  //   2. structured entries (DIA / HDS / CD / INF) from input.supportingInfo
+  //   3. encounterDates (EDT / ADDD / DTH) mapped per category code
+  //   4. attachment entries (POI / OTHER) from input.supportingInfo
+  //   5. legacy documentIds (kept for back-compat; emits OTHER-category)
+  // Each entry gets a unique sequence so payer adjudication can cite
+  // them back by index.
+  const supportingInfo: Array<Record<string, unknown>> = [];
+  let seq = 0;
+
   if (input.estimatedLengthOfStayDays && input.estimatedLengthOfStayDays > 0) {
-    claim['supportingInfo'] = [
-      {
-        sequence: 1,
-        category: { coding: [{ code: 'hospitalized' }] },
-        valueQuantity: { value: input.estimatedLengthOfStayDays, unit: 'days' },
+    seq += 1;
+    supportingInfo.push({
+      sequence: seq,
+      category: { coding: [{ code: 'hospitalized' }] },
+      valueQuantity: { value: input.estimatedLengthOfStayDays, unit: 'days' },
+    });
+  }
+  // P1.14 — mandatory date codes EDT / ADDD / DTH per NHCX PMJAY
+  // §5.6. Each gets its own supportingInfo entry with the spec
+  // category code so the payer's intake pipeline can pull them by
+  // category without scanning text.
+  const ds = input.encounterDates;
+  if (ds?.edt) {
+    seq += 1;
+    supportingInfo.push({
+      sequence: seq,
+      category: {
+        coding: [
+          {
+            system: 'https://nrces.in/ndhm/fhir/r4/CodeSystem/claim-supporting-info-category',
+            code: 'EDT',
+            display: 'Estimated date of treatment',
+          },
+        ],
       },
-    ];
+      valueString: ds.edt,
+    });
+  }
+  if (ds?.addd) {
+    seq += 1;
+    supportingInfo.push({
+      sequence: seq,
+      category: {
+        coding: [
+          {
+            system: 'https://nrces.in/ndhm/fhir/r4/CodeSystem/claim-supporting-info-category',
+            code: 'ADDD',
+            display: 'Admission date',
+          },
+        ],
+      },
+      valueString: ds.addd,
+    });
+  }
+  if (ds?.dth) {
+    seq += 1;
+    supportingInfo.push({
+      sequence: seq,
+      category: {
+        coding: [
+          {
+            system: 'https://nrces.in/ndhm/fhir/r4/CodeSystem/claim-supporting-info-category',
+            code: 'DTH',
+            display: 'Date of discharge',
+          },
+        ],
+      },
+      valueString: ds.dth,
+    });
+  }
+  // P1.13 — structured + attachment categories. The split keeps
+  // DIA / HDS / CD / INF from being conflated with POI / OTHER on
+  // the payer side, which is what their adjudication pipelines
+  // assume per the NHCX PMJAY Integration Handbook §6.2.
+  for (const e of input.supportingInfo ?? []) {
+    seq += 1;
+    const category = {
+      coding: [
+        {
+          system: 'https://nrces.in/ndhm/fhir/r4/CodeSystem/claim-supporting-info-category',
+          code: e.category,
+        },
+      ],
+    };
+    if (isStructuredSupportingInfo(e)) {
+      supportingInfo.push({
+        sequence: seq,
+        category,
+        valueString: e.text,
+      });
+    } else {
+      // POI / OTHER attachment branch. Optional contentType /
+      // sizeBytes / sha256 are typed-attachment guards; NHCX
+      // rejects POI attachments without contentType (the call site
+      // surfaces a validation error earlier).
+      const valueAttachment: Record<string, unknown> = {
+        url: `Binary/${e.documentId}`,
+      };
+      if (e.contentType) valueAttachment['contentType'] = e.contentType;
+      if (typeof e.sizeBytes === 'number') valueAttachment['size'] = e.sizeBytes;
+      if (e.sha256) valueAttachment['hash'] = e.sha256;
+      supportingInfo.push({
+        sequence: seq,
+        category,
+        valueAttachment,
+      });
+    }
   }
   if (input.clinicalJustification) {
     claim['note'] = [{ text: input.clinicalJustification }];
   }
+  // Legacy documentIds — keep working for callers that haven't
+  // migrated to the typed supportingInfo[] yet. Each ID lands as
+  // an OTHER-category attachment with no extra guards (those need
+  // explicit contentType + size from the typed API).
   if (documentIds && documentIds.length > 0) {
-    claim['supportingInfo'] = [
-      ...(Array.isArray(claim['supportingInfo']) ? (claim['supportingInfo'] as unknown[]) : []),
-      ...documentIds.map((docId, idx) => ({
-        sequence: idx + 100,
-        category: { coding: [{ code: 'attachment' }] },
-        valueReference: { reference: `Binary/${docId}` },
-      })),
-    ];
+    for (const docId of documentIds) {
+      seq += 1;
+      supportingInfo.push({
+        sequence: seq,
+        category: {
+          coding: [
+            {
+              system: 'https://nrces.in/ndhm/fhir/r4/CodeSystem/claim-supporting-info-category',
+              code: 'OTHER',
+            },
+          ],
+        },
+        valueAttachment: { url: `Binary/${docId}` },
+      });
+    }
+  }
+
+  if (supportingInfo.length > 0) {
+    claim['supportingInfo'] = supportingInfo;
   }
   return claim;
 }
@@ -428,7 +827,48 @@ export function buildPreauthSubmitBundle(input: FhirPreauthSubmitInput): FhirBun
   const providerUrn = URN('provider');
   const coverageUrn = URN('coverage');
   const claimUrn = URN('claim');
+  // P1.9 — only mint a Practitioner URN when the caller supplied
+  // practitioner fields. Existing call sites that don't pass one
+  // see a 5-resource bundle exactly as before.
+  const practitionerUrn = input.practitioner ? URN('practitioner') : undefined;
 
+  const entry: Array<{ fullUrl: string; resource: Record<string, unknown> }> = [
+    {
+      fullUrl: claimUrn,
+      resource: claimResource(
+        input,
+        'preauthorization',
+        patientUrn,
+        insurerUrn,
+        providerUrn,
+        coverageUrn,
+        claimUrn,
+        ts,
+        undefined,
+        undefined,
+        practitionerUrn,
+      ),
+    },
+    { fullUrl: patientUrn, resource: patientResource(input.patient, patientUrn) },
+    {
+      fullUrl: insurerUrn,
+      resource: organizationResource(input.coverage.payerCode, input.coverage.payerDisplayName),
+    },
+    {
+      fullUrl: providerUrn,
+      resource: organizationResource(input.actors.senderCode, undefined, input.providerIdentifiers),
+    },
+    {
+      fullUrl: coverageUrn,
+      resource: coverageResource(input.coverage, patientUrn, insurerUrn, coverageUrn),
+    },
+  ];
+  if (input.practitioner && practitionerUrn) {
+    entry.push({
+      fullUrl: practitionerUrn,
+      resource: practitionerResource(input.practitioner, practitionerUrn),
+    });
+  }
   return {
     resourceType: 'Bundle',
     id: bundleId,
@@ -439,31 +879,7 @@ export function buildPreauthSubmitBundle(input: FhirPreauthSubmitInput): FhirBun
     identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
     type: 'collection',
     timestamp: ts,
-    entry: [
-      {
-        fullUrl: claimUrn,
-        resource: claimResource(
-          input,
-          'preauthorization',
-          patientUrn,
-          insurerUrn,
-          providerUrn,
-          coverageUrn,
-          claimUrn,
-          ts,
-        ),
-      },
-      { fullUrl: patientUrn, resource: patientResource(input.patient, patientUrn) },
-      {
-        fullUrl: insurerUrn,
-        resource: organizationResource(input.coverage.payerCode, input.coverage.payerDisplayName),
-      },
-      { fullUrl: providerUrn, resource: organizationResource(input.actors.senderCode, undefined) },
-      {
-        fullUrl: coverageUrn,
-        resource: coverageResource(input.coverage, patientUrn, insurerUrn, coverageUrn),
-      },
-    ],
+    entry,
   };
 }
 
@@ -477,6 +893,7 @@ export function buildClaimSubmitBundle(input: FhirClaimSubmitInput): FhirBundle 
   const coverageUrn = (bundle.entry.find((e) => e.resource['resourceType'] === 'Coverage')?.fullUrl ?? '') as string;
   const claimEntryIdx = bundle.entry.findIndex((e) => e.resource['resourceType'] === 'Claim');
   const claimUrn = bundle.entry[claimEntryIdx]?.fullUrl ?? makeUrn(input.uuid ?? randomUUID)('claim');
+  const practitionerUrn = bundle.entry.find((e) => e.resource['resourceType'] === 'Practitioner')?.fullUrl;
 
   bundle.entry[claimEntryIdx] = {
     fullUrl: claimUrn,
@@ -491,6 +908,7 @@ export function buildClaimSubmitBundle(input: FhirClaimSubmitInput): FhirBundle 
       bundle.timestamp,
       input.finalAmount,
       input.documentIds,
+      practitionerUrn,
     ),
   };
   bundle.meta.profile = [NRCES_PROFILE_CLAIM];

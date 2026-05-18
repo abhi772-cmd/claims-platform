@@ -174,14 +174,18 @@ describe('FHIR R4 bundle builders', () => {
       expect((claim!['total'] as { value: number }).value).toBe(320000);
     });
 
-    it('attaches documentIds as supportingInfo references', () => {
+    it('attaches documentIds as supportingInfo valueAttachment.url', () => {
+      // P1.13 — legacy documentIds[] become OTHER-category
+      // valueAttachment entries. The URL still points at the
+      // Binary/{id} the payer will pull via a follow-up
+      // Document operation.
       const claim = bundle.entry.find((e) => e.resource['resourceType'] === 'Claim')
         ?.resource as Record<string, unknown> | undefined;
       const supporting = claim!['supportingInfo'] as Array<{
-        valueReference?: { reference: string };
+        valueAttachment?: { url: string };
       }>;
       const refs = supporting
-        .map((s) => s.valueReference?.reference)
+        .map((s) => s.valueAttachment?.url)
         .filter((r): r is string => Boolean(r));
       expect(refs).toEqual(['Binary/doc-1', 'Binary/doc-2']);
     });

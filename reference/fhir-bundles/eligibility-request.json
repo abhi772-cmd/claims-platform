@@ -51,10 +51,26 @@
         "id": "urn:uuid:00000000-0000-4000-8000-000000000002-patient",
         "identifier": [
           {
+            "type": {
+              "coding": [
+                {
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203",
+                  "code": "MR"
+                }
+              ]
+            },
             "system": "urn:digisparsh:hospital:mrn",
             "value": "MRN-001"
           },
           {
+            "type": {
+              "coding": [
+                {
+                  "system": "http://terminology.hl7.org/CodeSystem/v2-0203",
+                  "code": "ABHA"
+                }
+              ]
+            },
             "system": "https://healthid.abdm.gov.in",
             "value": "12-3456-7890-1234"
           }
