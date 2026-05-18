@@ -1,14 +1,24 @@
-// Preflight eligibility client — used by /cases/new to look up the
-// policy BEFORE the case is created. Backed by
-// POST /eligibility/verify-by-identifiers (eligibility-preflight.controller).
+// Eligibility clients — two endpoints:
 //
-// In stub mode the response carries synthesised benefits (deductible,
-// co-pay, room-rent limit) which the new-case form auto-fills. In
-// real mode benefits arrive via the async callback so this returns
-// nulls and the operator proceeds with the standard intake → submit
-// → wait-for-callback flow.
+//   1. Preflight (pre-case): POST /eligibility/verify-by-identifiers
+//      Called from /cases/new before the case+claim chain exists. In
+//      stub mode the response carries synthesised benefits (deductible,
+//      co-pay, room limit) which the new-case form auto-fills.
+//
+//   2. Per-claim cycle (post-case): POST /cases/:caseId/claims/:claimId/eligibility
+//      PMJAY runs eligibility three times with different purposes:
+//        - validation         post-registration wallet / member-active
+//        - benefits           before preauth, fetches coverage limits
+//        - auth-requirements  before claim submit, fetches doc checklist
+//      Private rails use the legacy implicit purpose (omit the field).
+//
+// In real mode the gateway returns the FHIR Bundle asynchronously via
+// the inbound callback; this response is the synchronous ack.
 
 import {
+  type EligibilityPurpose,
+  type EligibilityRequest,
+  type EligibilityResponse,
   type VerifyCoverageByIdentifiersRequest,
   type VerifyCoverageByIdentifiersResponse,
 } from '@claims/contracts';
@@ -23,4 +33,38 @@ export const EligibilityApi = {
       method: 'POST',
       body,
     }),
+
+  runForClaim: (
+    caseId: string,
+    claimId: string,
+    body: EligibilityRequest,
+  ): Promise<EligibilityResponse> =>
+    apiRequest<EligibilityResponse>(`/cases/${caseId}/claims/${claimId}/eligibility`, {
+      method: 'POST',
+      body,
+    }),
+
+  // Convenience wrappers for the three PMJAY purposes — keep call
+  // sites in the panels readable. Each just sets `purpose` on the
+  // common shape.
+  runValidation: (
+    caseId: string,
+    claimId: string,
+    body: Omit<EligibilityRequest, 'purpose'> = {},
+  ): Promise<EligibilityResponse> =>
+    EligibilityApi.runForClaim(caseId, claimId, { ...body, purpose: 'validation' satisfies EligibilityPurpose }),
+
+  runBenefits: (
+    caseId: string,
+    claimId: string,
+    body: Omit<EligibilityRequest, 'purpose'> = {},
+  ): Promise<EligibilityResponse> =>
+    EligibilityApi.runForClaim(caseId, claimId, { ...body, purpose: 'benefits' satisfies EligibilityPurpose }),
+
+  runAuthRequirements: (
+    caseId: string,
+    claimId: string,
+    body: Omit<EligibilityRequest, 'purpose'> = {},
+  ): Promise<EligibilityResponse> =>
+    EligibilityApi.runForClaim(caseId, claimId, { ...body, purpose: 'auth-requirements' satisfies EligibilityPurpose }),
 } as const;

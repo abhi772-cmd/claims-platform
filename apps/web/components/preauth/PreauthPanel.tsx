@@ -3,6 +3,7 @@
 import { type ClaimStatus, type PreauthDraft } from '@claims/contracts';
 import { useEffect, useState, type FormEvent } from 'react';
 
+import { EligibilityPurposeButton } from '../eligibility/EligibilityPurposeButton';
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
 import { useToast } from '../toast/ToastProvider';
 import { CaseApi } from '../../lib/api/case.api';
@@ -19,10 +20,20 @@ interface Props {
   caseId: string;
   claimId: string;
   status: ClaimStatus;
+  // PMJAY mandates a fresh `purpose=benefits` eligibility cycle right
+  // before preauth draft. Private rails (NHCX) skip the purpose field
+  // on the wire; self-pay hides the affordance entirely.
+  rail: 'nhcx' | 'pmjay' | 'self_pay';
   onChanged: () => void;
 }
 
-export function PreauthPanel({ caseId, claimId, status, onChanged }: Props): JSX.Element | null {
+export function PreauthPanel({
+  caseId,
+  claimId,
+  status,
+  rail,
+  onChanged,
+}: Props): JSX.Element | null {
   const { showApiError } = useErrorModal();
   const showToast = useToast();
   const [draft, setDraft] = useState<PreauthDraft>({});
@@ -96,6 +107,15 @@ export function PreauthPanel({ caseId, claimId, status, onChanged }: Props): JSX
         <span className="material-symbols-outlined text-primary">medical_services</span>
         <h3 className="text-h3 font-h3 text-on-surface">Pre-auth</h3>
       </div>
+      {rail !== 'self_pay' ? (
+        <EligibilityPurposeButton
+          caseId={caseId}
+          claimId={claimId}
+          rail={rail}
+          purpose="benefits"
+          onCompleted={() => onChanged()}
+        />
+      ) : null}
       <form onSubmit={save} className="space-y-4">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <Field

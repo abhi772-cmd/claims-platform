@@ -14,12 +14,14 @@ import {
   type IntakeConsent,
   type Payer,
   type PatientPiiInput,
+  type PmjayPolicy,
   type VerifyCoverageByIdentifiersResponse,
 } from '@claims/contracts';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
+import { PolicySelector } from '../../../../components/pmjay/PolicySelector';
 import { useToast } from '../../../../components/toast/ToastProvider';
 import { CaseApi } from '../../../../lib/api/case.api';
 import { EligibilityApi } from '../../../../lib/api/eligibility.api';
@@ -77,6 +79,11 @@ export default function NewCasePage(): JSX.Element {
   // hand — prevents the preflight result from clobbering an explicit
   // override.
   const [roomLimitEdited, setRoomLimitEdited] = useState(false);
+
+  // PMJAY-only — once the operator picks a policy from the policies
+  // lookup it auto-fills payerCode, policyNumber, and (if the lookup
+  // identifier was ABHA) abhaId so the rest of the form is pre-seeded.
+  const [pmjayPolicy, setPmjayPolicy] = useState<PmjayPolicy | null>(null);
 
   // T2-14 — room rent pre-warn (all optional). Operator enters
   // rupees in the UI; we convert to paise at submit time to match
@@ -241,6 +248,27 @@ export default function NewCasePage(): JSX.Element {
       </div>
 
       <form onSubmit={onSubmit} className="flex flex-col gap-6" noValidate>
+        {/* PMJAY-only Card 00: beneficiary policies lookup. The
+            operator enters ABHA / mobile, we hit /pmjay/policies/lookup,
+            and they pick one of the returned policies. Picking a
+            policy auto-fills the payer + policy number + ABHA fields
+            below so the rest of the form is pre-seeded. */}
+        {primaryRail === 'pmjay' ? (
+          <PolicySelector
+            pickedPolicy={pmjayPolicy}
+            onPolicyPicked={(policy) => {
+              setPmjayPolicy(policy);
+              setPayerCode(policy.payerId);
+              setPolicyNumber(policy.policyNumber);
+            }}
+            onCleared={() => {
+              setPmjayPolicy(null);
+              setPayerCode('');
+              setPolicyNumber('');
+            }}
+          />
+        ) : null}
+
         {/* Card 0: Verify coverage (eligibility preflight).
             Operator captures the payer + at least one patient
             identifier and we look up the policy BEFORE the case is
