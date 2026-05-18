@@ -280,7 +280,7 @@ describe('Slice AC — eligibility callback-driven in real mode', () => {
       .set('x-hcx-operation', 'coverageeligibility/on_check')
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
-    expect(inbound.status).toBe(200);
+    expect(inbound.status).toBe(202);
 
     // Wait for the fire-and-forget process() to complete.
     const start = Date.now();

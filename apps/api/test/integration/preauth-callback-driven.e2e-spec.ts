@@ -336,7 +336,7 @@ describe('Slice AD — preauth callback-driven in real mode', () => {
       .set('x-hcx-correlation-id', correlationId)
       .set('x-hcx-operation', 'preauth/on_submit')
       .send({ payload: decisionJwe, type: 'JWEPayload' });
-    expect(inbound.status).toBe(200);
+    expect(inbound.status).toBe(202);
 
     // Wait for the inbound process() to settle.
     const start = Date.now();
