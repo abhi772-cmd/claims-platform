@@ -138,12 +138,14 @@ const config: Config = {
         eyebrow: ['var(--font-sans)'],
       },
       fontSize: {
-        eyebrow: ['10.5px', { letterSpacing: '0.12em', fontWeight: '600' }],
-        'body-sm': ['12px', { lineHeight: '1.5', fontWeight: '400' }],
-        body: ['14px', { lineHeight: '1.6', fontWeight: '400' }],
-        h3: ['22px', { lineHeight: '1.4', fontWeight: '600' }],
-        h2: ['28px', { lineHeight: '1.3', letterSpacing: '-0.01em', fontWeight: '600' }],
-        h1: ['36px', { lineHeight: '1.2', letterSpacing: '-0.02em', fontWeight: '700' }],
+        // Login-canonical scale. Eyebrow is 12px medium 0.04em tracking
+        // uppercase — the single most consistent recipe across the app.
+        eyebrow: ['12px', { letterSpacing: '0.04em', fontWeight: '500' }],
+        'body-sm': ['13px', { lineHeight: '1.5', fontWeight: '400' }],
+        body: ['14.5px', { lineHeight: '1.6', fontWeight: '400' }],
+        h3: ['22px', { lineHeight: '1.4', letterSpacing: '-0.01em', fontWeight: '600' }],
+        h2: ['28px', { lineHeight: '1.3', letterSpacing: '-0.015em', fontWeight: '600' }],
+        h1: ['36px', { lineHeight: '1.15', letterSpacing: '-0.02em', fontWeight: '700' }],
         'h1-mobile': ['28px', { lineHeight: '1.2', fontWeight: '700' }],
       },
       spacing: {
@@ -158,8 +160,10 @@ const config: Config = {
         sm: 'var(--radius-sm)',
         base: 'var(--radius-base)',
         md: 'var(--radius-md)',
+        cta: 'var(--radius-cta)',
         lg: 'var(--radius-lg)',
         xl: 'var(--radius-xl)',
+        'glass-card': 'var(--radius-glass-card)',
         pill: 'var(--radius-pill)',
       },
       boxShadow: {
@@ -168,6 +172,8 @@ const config: Config = {
         lg: 'var(--shadow-lg)',
         xl: 'var(--shadow-xl)',
         modal: 'var(--shadow-modal)',
+        'glass-card': 'var(--shadow-glass-card)',
+        'cta-amber': 'var(--shadow-cta-amber)',
       },
       letterSpacing: {
         h1: 'var(--tracking-h1)',
