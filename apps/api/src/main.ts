@@ -4,7 +4,6 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { type NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
-import { json, raw } from 'express';
 import { Logger } from 'nestjs-pino';
 
 import { AppModule } from './app.module';
@@ -20,7 +19,7 @@ import { mountOpenApi } from './openapi';
 // has 20 % headroom and ops doesn't have to bump again when payers
 // add new specialties. NHCX outbound bundles (we send) stay tiny —
 // the bump only matters for inbound.
-const NHCX_BODY_LIMIT_BYTES = 30 * 1024 * 1024;
+const NHCX_BODY_LIMIT = '30mb';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
@@ -33,29 +32,16 @@ async function bootstrap(): Promise<void> {
     rawBody: true,
   });
 
+  // P0.7 — override the default 100 kB JSON limit. We use Nest 10's
+  // `useBodyParser` so we replace the built-in parser instead of
+  // stacking a second one (which deadlocks since both try to consume
+  // the request stream). rawBody capture is preserved by Nest because
+  // we kept `rawBody: true` on NestFactory.create.
+  app.useBodyParser('json', { limit: NHCX_BODY_LIMIT });
+  app.useBodyParser('urlencoded', { limit: NHCX_BODY_LIMIT, extended: true });
+
   app.useLogger(app.get(Logger));
   app.use(cookieParser());
-  // P0.7 — override the default 100 kB JSON limit with NHCX_BODY_LIMIT_BYTES
-  // so large PMJAY callbacks (insurance-plan/on_search, payment-reconciliation
-  // detail[]) clear the parser. The `raw` parser keeps `req.rawBody` available
-  // to the inbound signature guard at the same higher limit.
-  app.use(
-    json({
-      limit: NHCX_BODY_LIMIT_BYTES,
-      // We piggy-back the raw-body capture the inbound signature guard
-      // relies on. NestExpressApplication's `rawBody: true` option
-      // would normally handle this, but it sets the limit to the
-      // express default (100 kB) which is too low for PMJAY callbacks
-      // — so we replace the parser entirely with one at the larger
-      // limit + the same rawBody capture semantics.
-      verify: (req, _res, buf) => {
-        if (buf.length > 0) {
-          (req as unknown as { rawBody: Buffer }).rawBody = buf;
-        }
-      },
-    }),
-  );
-  app.use(raw({ limit: NHCX_BODY_LIMIT_BYTES, type: 'application/jose' }));
   app.useGlobalFilters(new DomainExceptionFilter());
 
   // Strip the identifying X-Powered-By header at the Express level.
