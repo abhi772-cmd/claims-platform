@@ -13,6 +13,7 @@ import { NhcxInboundSignatureGuard } from './nhcx-inbound-signature.guard';
 import { NhcxInboundService } from './nhcx-inbound.service';
 import { ValidationFailedError } from '../../../common/errors/validation-errors';
 import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
+import { nhcxIstIso } from '../nhcx-protocol';
 
 // Public NHCX gateway webhook. The HCX gateway POSTs here for every
 // callback (eligibility, preauth, claim, communication). The JWE
@@ -22,14 +23,15 @@ import { ZodValidationPipe } from '../../../common/pipes/zod-validation.pipe';
 // look at it. In production the guard is enforced; in dev / integration
 // tests it short-circuits when NHCX_INBOUND_VERIFY_SIGNATURE=false.
 //
-// Contract:
-//   - We MUST return 200 within the gateway's timeout (typically 5s)
-//     even if our processing fails internally. Returning a 4xx/5xx
-//     causes NHA to retry indefinitely with the same correlationId,
-//     which we then have to reconcile manually. Note that signature
-//     failures intentionally violate this — a 401 is correct because
-//     the request is unauthenticated, not transient.
-//   - We persist the raw payload + return 200 BEFORE attempting any
+// Contract per HCX Protocol 0.7.1 §6.7:
+//   - We return **202 Accepted** with `{ timestamp, status: "accepted",
+//     correlation_id }` when the callback is queued for async processing
+//     and **200 OK** only on synchronous completion (rare — used for
+//     paymentack). Anything else (4xx/5xx) causes the gateway to retry
+//     with the same correlation_id, which would create duplicate
+//     downstream work. Signature failures intentionally return 401 —
+//     unauthenticated, not transient.
+//   - We persist the raw payload + return 202 BEFORE attempting any
 //     decrypt / parse. The decrypt + dispatch happens asynchronously
 //     after the response is sent.
 //   - Operation type comes from the `x-hcx-operation` header (a
@@ -46,7 +48,12 @@ export class NhcxInboundController {
   constructor(private readonly inbound: NhcxInboundService) {}
 
   @Post()
-  @HttpCode(200)
+  // P0.4 — 202 Accepted, not 200 OK. The gateway treats 200 as
+  // "processing complete" and stops re-presenting on the next
+  // retry window; 202 means "we received it and we'll process
+  // asynchronously" which matches our actual behaviour (process()
+  // runs after the response is sent).
+  @HttpCode(202)
   async receive(
     @Headers('x-hcx-correlation-id') correlationIdHeader: string | undefined,
     @Headers('x-hcx-operation') operationHeader: string | undefined,
@@ -94,6 +101,10 @@ export class NhcxInboundController {
       );
     }
 
-    return { status: 'accepted', correlationId: correlationIdHeader };
+    return {
+      timestamp: nhcxIstIso(),
+      status: 'accepted',
+      correlation_id: correlationIdHeader,
+    };
   }
 }

@@ -143,6 +143,19 @@ export const EnvSchema = z.object({
   NHCX_PARTICIPANT_CODE: OptionalString,
   NHCX_PRIVATE_KEY_BASE64: OptionalString,
   NHCX_GATEWAY_PUBLIC_KEY_BASE64: OptionalString,
+  // P0.1 Session-token mint. NHCX gateway requires every outbound
+  // protocol call to carry `Authorization: Bearer <token>` where the
+  // token is minted by POSTing client credentials to the session URL
+  // (NHCX participant onboarding §3.4 — Sandbox / Prod URLs vary).
+  // The token expires (typically 5 min) and a 401 means refresh + retry.
+  // All three are required when NHCX_MODE=real.
+  NHCX_SESSION_TOKEN_URL: OptionalString,
+  NHCX_CLIENT_ID: OptionalString,
+  NHCX_CLIENT_SECRET: OptionalString,
+  // Optional safety margin around the session-token TTL — refresh this
+  // many seconds before the gateway-reported expiry. Default 30 s
+  // accommodates clock skew + the network call itself.
+  NHCX_SESSION_TOKEN_REFRESH_LEAD_SECONDS: z.coerce.number().int().nonnegative().default(30),
   // Active private key version. Embedded as the JWE 'kid' header on
   // outbound encryption. Defaults to "v1" so existing deployments
   // don't have to set it. Rotation = issue v2 to NHCX, set

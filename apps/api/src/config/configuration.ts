@@ -104,6 +104,11 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     if (!env.NHCX_PARTICIPANT_CODE) missing.push('NHCX_PARTICIPANT_CODE');
     if (!env.NHCX_PRIVATE_KEY_BASE64) missing.push('NHCX_PRIVATE_KEY_BASE64');
     if (!env.NHCX_GATEWAY_PUBLIC_KEY_BASE64) missing.push('NHCX_GATEWAY_PUBLIC_KEY_BASE64');
+    // P0.1 — session-token is non-negotiable for real-mode. Without it
+    // every outbound call would 401.
+    if (!env.NHCX_SESSION_TOKEN_URL) missing.push('NHCX_SESSION_TOKEN_URL');
+    if (!env.NHCX_CLIENT_ID) missing.push('NHCX_CLIENT_ID');
+    if (!env.NHCX_CLIENT_SECRET) missing.push('NHCX_CLIENT_SECRET');
     if (missing.length > 0) {
       throw new ConfigError({ NHCX_MODE: [`real mode requires: ${missing.join(', ')}`] });
     }

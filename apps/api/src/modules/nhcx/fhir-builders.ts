@@ -12,6 +12,8 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { nhcxIstIso } from './nhcx-protocol';
+
 // ---- Inputs ---------------------------------------------------
 
 export interface FhirActorIds {
@@ -149,11 +151,26 @@ interface FhirBundle {
   entry: BundleEntry[];
 }
 
-const HCX_PROFILE_ELIGIBILITY = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-CoverageEligibilityRequestBundle.html';
-const HCX_PROFILE_PREAUTH = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-ClaimRequestBundle.html';
-const HCX_PROFILE_CLAIM = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-ClaimRequestBundle.html';
-const HCX_PROFILE_COMMUNICATION = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-CommunicationBundle.html';
-const HCX_PROFILE_TASK = 'https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-TaskBundle.html';
+// P0.5 — NRCeS profiles. NHA migrated NHCX bundle profiles from the
+// legacy HCX-IG (v0.7.1) to NRCeS (NDHM FHIR R4). Gateways validating
+// against the NRCeS profile reject the old URIs; the NRCeS URIs are
+// the canonical references for every NHCX bundle the hospital emits.
+const NRCES_PROFILE_ELIGIBILITY =
+  'https://nrces.in/ndhm/fhir/r4/StructureDefinition/CoverageEligibilityRequestBundle';
+const NRCES_PROFILE_PREAUTH =
+  'https://nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimRequestBundle';
+const NRCES_PROFILE_CLAIM =
+  'https://nrces.in/ndhm/fhir/r4/StructureDefinition/ClaimRequestBundle';
+const NRCES_PROFILE_COMMUNICATION =
+  'https://nrces.in/ndhm/fhir/r4/StructureDefinition/CommunicationBundle';
+const NRCES_PROFILE_TASK =
+  'https://nrces.in/ndhm/fhir/r4/StructureDefinition/TaskBundle';
+// Exported so the P3 PaymentReconciliation + InsurancePlan parsers
+// share the canonical URI without duplicating the literal.
+export const NRCES_PROFILE_PAYMENT_RECON =
+  'https://nrces.in/ndhm/fhir/r4/StructureDefinition/PaymentReconciliationBundle';
+export const NRCES_PROFILE_INSURANCE_PLAN =
+  'https://nrces.in/ndhm/fhir/r4/StructureDefinition/InsurancePlanBundle';
 // PMJAY-specific code system for the Task.code coding. Mirrors the
 // `code` enum in the PMJAY supporting docs (cancel, reprocess).
 const PMJAY_TASK_CODE_SYSTEM = 'https://payer.pmjay.nha.gov.in/CodeSystem/task-operation';
@@ -165,7 +182,9 @@ const PMJAY_CLAIM_NUMBER_SYSTEM = 'https://hcx.pmjay.gov.in/v1/preauthorization'
 // Task.input[].type coding when the input carries a reason.
 const PMJAY_TASK_REASON_SYSTEM = 'https://payer.pmjay.nha.gov.in/CodeSystem/task-reason';
 
-const DEFAULT_BUNDLE_SYSTEM = 'https://ig.hcxprotocol.io';
+// Bundle.identifier.system — NHA-recommended URL namespace for
+// participant-issued Bundle identifiers. Mirrors the NRCeS profile URL.
+const DEFAULT_BUNDLE_SYSTEM = 'https://nrces.in/ndhm/fhir/r4/Bundle';
 
 const makeUrn = (uuid: () => string) => (resource: string): string =>
   `urn:uuid:${uuid()}-${resource}`;
@@ -232,7 +251,7 @@ function coverageResource(
 
 export function buildEligibilityRequestBundle(input: FhirEligibilityRequestInput): FhirBundle {
   const uuid = input.uuid ?? randomUUID;
-  const ts = (input.now ?? (() => new Date()))().toISOString();
+  const ts = nhcxIstIso((input.now ?? (() => new Date()))());
   const URN = makeUrn(uuid);
   const bundleId = uuid();
   const patientUrn = URN('patient');
@@ -263,7 +282,7 @@ export function buildEligibilityRequestBundle(input: FhirEligibilityRequestInput
     id: bundleId,
     meta: {
       lastUpdated: ts,
-      profile: [HCX_PROFILE_ELIGIBILITY],
+      profile: [NRCES_PROFILE_ELIGIBILITY],
     },
     identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
     type: 'collection',
@@ -401,7 +420,7 @@ function claimResource(
 
 export function buildPreauthSubmitBundle(input: FhirPreauthSubmitInput): FhirBundle {
   const uuid = input.uuid ?? randomUUID;
-  const ts = (input.now ?? (() => new Date()))().toISOString();
+  const ts = nhcxIstIso((input.now ?? (() => new Date()))());
   const URN = makeUrn(uuid);
   const bundleId = uuid();
   const patientUrn = URN('patient');
@@ -415,7 +434,7 @@ export function buildPreauthSubmitBundle(input: FhirPreauthSubmitInput): FhirBun
     id: bundleId,
     meta: {
       lastUpdated: ts,
-      profile: [HCX_PROFILE_PREAUTH],
+      profile: [NRCES_PROFILE_PREAUTH],
     },
     identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
     type: 'collection',
@@ -474,13 +493,13 @@ export function buildClaimSubmitBundle(input: FhirClaimSubmitInput): FhirBundle 
       input.documentIds,
     ),
   };
-  bundle.meta.profile = [HCX_PROFILE_CLAIM];
+  bundle.meta.profile = [NRCES_PROFILE_CLAIM];
   return bundle;
 }
 
 export function buildCommunicationBundle(input: FhirCommunicationInput): FhirBundle {
   const uuid = input.uuid ?? randomUUID;
-  const ts = (input.now ?? (() => new Date()))().toISOString();
+  const ts = nhcxIstIso((input.now ?? (() => new Date()))());
   const URN = makeUrn(uuid);
   const bundleId = uuid();
   const senderUrn = URN('sender');
@@ -512,7 +531,7 @@ export function buildCommunicationBundle(input: FhirCommunicationInput): FhirBun
     id: bundleId,
     meta: {
       lastUpdated: ts,
-      profile: [HCX_PROFILE_COMMUNICATION],
+      profile: [NRCES_PROFILE_COMMUNICATION],
     },
     identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
     type: 'collection',
@@ -538,7 +557,7 @@ export function buildCommunicationBundle(input: FhirCommunicationInput): FhirBun
 // on our behalf.
 export function buildTaskCancelBundle(input: FhirTaskCancelInput): FhirBundle {
   const uuid = input.uuid ?? randomUUID;
-  const ts = (input.now ?? (() => new Date()))().toISOString();
+  const ts = nhcxIstIso((input.now ?? (() => new Date()))());
   const URN = makeUrn(uuid);
   const bundleId = uuid();
   const senderUrn = URN('sender');
@@ -589,7 +608,7 @@ export function buildTaskCancelBundle(input: FhirTaskCancelInput): FhirBundle {
     id: bundleId,
     meta: {
       lastUpdated: ts,
-      profile: [HCX_PROFILE_TASK],
+      profile: [NRCES_PROFILE_TASK],
     },
     identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
     type: 'collection',
@@ -615,7 +634,7 @@ export function buildTaskCancelBundle(input: FhirTaskCancelInput): FhirBundle {
 // their behalf.
 export function buildTaskReprocessBundle(input: FhirTaskReprocessInput): FhirBundle {
   const uuid = input.uuid ?? randomUUID;
-  const ts = (input.now ?? (() => new Date()))().toISOString();
+  const ts = nhcxIstIso((input.now ?? (() => new Date()))());
   const URN = makeUrn(uuid);
   const bundleId = uuid();
   const senderUrn = URN('sender');
@@ -687,7 +706,7 @@ export function buildTaskReprocessBundle(input: FhirTaskReprocessInput): FhirBun
     id: bundleId,
     meta: {
       lastUpdated: ts,
-      profile: [HCX_PROFILE_TASK],
+      profile: [NRCES_PROFILE_TASK],
     },
     identifier: { system: DEFAULT_BUNDLE_SYSTEM, value: bundleId },
     type: 'collection',

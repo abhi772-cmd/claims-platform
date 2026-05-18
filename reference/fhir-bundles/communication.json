@@ -2,17 +2,17 @@
   "resourceType": "Bundle",
   "id": "00000000-0000-4000-8000-000000000001",
   "meta": {
-    "lastUpdated": "2026-05-01T10:00:00.000Z",
+    "lastUpdated": "2026-05-01T15:30:00+05:30",
     "profile": [
-      "https://ig.hcxprotocol.io/v0.7.1/StructureDefinition-CommunicationBundle.html"
+      "https://nrces.in/ndhm/fhir/r4/StructureDefinition/CommunicationBundle"
     ]
   },
   "identifier": {
-    "system": "https://ig.hcxprotocol.io",
+    "system": "https://nrces.in/ndhm/fhir/r4/Bundle",
     "value": "00000000-0000-4000-8000-000000000001"
   },
   "type": "collection",
-  "timestamp": "2026-05-01T10:00:00.000Z",
+  "timestamp": "2026-05-01T15:30:00+05:30",
   "entry": [
     {
       "fullUrl": "urn:uuid:00000000-0000-4000-8000-000000000004-communication",
@@ -20,7 +20,7 @@
         "resourceType": "Communication",
         "id": "urn:uuid:00000000-0000-4000-8000-000000000004-communication",
         "status": "completed",
-        "sent": "2026-05-01T10:00:00.000Z",
+        "sent": "2026-05-01T15:30:00+05:30",
         "sender": {
           "reference": "urn:uuid:00000000-0000-4000-8000-000000000002-sender"
         },

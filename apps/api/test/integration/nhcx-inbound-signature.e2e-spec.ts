@@ -190,8 +190,9 @@ describe('Slice AO — NHCX inbound HTTP signature guard', () => {
       .set('Content-Type', 'application/json')
       .send(bodyObj);
 
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({ status: 'accepted', correlationId });
+    expect(res.status).toBe(202);
+    expect(res.body).toMatchObject({ status: 'accepted', correlation_id: correlationId });
+    expect(typeof res.body.timestamp).toBe('string');
   });
 
   it('rejects with 401 when no Signature header is present', async () => {

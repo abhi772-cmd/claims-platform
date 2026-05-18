@@ -332,9 +332,9 @@ describe('Slice Z — NHCX inbound webhook', () => {
       .set('x-hcx-sender-code', 'star-health@hcx')
       .send({ payload: jwe, type: 'JWEPayload' });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(202);
     expect(res.body.status).toBe('accepted');
-    expect(res.body.correlationId).toBe(eligibilityCorrelationId);
+    expect(res.body.correlation_id).toBe(eligibilityCorrelationId);
 
     // The orchestrator already drove the claim to ELIGIBILITY_VERIFIED
     // synchronously. The inbound dispatcher attempts to transition again
