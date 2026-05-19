@@ -1,4 +1,7 @@
 import {
+  type DiscoverByMobileRequest,
+  DiscoverByMobileRequestSchema,
+  type DiscoverByMobileResponse,
   Permissions,
   type VerifyCoverageByIdentifiersRequest,
   VerifyCoverageByIdentifiersRequestSchema,
@@ -39,5 +42,21 @@ export class EligibilityPreflightController {
     @CurrentUser() user: Express.AuthenticatedUser,
   ): Promise<VerifyCoverageByIdentifiersResponse> {
     return this.eligibility.verifyByIdentifiers(user.tenantId, body);
+  }
+
+  // Phase 3 — NHCX mobile discovery. Rejects payers that don't carry
+  // the `supportsDiscoveryByMobile=true` capability flag so the UI
+  // (which already gates on the same flag) and the API stay in
+  // lockstep. PMJAY rail tenants who want mobile discovery should
+  // use /pmjay/policies/lookup instead.
+  @Post('discover-by-mobile')
+  @HttpCode(200)
+  @RequirePermission(Permissions.CASE_CREATE)
+  async discoverByMobile(
+    @Body(new ZodValidationPipe(DiscoverByMobileRequestSchema))
+    body: DiscoverByMobileRequest,
+    @CurrentUser() user: Express.AuthenticatedUser,
+  ): Promise<DiscoverByMobileResponse> {
+    return this.eligibility.discoverByMobile(user.tenantId, body);
   }
 }

@@ -67,6 +67,11 @@ interface Props {
   // the payer from the picked policy. Pass null when payer isn't chosen
   // yet — verify-by-identifiers calls will be gated.
   payerCode: string | null;
+  // Phase 3 — when true, the chosen NHCX payer accepts the mobile-only
+  // discovery call (/eligibility/discover-by-mobile). Driven by the
+  // payer master row's supportsDiscoveryByMobile flag. Default false
+  // for back-compat with existing callers.
+  payerSupportsMobile?: boolean;
   // Captured patient context required by verify-by-identifiers.
   patientName: string;
   hospitalMrn: string;
@@ -85,6 +90,7 @@ const LABEL_CLS =
 export function IdentityDiscovery({
   rail,
   payerCode,
+  payerSupportsMobile = false,
   patientName,
   hospitalMrn,
   serviceDate,
@@ -99,7 +105,10 @@ export function IdentityDiscovery({
   const [pmjayResults, setPmjayResults] = useState<PmjayPolicy[] | null>(null);
   const [abhaModalOpen, setAbhaModalOpen] = useState(false);
 
-  const mobileSupported = rail === 'pmjay'; // Phase 3 unlocks NHCX mobile
+  // Mobile is supported either for PMJAY (always) or for NHCX payers
+  // that have opted in via the payer master's supportsDiscoveryByMobile
+  // flag (Phase 3).
+  const mobileSupported = rail === 'pmjay' || (rail === 'nhcx' && payerSupportsMobile);
   const verifySupported = rail !== 'self_pay';
 
   const localValidate = useCallback(
@@ -160,6 +169,49 @@ export function IdentityDiscovery({
         return;
       }
 
+      // Phase 3 — NHCX mobile-based discovery. The chosen payer must
+      // carry supportsDiscoveryByMobile=true on the master row; the
+      // API rejects others with a friendly 422. Result auto-fills
+      // policyNumber (when the payer matched) so the operator can
+      // immediately run a regular verify-by-identifiers afterwards.
+      if (rail === 'nhcx' && kind === 'mobile') {
+        if (!payerCode) {
+          setValidationMsg('Pick a payer above before running the lookup.');
+          return;
+        }
+        if (!payerSupportsMobile) {
+          setValidationMsg(
+            'This payer does not support mobile discovery. Use ABHA, Aadhaar, or policy number.',
+          );
+          return;
+        }
+        const res = await EligibilityApi.discoverByMobile({
+          payerCode,
+          mobile: value,
+          ...(patientName.trim() ? { patientName } : {}),
+          ...(hospitalMrn.trim() ? { hospitalMrn } : {}),
+        });
+        if (res.verified && res.policyNumber) {
+          onIdentityDiscovered({
+            identifierKind: 'mobile',
+            identifierValue: value,
+            payerCode,
+            policyNumber: res.policyNumber,
+            ...(res.planName !== null ? { productName: res.planName } : {}),
+          });
+          showToast({
+            tone: 'success',
+            message: `Found policy ${res.policyNumber} on ${res.planName ?? 'this payer'}.`,
+          });
+        } else {
+          showToast({
+            tone: 'warning',
+            message: `No policy found for mobile ${value} on this payer: ${res.failureReason ?? 'unknown'}.`,
+          });
+        }
+        return;
+      }
+
       // verify-by-identifiers path. Requires payerCode + patient inputs.
       if (!verifySupported) {
         setValidationMsg('Self-pay rail does not need a coverage lookup.');
@@ -207,6 +259,7 @@ export function IdentityDiscovery({
     onIdentityDiscovered,
     patientName,
     payerCode,
+    payerSupportsMobile,
     rail,
     serviceDate,
     showApiError,

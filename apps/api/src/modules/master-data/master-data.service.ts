@@ -470,6 +470,7 @@ function toPayer(row: {
   rail: string;
   hcxCode: string | null;
   active: boolean;
+  supportsDiscoveryByMobile: boolean;
   effectiveFrom: Date;
   effectiveTo: Date | null;
 }): Payer {
@@ -481,6 +482,7 @@ function toPayer(row: {
     rail: row.rail as PayerRail,
     hcxCode: row.hcxCode,
     active: row.active,
+    supportsDiscoveryByMobile: row.supportsDiscoveryByMobile,
     effectiveFrom: row.effectiveFrom.toISOString(),
     effectiveTo: row.effectiveTo ? row.effectiveTo.toISOString() : null,
   };

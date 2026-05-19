@@ -16,6 +16,8 @@
 // the inbound callback; this response is the synchronous ack.
 
 import {
+  type DiscoverByMobileRequest,
+  type DiscoverByMobileResponse,
   type EligibilityPurpose,
   type EligibilityRequest,
   type EligibilityResponse,
@@ -30,6 +32,16 @@ export const EligibilityApi = {
     body: VerifyCoverageByIdentifiersRequest,
   ): Promise<VerifyCoverageByIdentifiersResponse> =>
     apiRequest<VerifyCoverageByIdentifiersResponse>('/eligibility/verify-by-identifiers', {
+      method: 'POST',
+      body,
+    }),
+
+  // Phase 3 — NHCX mobile-based discovery. Only callable for payers
+  // with supportsDiscoveryByMobile=true on the master row; the API
+  // rejects other payers with a friendly 422 the IdentityDiscovery
+  // widget surfaces in the validation message slot.
+  discoverByMobile: (body: DiscoverByMobileRequest): Promise<DiscoverByMobileResponse> =>
+    apiRequest<DiscoverByMobileResponse>('/eligibility/discover-by-mobile', {
       method: 'POST',
       body,
     }),

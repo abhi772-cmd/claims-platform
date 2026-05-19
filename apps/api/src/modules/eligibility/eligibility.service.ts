@@ -609,4 +609,89 @@ export class EligibilityService implements OnApplicationBootstrap {
       failureReason: result.failureReason ?? null,
     };
   }
+
+  // Phase 3 — NHCX mobile-based discovery. Refuses payers that don't
+  // carry the `supportsDiscoveryByMobile=true` capability flag, then
+  // calls the same NHCX adapter as verifyByIdentifiers with the
+  // mobile passed as the member identifier. Stub adapter recognises
+  // mobile-shaped strings (10 digits) and returns a synthetic policy.
+  async discoverByMobile(
+    tenantId: string,
+    input: {
+      payerCode: string;
+      mobile: string;
+      patientName?: string;
+      hospitalMrn?: string;
+    },
+  ): Promise<{
+    verified: boolean;
+    correlationId: string;
+    planName: string | null;
+    policyNumber: string | null;
+    sumInsuredRupees: number | null;
+    failureReason: string | null;
+  }> {
+    // Verify the payer is opted-in. We read the row through the
+    // tenant-context tx so the master_data RLS policies apply
+    // consistently with everything else.
+    const payer = await this.prisma.runInTenantContext(
+      tenantId,
+      'tenant',
+      async (tx) =>
+        tx.payer.findUnique({
+          where: { code: input.payerCode },
+          select: { code: true, name: true, rail: true, supportsDiscoveryByMobile: true, active: true },
+        }),
+    );
+    if (!payer || !payer.active) {
+      throw new ValidationFailedError({
+        payerCode: [`Unknown or inactive payer "${input.payerCode}".`],
+      });
+    }
+    if (!payer.supportsDiscoveryByMobile) {
+      throw new ValidationFailedError({
+        payerCode: [
+          `Payer "${payer.name}" does not support mobile-based discovery. Use ABHA, Aadhaar, or policy number instead.`,
+        ],
+      });
+    }
+    if (payer.rail !== 'nhcx') {
+      throw new ValidationFailedError({
+        payerCode: [
+          'Mobile discovery is NHCX-rail-only. PMJAY beneficiaries are discoverable via /pmjay/policies/lookup.',
+        ],
+      });
+    }
+
+    const placeholderClaimId = randomUUID();
+    const patientName = input.patientName ?? 'Mobile discovery';
+    const hospitalMrn = input.hospitalMrn ?? 'PENDING';
+    const result = await this.nhcx.verifyEligibility({
+      tenantId,
+      claimId: placeholderClaimId,
+      hospitalMrn,
+      patientName,
+      payerCode: input.payerCode,
+      patient: {
+        fullName: patientName,
+        hospitalMrn,
+        mobile: input.mobile,
+      },
+      coverage: {
+        payerCode: input.payerCode,
+        memberId: input.mobile, // mobile doubles as the lookup key
+      },
+    });
+    this.log.log(
+      `eligibility discover-by-mobile tenantId=${tenantId} payer=${input.payerCode} verified=${result.verified}`,
+    );
+    return {
+      verified: result.verified,
+      correlationId: result.correlationId,
+      planName: result.planName ?? null,
+      policyNumber: result.policyNumber ?? null,
+      sumInsuredRupees: result.sumInsured ?? null,
+      failureReason: result.failureReason ?? null,
+    };
+  }
 }

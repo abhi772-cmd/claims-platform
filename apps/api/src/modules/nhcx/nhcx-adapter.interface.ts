@@ -17,6 +17,10 @@ export interface AdapterPatientFields {
   gender?: 'male' | 'female' | 'other' | 'prefer_not_to_say' | null;
   abhaId?: string;
   policyNumber?: string;
+  // Phase 3 — optional, used by mobile-based discovery against payers
+  // that index by mobile (Star, HDFC, etc.). Adapter implementations
+  // pass this through to the gateway when set.
+  mobile?: string;
 }
 
 export interface AdapterCoverageFields {
@@ -73,6 +77,11 @@ export interface AdapterEligibilityResponse {
   // Optional — populated by the stub for preflight; the JWE adapter
   // omits it because real-mode benefits arrive asynchronously.
   benefits?: AdapterEligibilityBenefits;
+  // Phase 3 — when discovery was driven by mobile/Aadhaar (not by an
+  // already-known policy number), the gateway returns the matched
+  // policy number so the UI can auto-fill it. Empty for the regular
+  // verify path since the input already carries it.
+  policyNumber?: string;
 }
 
 export interface AdapterPreauthSubmitInput {

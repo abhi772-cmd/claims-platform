@@ -221,3 +221,32 @@ export const VerifyCoverageByIdentifiersResponseSchema = z.object({
 export type VerifyCoverageByIdentifiersResponse = z.infer<
   typeof VerifyCoverageByIdentifiersResponseSchema
 >;
+
+// Phase 3 — NHCX mobile-based discovery. A small number of NHCX
+// private payers (Star, HDFC) accept a 10-digit mobile as the sole
+// identifier on /coverageeligibility/$check and return the matching
+// policy. The endpoint refuses payers without the
+// `supportsDiscoveryByMobile` capability flag set on the master row.
+export const DiscoverByMobileRequestSchema = z.object({
+  payerCode: z.string().min(1).max(64),
+  mobile: z.string().regex(/^\d{10}$/, 'Mobile must be 10 digits.'),
+  // Optional patient name + MRN. Some payers want both for the
+  // discovery call; others accept mobile alone. Validation pipe
+  // accepts either; the per-payer adapter strips fields the
+  // upstream gateway doesn't want.
+  patientName: z.string().min(1).max(200).optional(),
+  hospitalMrn: z.string().min(1).max(64).optional(),
+});
+export type DiscoverByMobileRequest = z.infer<typeof DiscoverByMobileRequestSchema>;
+
+export const DiscoverByMobileResponseSchema = z.object({
+  verified: z.boolean(),
+  correlationId: z.string(),
+  // When verified=true, these come back; nullable for the not-found
+  // case so the UI narrows at the boundary.
+  planName: z.string().nullable(),
+  policyNumber: z.string().nullable(),
+  sumInsuredRupees: z.number().nullable(),
+  failureReason: z.string().nullable(),
+});
+export type DiscoverByMobileResponse = z.infer<typeof DiscoverByMobileResponseSchema>;

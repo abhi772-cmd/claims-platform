@@ -25,6 +25,9 @@ export const PayerSchema = z.object({
   rail: PayerRailSchema,
   hcxCode: z.string().nullable(),
   active: z.boolean(),
+  // Phase 3 — when true, /eligibility/discover-by-mobile is supported
+  // for this payer. Defaults false; opt-in per payer.
+  supportsDiscoveryByMobile: z.boolean(),
   effectiveFrom: z.string().datetime(),
   effectiveTo: z.string().datetime().nullable(),
 });
