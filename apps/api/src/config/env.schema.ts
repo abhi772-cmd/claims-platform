@@ -216,6 +216,12 @@ export const EnvSchema = z.object({
   //          BIOMETRIC_AUTH_BASE_URL (e.g.
   //          https://apisbx.abdm.gov.in for sandbox).
   BIOMETRIC_AUTH_MODE: z.enum(['off', 'stub', 'real']).default('off'),
+  // Phase 2 — ABDM ABHA creation. Mode toggle parallels the other
+  // integration mode flags. 'disabled' rejects every call so a
+  // tenant that hasn't passed ABDM client-KYC can't accidentally
+  // issue an ABHA. 'stub' is the dev / demo / CI default. 'http'
+  // is the production setting once ABDM credentials are wired.
+  ABHA_CREATION_MODE: z.enum(['disabled', 'stub', 'http']).default('stub'),
   // Required when BIOMETRIC_AUTH_MODE=real. The HttpBiometricAuthAdapter
   // posts to <BASE>/hcx/abha/biometric/auth/{init,verify,refresh/token}.
   BIOMETRIC_AUTH_BASE_URL: OptionalString,

@@ -7,6 +7,7 @@ import { PrismaModule } from './common/prisma/prisma.module';
 import { SecurityModule } from './common/security/security.module';
 import { loadConfig } from './config/configuration';
 import { AnalyticsModule } from './modules/analytics';
+import { AbhaCreationModule } from './modules/abha-creation';
 import { AppealModule } from './modules/appeal';
 import { AuditModule } from './modules/audit';
 import { AuthModule } from './modules/auth/auth.module';
@@ -110,6 +111,7 @@ import { UserModule } from './modules/user/user.module';
     VirusScanModule,
     EobOcrModule,
     BiometricAuthModule,
+    AbhaCreationModule,
     PatientModule,
     ClaimModule,
     CaseModule,
