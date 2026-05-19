@@ -21,6 +21,7 @@ export * from './audit.schema';
 export * from './biometric-auth.schema';
 export * from './pmjay-policies.schema';
 export * from './abha-creation.schema';
+export * from './identity-discover.schema';
 export * from './erasure.schema';
 export * from './breach.schema';
 export * from './consent.schema';
