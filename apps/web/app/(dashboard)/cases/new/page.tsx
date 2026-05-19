@@ -20,6 +20,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
+import { IdentityDiscovery, type DiscoveredIdentity } from '../../../../components/identity/IdentityDiscovery';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { PolicySelector } from '../../../../components/pmjay/PolicySelector';
 import { useToast } from '../../../../components/toast/ToastProvider';
@@ -248,11 +249,38 @@ export default function NewCasePage(): JSX.Element {
       </div>
 
       <form onSubmit={onSubmit} className="flex flex-col gap-6" noValidate>
-        {/* PMJAY-only Card 00: beneficiary policies lookup. The
-            operator enters ABHA / mobile, we hit /pmjay/policies/lookup,
-            and they pick one of the returned policies. Picking a
-            policy auto-fills the payer + policy number + ABHA fields
-            below so the rest of the form is pre-seeded. */}
+        {/* Phase 1 — Unified identity discovery widget. Operator picks
+            an identifier type (mobile/ABHA/Aadhaar/policy), the widget
+            routes to the right backend based on rail, and the result
+            auto-fills the form fields below. PolicySelector is kept
+            below as the explicit PMJAY policy picker for operators who
+            already know the policy number. */}
+        {primaryRail !== 'self_pay' ? (
+          <IdentityDiscovery
+            rail={primaryRail}
+            payerCode={payerCode || null}
+            patientName={patientName}
+            hospitalMrn={hospitalMrn}
+            serviceDate={admissionDate || null}
+            onIdentityDiscovered={(identity: DiscoveredIdentity) => {
+              if (identity.payerCode) setPayerCode(identity.payerCode);
+              if (identity.policyNumber) setPolicyNumber(identity.policyNumber);
+              if (identity.identifierKind === 'abha') setAbhaId(identity.identifierValue);
+              if (identity.identifierKind === 'aadhaar') setAadhaar(identity.identifierValue);
+              if (identity.verifyResult) {
+                setVerifyResult(identity.verifyResult);
+                if (identity.verifyResult.roomRentLimitRupees !== null && !roomLimitEdited) {
+                  setPolicyRoomRentLimitRupees(String(identity.verifyResult.roomRentLimitRupees));
+                }
+              }
+            }}
+          />
+        ) : null}
+
+        {/* PMJAY-only Card 00 — kept for backward compatibility. The
+            IdentityDiscovery widget above now handles the PMJAY policy
+            picker flow, but this card stays so operators who already
+            have a policy number can drop straight into it. */}
         {primaryRail === 'pmjay' ? (
           <PolicySelector
             pickedPolicy={pmjayPolicy}
