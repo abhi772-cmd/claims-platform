@@ -20,12 +20,11 @@ import {
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 
+import { CoverageDetailsCard } from '../../../../components/identity/CoverageDetailsCard';
 import { IdentityDiscovery, type DiscoveredIdentity } from '../../../../components/identity/IdentityDiscovery';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { PolicySelector } from '../../../../components/pmjay/PolicySelector';
-import { useToast } from '../../../../components/toast/ToastProvider';
 import { CaseApi } from '../../../../lib/api/case.api';
-import { EligibilityApi } from '../../../../lib/api/eligibility.api';
 import { MasterDataApi } from '../../../../lib/api/master-data.api';
 
 const DEFAULT_NOTICE_TEXT =
@@ -49,7 +48,6 @@ const LABEL_CLS =
 export default function NewCasePage(): JSX.Element {
   const router = useRouter();
   const { showApiError, showError } = useErrorModal();
-  const showToast = useToast();
 
   // Case fields
   const [patientName, setPatientName] = useState('');
@@ -72,10 +70,12 @@ export default function NewCasePage(): JSX.Element {
   const [payerCode, setPayerCode] = useState('');
   const [policyNumber, setPolicyNumber] = useState('');
   const [payers, setPayers] = useState<Payer[]>([]);
+  // Coverage details — populated when the Find patient widget runs a
+  // successful verify-by-identifiers. The CoverageDetailsCard below
+  // self-hides until this is non-null.
   const [verifyResult, setVerifyResult] = useState<VerifyCoverageByIdentifiersResponse | null>(
     null,
   );
-  const [verifying, setVerifying] = useState(false);
   // True after the operator types into policyRoomRentLimitRupees by
   // hand — prevents the preflight result from clobbering an explicit
   // override.
@@ -129,56 +129,16 @@ export default function NewCasePage(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [primaryRail]);
 
-  const canVerify =
-    primaryRail !== 'self_pay' &&
-    patientName.trim().length > 0 &&
-    hospitalMrn.trim().length > 0 &&
-    payerCode.trim().length > 0 &&
-    (policyNumber.trim().length > 0 || abhaId.trim().length > 0 || aadhaar.trim().length > 0);
-
-  async function verifyCoverage(): Promise<void> {
-    if (!canVerify) return;
-    setVerifying(true);
-    setVerifyResult(null);
-    try {
-      const out = await EligibilityApi.verifyByIdentifiers({
-        patientName,
-        hospitalMrn,
-        payerCode,
-        ...(policyNumber.trim() ? { policyNumber: policyNumber.trim() } : {}),
-        ...(abhaId.trim() ? { abhaId: abhaId.trim() } : {}),
-        ...(aadhaar.trim() ? { aadhaar: aadhaar.replace(/\s+/g, '') } : {}),
-        ...(admissionDate ? { serviceDate: admissionDate } : {}),
-      });
-      setVerifyResult(out);
-      // Auto-fill the policy room-rent limit (T2-14 pre-warn field)
-      // from the verified policy unless the operator has already
-      // typed an override.
-      if (out.roomRentLimitRupees !== null && !roomLimitEdited) {
-        setPolicyRoomRentLimitRupees(String(out.roomRentLimitRupees));
-      }
-      showToast({
-        tone: out.verified ? 'success' : 'warning',
-        message: out.verified
-          ? `Coverage verified — ${out.planName ?? 'plan details'} ready.`
-          : `Coverage check failed: ${out.failureReason ?? 'see result panel.'}`,
-      });
-    } catch (err) {
-      showApiError(err);
-    } finally {
-      setVerifying(false);
-    }
-  }
-
   async function onSubmit(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
 
     const patient: PatientPiiInput | undefined =
-      aadhaar.trim() || abhaId.trim() || mobile.trim()
+      aadhaar.trim() || abhaId.trim() || mobile.trim() || policyNumber.trim()
         ? {
             ...(aadhaar.trim() ? { aadhaar: aadhaar.replace(/\s+/g, '') } : {}),
             ...(abhaId.trim() ? { abhaId: abhaId.trim() } : {}),
             ...(mobile.trim() ? { mobile: mobile.replace(/\s+/g, '') } : {}),
+            ...(policyNumber.trim() ? { policyNumber: policyNumber.trim() } : {}),
           }
         : undefined;
 
@@ -258,10 +218,9 @@ export default function NewCasePage(): JSX.Element {
         {primaryRail !== 'self_pay' ? (
           <IdentityDiscovery
             rail={primaryRail}
+            payers={payers}
             payerCode={payerCode || null}
-            payerSupportsMobile={
-              payers.find((p) => p.code === payerCode)?.supportsDiscoveryByMobile ?? false
-            }
+            onPayerChange={setPayerCode}
             patientName={patientName}
             hospitalMrn={hospitalMrn}
             serviceDate={admissionDate || null}
@@ -279,6 +238,13 @@ export default function NewCasePage(): JSX.Element {
             }}
           />
         ) : null}
+
+        {/* Coverage details — self-hides until a successful
+            verify-by-identifiers result lands. Replaces the legacy
+            Verify coverage card's result tiles, which were tightly
+            coupled to that card's own button. */}
+        <CoverageDetailsCard result={verifyResult} />
+
 
         {/* PMJAY-only Card 00 — kept for backward compatibility. The
             IdentityDiscovery widget above now handles the PMJAY policy
@@ -298,133 +264,6 @@ export default function NewCasePage(): JSX.Element {
               setPolicyNumber('');
             }}
           />
-        ) : null}
-
-        {/* Card 0: Verify coverage (eligibility preflight).
-            Operator captures the payer + at least one patient
-            identifier and we look up the policy BEFORE the case is
-            created so they can see plan, sum insured, deductible,
-            co-pay, and room-rent limit up front. Skipped on
-            self_pay rail. */}
-        {primaryRail !== 'self_pay' ? (
-          <fieldset className="glass rounded-xl p-6">
-            <div className="mb-2 flex items-center gap-2">
-              <span className="material-symbols-outlined text-primary">verified_user</span>
-              <h3 className="text-h3 font-h3 text-on-surface">Verify coverage</h3>
-            </div>
-            <p className="mb-4 text-body-sm text-on-surface-variant">
-              Look up the patient&apos;s policy before creating the case. Auto-fills
-              the room-rent limit below and previews the plan, sum insured,
-              deductible, and co-pay.
-            </p>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="flex flex-col gap-1">
-                <label htmlFor="preflight-payer" className={LABEL_CLS}>
-                  Payer
-                </label>
-                <select
-                  id="preflight-payer"
-                  value={payerCode}
-                  onChange={(e) => setPayerCode(e.target.value)}
-                  className={INPUT_CLS}
-                >
-                  <option value="">Select a payer…</option>
-                  {payers.map((p) => (
-                    <option key={p.id} value={p.code}>
-                      {p.name} ({p.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1">
-                <label htmlFor="preflight-policy" className={LABEL_CLS}>
-                  Policy number
-                </label>
-                <input
-                  id="preflight-policy"
-                  value={policyNumber}
-                  onChange={(e) => setPolicyNumber(e.target.value)}
-                  placeholder="POL-XXXX-XXXX"
-                  className={`${INPUT_CLS} font-mono tabular-nums`}
-                />
-                <span className="mt-1 text-[11px] text-on-surface-variant">
-                  At least one of policy number, ABHA, or Aadhaar (below) is
-                  required.
-                </span>
-              </div>
-            </div>
-            <div className="mt-4 flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => void verifyCoverage()}
-                disabled={!canVerify || verifying}
-                className="btn-cta"
-                style={{ padding: '10px 20px', fontSize: '13px' }}
-              >
-                <span
-                  className="material-symbols-outlined"
-                  style={{ fontSize: 18, fontVariationSettings: "'FILL' 1" }}
-                >
-                  search
-                </span>
-                {verifying ? 'Checking…' : 'Verify coverage'}
-              </button>
-              {!canVerify ? (
-                <span className="text-body-sm text-on-surface-variant">
-                  Fill patient name, MRN, payer, and one identifier to enable.
-                </span>
-              ) : null}
-            </div>
-
-            {verifyResult ? (
-              <div
-                className={`mt-5 rounded-lg border p-4 ${
-                  verifyResult.verified
-                    ? 'border-emerald-200 bg-emerald-50/60'
-                    : 'border-amber-200 bg-amber-50/60'
-                }`}
-              >
-                <div className="mb-3 flex items-center gap-2">
-                  <span
-                    className={`material-symbols-outlined ${
-                      verifyResult.verified ? 'text-emerald-700' : 'text-amber-700'
-                    }`}
-                  >
-                    {verifyResult.verified ? 'check_circle' : 'warning'}
-                  </span>
-                  <span className="font-semibold text-on-surface">
-                    {verifyResult.verified
-                      ? `Verified — ${verifyResult.planName ?? 'plan details below'}`
-                      : 'Not verified'}
-                  </span>
-                </div>
-                {verifyResult.verified ? (
-                  <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                    <PreflightStat
-                      label="Sum insured"
-                      value={fmtRupees(verifyResult.sumInsuredRupees)}
-                    />
-                    <PreflightStat
-                      label="Deductible"
-                      value={fmtRupees(verifyResult.deductibleRupees)}
-                    />
-                    <PreflightStat
-                      label="Co-pay"
-                      value={fmtCoPay(verifyResult.coPayPercent, verifyResult.coPayRupees)}
-                    />
-                    <PreflightStat
-                      label="Room limit (₹/day)"
-                      value={fmtRupees(verifyResult.roomRentLimitRupees)}
-                    />
-                  </div>
-                ) : (
-                  <p className="text-body-sm text-on-surface-variant">
-                    {verifyResult.failureReason ?? 'No reason returned by the payer.'}
-                  </p>
-                )}
-              </div>
-            ) : null}
-          </fieldset>
         ) : null}
 
         {/* Card 1: Case Details */}
@@ -854,29 +693,3 @@ function fmtINR(rupees: number): string {
   return rupees.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
-// ---------- Preflight result helpers ----------
-
-function fmtRupees(rupees: number | null): string {
-  if (rupees === null || !Number.isFinite(rupees)) return '—';
-  return `₹${fmtINR(rupees)}`;
-}
-
-function fmtCoPay(percent: number | null, rupees: number | null): string {
-  if (percent !== null && percent > 0) return `${percent}%`;
-  if (rupees !== null && rupees > 0) return `₹${fmtINR(rupees)}`;
-  if (percent === 0 || rupees === 0) return 'None';
-  return '—';
-}
-
-function PreflightStat({ label, value }: { label: string; value: string }): JSX.Element {
-  return (
-    <div className="rounded-lg bg-white/60 p-3">
-      <div className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
-        {label}
-      </div>
-      <div className="mt-0.5 text-body font-semibold tabular-nums text-on-surface">
-        {value}
-      </div>
-    </div>
-  );
-}

@@ -31,6 +31,7 @@
 
 import {
   type AbhaCreateVerifyResponse,
+  type Payer,
   type PmjayPolicy,
   type VerifyCoverageByIdentifiersResponse,
 } from '@claims/contracts';
@@ -63,15 +64,17 @@ export interface DiscoveredIdentity {
 
 interface Props {
   rail: Rail;
-  // The operator already picked a payer upstream for NHCX; PMJAY infers
-  // the payer from the picked policy. Pass null when payer isn't chosen
-  // yet — verify-by-identifiers calls will be gated.
+  // Master-data payer list filtered to the current rail. Find patient
+  // renders its own payer dropdown so the operator picks the payer
+  // and the identifier in one place (replaces the separate Verify
+  // coverage card). PMJAY rail can ignore this when searching by
+  // mobile/ABHA — the picked policy supplies the payer.
+  payers: Payer[];
+  // Currently-picked payer code (lifted to parent state). When the
+  // operator changes the dropdown, IdentityDiscovery calls onPayerChange
+  // so the parent can refresh derived state (form fields, submit gate).
   payerCode: string | null;
-  // Phase 3 — when true, the chosen NHCX payer accepts the mobile-only
-  // discovery call (/eligibility/discover-by-mobile). Driven by the
-  // payer master row's supportsDiscoveryByMobile flag. Default false
-  // for back-compat with existing callers.
-  payerSupportsMobile?: boolean;
+  onPayerChange: (code: string) => void;
   // Captured patient context required by verify-by-identifiers.
   patientName: string;
   hospitalMrn: string;
@@ -89,8 +92,9 @@ const LABEL_CLS =
 
 export function IdentityDiscovery({
   rail,
+  payers,
   payerCode,
-  payerSupportsMobile = false,
+  onPayerChange,
   patientName,
   hospitalMrn,
   serviceDate,
@@ -104,6 +108,11 @@ export function IdentityDiscovery({
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
   const [pmjayResults, setPmjayResults] = useState<PmjayPolicy[] | null>(null);
   const [abhaModalOpen, setAbhaModalOpen] = useState(false);
+
+  // Look up the picked payer row so we can read its capability flag
+  // (Phase 3 — supportsDiscoveryByMobile gates the NHCX mobile picker).
+  const pickedPayer = payers.find((p) => p.code === payerCode) ?? null;
+  const payerSupportsMobile = pickedPayer?.supportsDiscoveryByMobile ?? false;
 
   // Mobile is supported either for PMJAY (always) or for NHCX payers
   // that have opted in via the payer master's supportsDiscoveryByMobile
@@ -289,9 +298,34 @@ export function IdentityDiscovery({
         <h3 className="text-h3 font-h3 text-on-surface">Find patient</h3>
       </div>
       <p className="mb-4 text-body-sm text-on-surface-variant">
-        Search by mobile, ABHA, Aadhaar, or policy number. The platform
-        routes the lookup to the right gateway based on the rail.
+        Pick the payer, then search by mobile, ABHA, Aadhaar, or policy
+        number. The platform routes the lookup to the right gateway
+        based on the rail.
       </p>
+
+      {/* Payer dropdown — required for NHCX verify paths; PMJAY can
+          run mobile/ABHA lookups without it (the picked policy
+          supplies the payer). Hidden for self-pay. */}
+      {rail !== 'self_pay' ? (
+        <div className="mb-4">
+          <label className={LABEL_CLS} htmlFor="identity-payer">Payer</label>
+          <select
+            id="identity-payer"
+            value={payerCode ?? ''}
+            onChange={(e) => onPayerChange(e.target.value)}
+            className="glass-input"
+            disabled={looking || payers.length === 0}
+          >
+            <option value="">Select a payer…</option>
+            {payers.map((p) => (
+              <option key={p.id} value={p.code}>
+                {p.name} ({p.code})
+                {p.supportsDiscoveryByMobile ? ' · mobile-discoverable' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_1fr_auto]">
         <div>
