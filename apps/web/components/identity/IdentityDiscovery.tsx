@@ -30,11 +30,13 @@
 // modal that documents the ABDM flow we'll wire next.
 
 import {
+  type AbhaCreateVerifyResponse,
   type PmjayPolicy,
   type VerifyCoverageByIdentifiersResponse,
 } from '@claims/contracts';
 import { useCallback, useState } from 'react';
 
+import { AbhaCreator } from './AbhaCreator';
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
 import { useToast } from '../toast/ToastProvider';
 import { EligibilityApi } from '../../lib/api/eligibility.api';
@@ -326,7 +328,27 @@ export function IdentityDiscovery({
         </span>
       </div>
 
-      {abhaModalOpen ? <AbhaComingSoonModal onClose={() => setAbhaModalOpen(false)} /> : null}
+      {abhaModalOpen ? (
+        <AbhaCreator
+          onCancel={() => setAbhaModalOpen(false)}
+          onCompleted={(result: AbhaCreateVerifyResponse) => {
+            setAbhaModalOpen(false);
+            // Auto-promote the freshly-created ABHA into the search
+            // flow: flip kind to ABHA, populate the value, and run
+            // the lookup so the operator immediately sees any
+            // matching PMJAY policies (or NHCX coverage).
+            setKind('abha');
+            setValue(result.abhaNumber);
+            showToast({
+              tone: 'success',
+              message: `ABHA ${result.abhaNumber} created. Looking up policies now…`,
+            });
+            // Defer to next tick so the kind/value state is committed
+            // before search() reads them.
+            window.setTimeout(() => void search(), 0);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -377,34 +399,3 @@ function PmjayResultsPanel({
   );
 }
 
-// Placeholder modal — Phase 2 replaces this with the real ABDM flow.
-function AbhaComingSoonModal({ onClose }: { onClose: () => void }): JSX.Element {
-  return (
-    <div className="fixed inset-0 z-modal flex items-center justify-center bg-on-surface/40 backdrop-blur-sm">
-      <div className="glass-strong w-[min(540px,calc(100%-32px))] rounded-xl p-6">
-        <h4 className="mb-1 text-h3 font-semibold text-on-surface">
-          Generate ABHA via Aadhaar OTP
-        </h4>
-        <p className="mb-3 text-body-sm text-on-surface-variant">
-          Phase 2 wires the ABDM API for creating a new ABHA on the
-          patient&apos;s behalf:
-        </p>
-        <ol className="mb-4 space-y-1 pl-5 text-body-sm text-on-surface list-decimal">
-          <li>Operator enters the patient&apos;s Aadhaar</li>
-          <li>ABDM sends an OTP to the registered mobile</li>
-          <li>Patient reads the OTP back to the operator</li>
-          <li>ABDM returns a fresh ABHA ID</li>
-          <li>UI auto-fills and re-runs the policies lookup</li>
-        </ol>
-        <p className="mb-4 text-body-sm text-on-surface-variant">
-          Coming next — see the multi-phase plan.
-        </p>
-        <div className="flex justify-end">
-          <button type="button" onClick={onClose} className="btn-cta">
-            Got it
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
