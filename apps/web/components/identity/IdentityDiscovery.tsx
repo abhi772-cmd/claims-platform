@@ -31,6 +31,8 @@
 
 import {
   type AbhaCreateVerifyResponse,
+  type IdentityDiscoverCandidate,
+  type IdentityDiscoverResponse,
   type Payer,
   type PmjayPolicy,
   type VerifyCoverageByIdentifiersResponse,
@@ -41,6 +43,7 @@ import { AbhaCreator } from './AbhaCreator';
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
 import { useToast } from '../toast/ToastProvider';
 import { EligibilityApi } from '../../lib/api/eligibility.api';
+import { IdentityDiscoverApi } from '../../lib/api/identity-discover.api';
 import { PmjayPoliciesApi } from '../../lib/api/pmjay-policies.api';
 
 type IdentifierKind = 'mobile' | 'abha' | 'aadhaar' | 'policy';
@@ -102,12 +105,21 @@ export function IdentityDiscovery({
 }: Props): JSX.Element {
   const { showApiError } = useErrorModal();
   const showToast = useToast();
+  const [mode, setMode] = useState<'single' | 'smart'>('single');
   const [kind, setKind] = useState<IdentifierKind>(rail === 'pmjay' ? 'abha' : 'policy');
   const [value, setValue] = useState('');
   const [looking, setLooking] = useState(false);
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
   const [pmjayResults, setPmjayResults] = useState<PmjayPolicy[] | null>(null);
   const [abhaModalOpen, setAbhaModalOpen] = useState(false);
+
+  // Phase 4 smart-search state — separate from the single-mode state
+  // so toggling between modes doesn't clobber the operator's inputs.
+  const [smartMobile, setSmartMobile] = useState('');
+  const [smartAbha, setSmartAbha] = useState('');
+  const [smartAadhaar, setSmartAadhaar] = useState('');
+  const [smartPolicy, setSmartPolicy] = useState('');
+  const [smartResult, setSmartResult] = useState<IdentityDiscoverResponse | null>(null);
 
   // Look up the picked payer row so we can read its capability flag
   // (Phase 3 — supportsDiscoveryByMobile gates the NHCX mobile picker).
@@ -277,6 +289,70 @@ export function IdentityDiscovery({
     verifySupported,
   ]);
 
+  // Phase 4 — smart search. Hits /identity/discover with every
+  // identifier the operator supplied; the orchestrator runs each
+  // across PMJAY + NHCX rails in best-to-worst order and returns the
+  // union of matches + per-attempt diagnostic.
+  const smartSearch = useCallback(async (): Promise<void> => {
+    if (
+      !smartMobile.trim() &&
+      !smartAbha.trim() &&
+      !smartAadhaar.trim() &&
+      !smartPolicy.trim()
+    ) {
+      setValidationMsg('Enter at least one identifier to search.');
+      return;
+    }
+    setValidationMsg(null);
+    setLooking(true);
+    try {
+      const res = await IdentityDiscoverApi.discover({
+        ...(smartMobile.trim() ? { mobile: smartMobile.trim() } : {}),
+        ...(smartAbha.trim() ? { abhaId: smartAbha.trim() } : {}),
+        ...(smartAadhaar.trim() ? { aadhaar: smartAadhaar.trim() } : {}),
+        ...(smartPolicy.trim() ? { policyNumber: smartPolicy.trim() } : {}),
+        ...(patientName.trim() ? { patientName } : {}),
+        ...(hospitalMrn.trim() ? { hospitalMrn } : {}),
+      });
+      setSmartResult(res);
+      showToast({
+        tone: res.candidates.length > 0 ? 'success' : 'warning',
+        message:
+          res.candidates.length > 0
+            ? `Found ${res.candidates.length} match${res.candidates.length === 1 ? '' : 'es'} across ${res.attempts.length} attempt${res.attempts.length === 1 ? '' : 's'}.`
+            : `No matches across ${res.attempts.length} attempt${res.attempts.length === 1 ? '' : 's'}.`,
+      });
+    } catch (err) {
+      showApiError(err);
+    } finally {
+      setLooking(false);
+    }
+  }, [
+    hospitalMrn,
+    patientName,
+    showApiError,
+    showToast,
+    smartAadhaar,
+    smartAbha,
+    smartMobile,
+    smartPolicy,
+  ]);
+
+  const onPickSmartCandidate = useCallback(
+    (c: IdentityDiscoverCandidate) => {
+      onIdentityDiscovered({
+        identifierKind: c.identifierKind,
+        identifierValue: c.identifierValue,
+        payerCode: c.payerCode,
+        ...(c.policyNumber !== null ? { policyNumber: c.policyNumber } : {}),
+        ...(c.productName !== null ? { productName: c.productName } : {}),
+      });
+      setSmartResult(null);
+      showToast({ tone: 'success', message: 'Candidate applied to the form.' });
+    },
+    [onIdentityDiscovered, showToast],
+  );
+
   const onPickPmjayPolicy = useCallback(
     (policy: PmjayPolicy) => {
       onIdentityDiscovered({
@@ -293,20 +369,41 @@ export function IdentityDiscovery({
 
   return (
     <div className="glass rounded-xl p-6">
-      <div className="mb-2 flex items-center gap-2">
-        <span className="material-symbols-outlined text-primary">person_search</span>
-        <h3 className="text-h3 font-h3 text-on-surface">Find patient</h3>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="material-symbols-outlined text-primary">person_search</span>
+          <h3 className="text-h3 font-h3 text-on-surface">Find patient</h3>
+        </div>
+        {/* Phase 4 mode toggle — Single vs Smart search. Smart hits
+            /identity/discover with every identifier the operator
+            supplies and returns the union of matches across rails. */}
+        <div className="inline-flex rounded-lg border border-outline-variant/40 bg-surface-container-lowest p-1 text-body-sm">
+          <button
+            type="button"
+            onClick={() => setMode('single')}
+            className={`rounded-md px-3 py-1 transition ${mode === 'single' ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
+          >
+            Single
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('smart')}
+            className={`rounded-md px-3 py-1 transition ${mode === 'smart' ? 'bg-primary text-on-primary' : 'text-on-surface-variant hover:text-on-surface'}`}
+          >
+            Smart
+          </button>
+        </div>
       </div>
       <p className="mb-4 text-body-sm text-on-surface-variant">
-        Pick the payer, then search by mobile, ABHA, Aadhaar, or policy
-        number. The platform routes the lookup to the right gateway
-        based on the rail.
+        {mode === 'single'
+          ? 'Pick the payer, then search by mobile, ABHA, Aadhaar, or policy number. The platform routes the lookup to the right gateway based on the rail.'
+          : 'Fill in any identifiers you have. Smart search runs all of them across PMJAY + NHCX in parallel and shows every match.'}
       </p>
 
-      {/* Payer dropdown — required for NHCX verify paths; PMJAY can
-          run mobile/ABHA lookups without it (the picked policy
-          supplies the payer). Hidden for self-pay. */}
-      {rail !== 'self_pay' ? (
+      {/* Payer dropdown — required for NHCX verify paths in single
+          mode. Smart mode fans out across every NHCX payer so the
+          operator doesn't need to pick one. Hidden for self-pay. */}
+      {rail !== 'self_pay' && mode === 'single' ? (
         <div className="mb-4">
           <label className={LABEL_CLS} htmlFor="identity-payer">Payer</label>
           <select
@@ -327,6 +424,36 @@ export function IdentityDiscovery({
         </div>
       ) : null}
 
+      {/* Smart-mode input grid — 4 identifier inputs, one Search button. */}
+      {mode === 'smart' ? (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <SmartField id="smart-mobile" label="Mobile (10 digits)" value={smartMobile} setValue={setSmartMobile} maxLength={10} placeholder="9876543210" disabled={looking} />
+            <SmartField id="smart-abha" label="ABHA (14 digits)" value={smartAbha} setValue={setSmartAbha} maxLength={14} placeholder="14004567891234" disabled={looking} />
+            <SmartField id="smart-aadhaar" label="Aadhaar (12 digits)" value={smartAadhaar} setValue={setSmartAadhaar} maxLength={12} placeholder="123412341234" disabled={looking} />
+            <SmartField id="smart-policy" label="Policy number" value={smartPolicy} setValue={setSmartPolicy} maxLength={64} placeholder="POL-XXXX-XXXX" disabled={looking} mono />
+          </div>
+          {validationMsg ? (
+            <p className="text-body-sm text-error">{validationMsg}</p>
+          ) : null}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => void smartSearch()}
+              disabled={looking}
+              className="btn-cta"
+            >
+              {looking ? 'Searching all rails…' : 'Search everything'}
+            </button>
+          </div>
+          {smartResult ? (
+            <SmartResultsPanel result={smartResult} onPick={onPickSmartCandidate} />
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Single-mode identifier row (existing UI). */}
+      {mode === 'single' ? (
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-[160px_1fr_auto]">
         <div>
           <label className={LABEL_CLS} htmlFor="identity-kind">Identifier</label>
@@ -392,8 +519,9 @@ export function IdentityDiscovery({
           </button>
         </div>
       </div>
+      ) : null}
 
-      {pmjayResults !== null ? (
+      {mode === 'single' && pmjayResults !== null ? (
         <PmjayResultsPanel results={pmjayResults} onPick={onPickPmjayPolicy} />
       ) : null}
 
@@ -484,5 +612,140 @@ function PmjayResultsPanel({
       </div>
     </div>
   );
+}
+
+// Phase 4 — single labelled input for the smart-search grid. Keeps
+// the parent JSX compact.
+function SmartField({
+  id,
+  label,
+  value,
+  setValue,
+  maxLength,
+  placeholder,
+  disabled,
+  mono,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  setValue: (v: string) => void;
+  maxLength: number;
+  placeholder: string;
+  disabled: boolean;
+  mono?: boolean;
+}): JSX.Element {
+  return (
+    <div>
+      <label className={LABEL_CLS} htmlFor={id}>{label}</label>
+      <input
+        id={id}
+        value={value}
+        onChange={(e) => setValue(e.target.value.replace(/\s+/g, ''))}
+        maxLength={maxLength}
+        placeholder={placeholder}
+        disabled={disabled}
+        className={`glass-input tabular-nums ${mono ? 'font-mono' : ''}`}
+        autoComplete="off"
+      />
+    </div>
+  );
+}
+
+// Phase 4 — smart-search results. Shows the union of matches + the
+// per-attempt diagnostic + the suggested next step when no match
+// surfaced. Each candidate row is clickable so the operator can
+// promote it into the form via onPick.
+function SmartResultsPanel({
+  result,
+  onPick,
+}: {
+  result: IdentityDiscoverResponse;
+  onPick: (c: IdentityDiscoverCandidate) => void;
+}): JSX.Element {
+  return (
+    <div className="space-y-4 border-t border-outline-variant/40 pt-4">
+      {result.candidates.length > 0 ? (
+        <div>
+          <div className="mb-2 text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+            {result.candidates.length === 1
+              ? '1 candidate found'
+              : `${result.candidates.length} candidates — pick one`}
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {result.candidates.map((c, i) => (
+              <button
+                key={`${c.source}-${c.payerCode}-${i}`}
+                type="button"
+                onClick={() => onPick(c)}
+                className="glass rounded-lg px-4 py-3 text-left transition hover:-translate-y-px"
+              >
+                <div className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                  via {c.identifierKind} · {sourceLabel(c.source)}
+                </div>
+                <div className="mt-1 text-h3 font-semibold text-on-surface">
+                  {c.productName ?? c.payerName ?? c.payerCode}
+                </div>
+                <div className="mt-1 text-body-sm text-on-surface-variant tabular-nums">
+                  {c.policyNumber ? `Policy ${c.policyNumber}` : 'No policy ref'}
+                  {c.memberId ? ` · Member ${c.memberId}` : ''}
+                </div>
+                <div className="mt-2 inline-flex items-center gap-1 text-eyebrow uppercase tracking-eyebrow text-primary">
+                  Use this →
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-lg border border-warning-500/30 bg-warning-50/60 px-4 py-3">
+          <p className="text-body-sm text-on-surface">
+            No matches across {result.attempts.length} attempt
+            {result.attempts.length === 1 ? '' : 's'}.
+            {result.suggestedNextStep === 'create_abha'
+              ? ' Tip: generate an ABHA via the button below — that will likely surface a PMJAY enrolment.'
+              : result.suggestedNextStep === 'contact_payer_helpline'
+                ? " Tip: ask the patient to call the payer's helpline to confirm the identifier is still active."
+                : result.suggestedNextStep === 'ask_for_policy_number'
+                  ? ' Tip: ask the patient for their policy number — most NHCX payers index by it.'
+                  : ''}
+          </p>
+        </div>
+      )}
+
+      <details className="text-body-sm text-on-surface-variant">
+        <summary className="cursor-pointer hover:text-on-surface">
+          Attempts ({result.attempts.length}) — what we tried
+        </summary>
+        <ul className="mt-2 space-y-1 pl-4">
+          {result.attempts.map((a, i) => (
+            <li key={i} className="font-mono text-xs">
+              {a.identifierKind} → {sourceLabel(a.source)} ·{' '}
+              <span
+                className={
+                  a.outcome === 'matched'
+                    ? 'text-tertiary'
+                    : a.outcome === 'error'
+                      ? 'text-error'
+                      : a.outcome === 'skipped'
+                        ? 'text-on-surface-variant/60'
+                        : 'text-on-surface-variant'
+                }
+              >
+                {a.outcome}
+              </span>
+              {a.errorMessage ? ` · ${a.errorMessage}` : ''}
+            </li>
+          ))}
+        </ul>
+      </details>
+    </div>
+  );
+}
+
+function sourceLabel(source: IdentityDiscoverCandidate['source']): string {
+  if (source === 'pmjay_policies_lookup') return 'PMJAY';
+  if (source === 'nhcx_verify_by_identifiers') return 'NHCX verify';
+  return 'NHCX mobile';
 }
 

@@ -12,6 +12,10 @@ interface PayerSeed {
   payerType: 'private_tpa' | 'private_insurer' | 'pmjay_sha' | 'cghs' | 'self';
   rail: 'nhcx' | 'pmjay' | 'self_pay';
   hcxCode?: string;
+  // Phase 3 — opt-in flag. Defaults false. Set true on payers that
+  // accept a 10-digit mobile as the sole identifier on the eligibility
+  // call (most don't; Star + HDFC are the two largest that do today).
+  supportsDiscoveryByMobile?: boolean;
 }
 
 const PAYERS: PayerSeed[] = [
@@ -20,9 +24,10 @@ const PAYERS: PayerSeed[] = [
   { code: 'PARAMOUNT', name: 'Paramount Health Services', payerType: 'private_tpa', rail: 'nhcx', hcxCode: 'PHS' },
   { code: 'FHPL', name: 'Family Health Plan', payerType: 'private_tpa', rail: 'nhcx', hcxCode: 'FHPL' },
   { code: 'HEALTHINDIA', name: 'Health India TPA', payerType: 'private_tpa', rail: 'nhcx', hcxCode: 'HITPA' },
-  // Private insurers (direct).
-  { code: 'STAR_HEALTH', name: 'Star Health and Allied Insurance', payerType: 'private_insurer', rail: 'nhcx', hcxCode: 'STAR' },
-  { code: 'HDFC_ERGO', name: 'HDFC ERGO General Insurance', payerType: 'private_insurer', rail: 'nhcx', hcxCode: 'HDFC' },
+  // Private insurers (direct). Star + HDFC expose mobile-based lookup
+  // on coverageeligibility/$check; the rest don't.
+  { code: 'STAR_HEALTH', name: 'Star Health and Allied Insurance', payerType: 'private_insurer', rail: 'nhcx', hcxCode: 'STAR', supportsDiscoveryByMobile: true },
+  { code: 'HDFC_ERGO', name: 'HDFC ERGO General Insurance', payerType: 'private_insurer', rail: 'nhcx', hcxCode: 'HDFC', supportsDiscoveryByMobile: true },
   { code: 'NIVA_BUPA', name: 'Niva Bupa Health Insurance', payerType: 'private_insurer', rail: 'nhcx', hcxCode: 'NIVA' },
   // PMJAY — one row per state SHA. Only one shipped here for the seed.
   { code: 'SHA_PMJAY_KA', name: 'State Health Agency — Karnataka (PMJAY)', payerType: 'pmjay_sha', rail: 'pmjay' },
@@ -152,12 +157,17 @@ const CHECKLIST_RULES: ChecklistSeed[] = [
 
 async function seed(): Promise<void> {
   const prisma = new PrismaClient();
+  // The five entity types are seeded in SEPARATE transactions. The
+  // earlier single-transaction approach timed out on Neon's serverless
+  // Postgres because the billing-code upsert loop is large and Neon
+  // closes an idle txn after ~30s. Splitting keeps each txn small
+  // enough to commit, and a failure in (say) billing codes no longer
+  // rolls back the payer + package + ICD work that already succeeded.
   try {
     await prisma.$transaction(async (tx) => {
       await tx.$executeRaw(
         Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
       );
-
       for (const p of PAYERS) {
         await tx.payer.upsert({
           where: { code: p.code },
@@ -165,6 +175,7 @@ async function seed(): Promise<void> {
             name: p.name,
             payerType: p.payerType,
             rail: p.rail,
+            supportsDiscoveryByMobile: p.supportsDiscoveryByMobile ?? false,
             ...(p.hcxCode !== undefined ? { hcxCode: p.hcxCode } : {}),
           },
           create: {
@@ -172,11 +183,17 @@ async function seed(): Promise<void> {
             name: p.name,
             payerType: p.payerType,
             rail: p.rail,
+            supportsDiscoveryByMobile: p.supportsDiscoveryByMobile ?? false,
             ...(p.hcxCode !== undefined ? { hcxCode: p.hcxCode } : {}),
           },
         });
       }
+    });
 
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
+      );
       for (const pkg of PACKAGES) {
         await tx.package.upsert({
           where: { code: pkg.code },
@@ -195,7 +212,12 @@ async function seed(): Promise<void> {
           },
         });
       }
+    });
 
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
+      );
       for (const c of ICD_CODES) {
         await tx.icdCode.upsert({
           where: { code: c.code },
@@ -203,7 +225,12 @@ async function seed(): Promise<void> {
           create: { code: c.code, description: c.description, chapter: c.chapter },
         });
       }
+    });
 
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
+      );
       for (const b of BILLING_CODES) {
         await tx.billingCode.upsert({
           where: { code: b.code },
@@ -220,7 +247,12 @@ async function seed(): Promise<void> {
           },
         });
       }
+    });
 
+    await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw(
+        Prisma.sql`SELECT set_config('app.role', ${'platform_admin'}, true)`,
+      );
       // Checklist rules don't have a natural unique key (phase + rail + type
       // can repeat with different scoping). Idempotency: delete the global
       // (no payer/package/admissionType narrowing) defaults first then
