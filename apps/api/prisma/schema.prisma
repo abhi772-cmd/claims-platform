@@ -964,6 +964,12 @@ model Payer {
   // self-pay and unregistered TPAs leave it null.
   hcxCode       String?
   active        Boolean   @default(true)
+  // Phase 3 — per-payer capability flag. When true, the payer accepts
+  // /eligibility/discover-by-mobile (10-digit mobile, no policy number
+  // required). Most NHCX private payers don't expose this; a few
+  // (e.g. Star, HDFC) do. PMJAY rows keep it false — PMJAY mobile
+  // discovery already exists via /pmjay/policies/lookup.
+  supportsDiscoveryByMobile Boolean @default(false)
   effectiveFrom DateTime  @default(now())
   effectiveTo   DateTime?
   createdAt     DateTime  @default(now())

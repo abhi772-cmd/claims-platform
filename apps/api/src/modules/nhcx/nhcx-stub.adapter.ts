@@ -59,6 +59,14 @@ export class NhcxStubAdapter implements NhcxAdapter {
       `nhcx stub eligibility tenantId=${input.tenantId} mrn=${input.hospitalMrn} purpose=${input.purpose ?? 'legacy'} verified=${verified}`,
     );
 
+    // Phase 3 — mobile-driven discovery synthesises a policy number
+    // derived from the supplied mobile so the UI can auto-fill it
+    // back into the form. When called via policy number, this stays
+    // undefined and the request's policy number remains canonical.
+    const discoveredPolicyNumber = input.patient?.mobile
+      ? `STUB-POL-${input.patient.mobile.slice(-6)}`
+      : undefined;
+
     return verified
       ? {
           verified: true,
@@ -67,6 +75,7 @@ export class NhcxStubAdapter implements NhcxAdapter {
           correlationId,
           rawResponse,
           latencyMs: 5,
+          ...(discoveredPolicyNumber !== undefined ? { policyNumber: discoveredPolicyNumber } : {}),
           // Preflight benefits — what the new-case form auto-fills
           // into the Room & coverage card. Values mirror the
           // representative-policy fixture the stub adapter has

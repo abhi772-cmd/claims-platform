@@ -259,6 +259,9 @@ export default function NewCasePage(): JSX.Element {
           <IdentityDiscovery
             rail={primaryRail}
             payerCode={payerCode || null}
+            payerSupportsMobile={
+              payers.find((p) => p.code === payerCode)?.supportsDiscoveryByMobile ?? false
+            }
             patientName={patientName}
             hospitalMrn={hospitalMrn}
             serviceDate={admissionDate || null}
