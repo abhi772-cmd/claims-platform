@@ -9,6 +9,7 @@ import { loadConfig } from './config/configuration';
 import { AnalyticsModule } from './modules/analytics';
 import { AbhaCreationModule } from './modules/abha-creation';
 import { AppealModule } from './modules/appeal';
+import { IdentityDiscoverModule } from './modules/identity-discover';
 import { AuditModule } from './modules/audit';
 import { AuthModule } from './modules/auth/auth.module';
 import { BillLineItemModule } from './modules/bill-line-item';
@@ -112,6 +113,7 @@ import { UserModule } from './modules/user/user.module';
     EobOcrModule,
     BiometricAuthModule,
     AbhaCreationModule,
+    IdentityDiscoverModule,
     PatientModule,
     ClaimModule,
     CaseModule,
