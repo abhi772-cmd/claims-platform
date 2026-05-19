@@ -1,0 +1,88 @@
+# Production-shaped local-host orchestration for the DigiSparsh
+# Claims platform. This file is a REFERENCE — real production runs
+# on OVH Managed Kubernetes (or OVH Container Engine). Use this
+# locally to validate the built images before pushing.
+#
+# Prerequisites:
+#   1. Build the two images:
+#        docker build -f apps/api/Dockerfile -t digisparsh-claims-api:dev .
+#        docker build -f apps/web/Dockerfile -t digisparsh-claims-web:dev .
+#   2. Provide a real Postgres + Redis (or use the dev compose file's
+#      services as a stand-in — point DATABASE_URL at host.docker.internal:5433).
+#   3. Copy .env.example files and populate secrets.
+#
+# Run:
+#   docker compose -f infra/docker-compose/docker-compose.prod.yml up
+#
+# The migrate service runs to completion first; api + web depend on it.
+
+services:
+  # One-shot job that applies pending Prisma migrations and exits.
+  # In Kubernetes this becomes a Job; in plain docker-compose we use
+  # restart: 'no' + condition: service_completed_successfully.
+  migrate:
+    image: digisparsh-claims-api:dev
+    container_name: claims-migrate
+    restart: 'no'
+    env_file:
+      - ../../apps/api/.env
+    command:
+      - sh
+      - -c
+      - 'node node_modules/prisma/build/index.js migrate deploy'
+    networks:
+      - claims-prod
+
+  api:
+    image: digisparsh-claims-api:dev
+    container_name: claims-api
+    restart: unless-stopped
+    env_file:
+      - ../../apps/api/.env
+    ports:
+      - '3001:3001'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3001/health/live']
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    networks:
+      - claims-prod
+    # Override the image's default CMD to skip migrations (the
+    # `migrate` service already ran them). Multi-replica deploys
+    # MUST do this — otherwise every replica races the same DB.
+    command:
+      - sh
+      - -c
+      - 'node dist/apps/api/src/main.js'
+
+  web:
+    image: digisparsh-claims-web:dev
+    container_name: claims-web
+    restart: unless-stopped
+    environment:
+      # NOTE: NEXT_PUBLIC_API_BASE_URL is baked at build time, not
+      # at runtime. Set it as a --build-arg when you build the web
+      # image, not here. This block is for non-public envs only.
+      NODE_ENV: production
+    ports:
+      - '3000:3000'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:3000/']
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    networks:
+      - claims-prod
+
+networks:
+  claims-prod:
+    driver: bridge
