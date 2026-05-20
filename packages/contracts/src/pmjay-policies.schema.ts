@@ -38,12 +38,35 @@ export const PmjayPolicyLookupRequestSchema = z
   });
 export type PmjayPolicyLookupRequest = z.infer<typeof PmjayPolicyLookupRequestSchema>;
 
+// Slice CO — a member on a (family / group) policy. Optional roster:
+// when the upstream lookup returns it, the operator picks which member
+// is being treated; when it doesn't (payer doesn't expose members),
+// the field is omitted and the UI shows no member table.
+export const PolicyMemberSchema = z.object({
+  memberId: z.string(),
+  name: z.string(),
+  // 'self' | 'spouse' | 'son' | 'daughter' | 'father' | etc. Free-text
+  // because the relationship vocabulary differs across PMJAY SHAs and
+  // private payers; null when the source doesn't supply it.
+  relationship: z.string().nullable(),
+  gender: z.string().nullable(),
+  age: z.number().int().nullable(),
+  // The member's own ABHA, when the roster carries it. Null otherwise.
+  abhaNumber: z.string().nullable(),
+});
+export type PolicyMember = z.infer<typeof PolicyMemberSchema>;
+
 export const PmjayPolicySchema = z.object({
   payerId: z.string(),
   memberId: z.string(),
   productId: z.string(),
   productName: z.string(),
   policyNumber: z.string(),
+  // Slice CO — family/group roster. Present only when the lookup
+  // returns members (PMJAY family lookups do; some NHCX floaters do).
+  // Absent/empty → no member-selection table; the policy is treated as
+  // single-beneficiary (the top-level memberId).
+  members: z.array(PolicyMemberSchema).optional(),
 });
 export type PmjayPolicy = z.infer<typeof PmjayPolicySchema>;
 

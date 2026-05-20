@@ -1123,6 +1123,11 @@ model PayerCommercialTerms {
   // ── Required for step completion ──
   copayPercent             Int?
   copayFlatPaise           Int?
+  // When BOTH copayPercent and copayFlatPaise are set, this says how
+  // they combine: 'cap' = "X% capped at ₹Y" → min(percent, flat);
+  // 'floor' = "X% min ₹Y" → max(percent, flat). Null/ignored when
+  // only one of the two is present.
+  copayFlatMode            String?    // 'cap' | 'floor'
   copayAppliesTo           String?    // 'planned' | 'emergency' | 'both'
   deductiblePaise          Int?
   deductibleScope          String?    // 'per_admission' | 'per_claim' | 'per_year'

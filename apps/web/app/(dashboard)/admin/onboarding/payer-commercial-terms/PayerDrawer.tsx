@@ -14,6 +14,7 @@
 import {
   type BankPaymentMode,
   type CopayAppliesTo,
+  type CopayFlatMode,
   type DeductibleScope,
   type PayerCommercialTerms,
   type RoomCategory,
@@ -313,6 +314,23 @@ function TariffTab({
           ]}
         />
       </div>
+      {/* Combine rule — only relevant when BOTH percent and flat are
+          set. "10% capped at ₹50k" (cap → min) vs "10% min ₹5k"
+          (floor → max). */}
+      {form.copayPercent.trim() !== '' && form.copayFlatRupees.trim() !== '' ? (
+        <div className="md:w-1/2">
+          <SelectField
+            label="Percent + flat combine as"
+            value={form.copayFlatMode}
+            onChange={(v) => setForm({ ...form, copayFlatMode: v as CopayFlatMode | '' })}
+            options={[
+              { value: '', label: '— select (required when both set) —' },
+              { value: 'cap', label: 'Flat is a CAP — "X% capped at ₹Y" (patient pays the lower)' },
+              { value: 'floor', label: 'Flat is a FLOOR — "X%, min ₹Y" (patient pays the higher)' },
+            ]}
+          />
+        </div>
+      ) : null}
 
       <SectionHeading
         icon="account_balance_wallet"
@@ -615,6 +633,7 @@ function CoverageTab({
 interface TermsFormState {
   copayPercent: string;
   copayFlatRupees: string;
+  copayFlatMode: CopayFlatMode | '';
   copayAppliesTo: CopayAppliesTo | '';
   deductibleRupees: string;
   deductibleScope: DeductibleScope | '';
@@ -662,6 +681,7 @@ function emptyTermsForm(): TermsFormState {
   return {
     copayPercent: '',
     copayFlatRupees: '',
+    copayFlatMode: '',
     copayAppliesTo: '',
     deductibleRupees: '',
     deductibleScope: '',
@@ -703,6 +723,7 @@ function formFromTerms(t: PayerCommercialTerms): TermsFormState {
   return {
     copayPercent: nstr(t.copayPercent),
     copayFlatRupees: paiseToRupeesStr(t.copayFlatPaise),
+    copayFlatMode: t.copayFlatMode ?? '',
     copayAppliesTo: t.copayAppliesTo ?? '',
     deductibleRupees: paiseToRupeesStr(t.deductiblePaise),
     deductibleScope: t.deductibleScope ?? '',
@@ -763,6 +784,7 @@ function buildUpsertBody(
     payerCode,
     copayPercent: intOrNull(f.copayPercent),
     copayFlatPaise: rupeesToPaise(f.copayFlatRupees),
+    copayFlatMode: f.copayFlatMode === '' ? null : f.copayFlatMode,
     copayAppliesTo: f.copayAppliesTo === '' ? null : f.copayAppliesTo,
     deductiblePaise: rupeesToPaise(f.deductibleRupees),
     deductibleScope: f.deductibleScope === '' ? null : f.deductibleScope,

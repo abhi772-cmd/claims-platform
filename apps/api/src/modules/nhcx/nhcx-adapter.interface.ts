@@ -82,6 +82,12 @@ export interface AdapterEligibilityResponse {
   // policy number so the UI can auto-fill it. Empty for the regular
   // verify path since the input already carries it.
   policyNumber?: string;
+  // Slice CO — floater/group member roster, when the payer's
+  // eligibility response carries it. Most NHCX payers verify a single
+  // identified member and omit this; floater policies (some Star/HDFC
+  // family plans) may return the covered members so the operator can
+  // pick who's being treated.
+  members?: AdapterPolicyMember[];
 }
 
 export interface AdapterPreauthSubmitInput {
@@ -261,6 +267,19 @@ export interface AdapterPmjayPolicy {
   productId: string;
   productName: string;
   policyNumber: string;
+  // Slice CO — family/group member roster. Present only when the
+  // upstream lookup returns members (PMJAY family lookups do). Omitted
+  // for single-beneficiary policies so the UI shows no member table.
+  members?: AdapterPolicyMember[];
+}
+
+export interface AdapterPolicyMember {
+  memberId: string;
+  name: string;
+  relationship: string | null;
+  gender: string | null;
+  age: number | null;
+  abhaNumber: string | null;
 }
 
 export interface AdapterPmjayPolicyLookupResult {

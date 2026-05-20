@@ -15,6 +15,7 @@
 import {
   type BankPaymentMode,
   type CopayAppliesTo,
+  type CopayFlatMode,
   type DeductibleScope,
   type PayerCommercialTerms,
   type PayerCommercialTermsListItem,
@@ -200,6 +201,7 @@ function buildFields(input: UpsertPayerCommercialTermsRequest): CommercialTermsF
   const out: CommercialTermsFields = {};
   if (input.copayPercent !== undefined) out.copayPercent = input.copayPercent;
   if (input.copayFlatPaise !== undefined) out.copayFlatPaise = input.copayFlatPaise;
+  if (input.copayFlatMode !== undefined) out.copayFlatMode = input.copayFlatMode;
   if (input.copayAppliesTo !== undefined) out.copayAppliesTo = input.copayAppliesTo;
   if (input.deductiblePaise !== undefined) out.deductiblePaise = input.deductiblePaise;
   if (input.deductibleScope !== undefined) out.deductibleScope = input.deductibleScope;
@@ -278,6 +280,7 @@ function toContract(row: PrismaPayerCommercialTermsRow): PayerCommercialTerms {
     payerCode: row.payerCode,
     copayPercent: row.copayPercent,
     copayFlatPaise: row.copayFlatPaise,
+    copayFlatMode: row.copayFlatMode as CopayFlatMode | null,
     copayAppliesTo: row.copayAppliesTo as CopayAppliesTo | null,
     deductiblePaise: row.deductiblePaise,
     deductibleScope: row.deductibleScope as DeductibleScope | null,
@@ -329,6 +332,7 @@ interface PrismaPayerCommercialTermsRow {
   payerCode: string;
   copayPercent: number | null;
   copayFlatPaise: number | null;
+  copayFlatMode: string | null;
   copayAppliesTo: string | null;
   deductiblePaise: number | null;
   deductibleScope: string | null;

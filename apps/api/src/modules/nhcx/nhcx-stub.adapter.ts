@@ -67,6 +67,33 @@ export class NhcxStubAdapter implements NhcxAdapter {
       ? `STUB-POL-${input.patient.mobile.slice(-6)}`
       : undefined;
 
+    // Slice CO — floater/family demo. Most NHCX payers verify a single
+    // member and return no roster, so the default is no members (the
+    // UI shows coverage only, no member table). An MRN beginning
+    // `FLOATER` opts into a 2-member roster so the NHCX member-picker
+    // path is demoable.
+    const floaterMembers: AdapterEligibilityResponse['members'] =
+      verified && input.hospitalMrn?.toUpperCase().startsWith('FLOATER')
+        ? [
+            {
+              memberId: 'NHCX-PRIMARY',
+              name: 'Priya Menon',
+              relationship: 'self',
+              gender: 'female',
+              age: 38,
+              abhaNumber: null,
+            },
+            {
+              memberId: 'NHCX-SPOUSE',
+              name: 'Arjun Menon',
+              relationship: 'spouse',
+              gender: 'male',
+              age: 41,
+              abhaNumber: null,
+            },
+          ]
+        : undefined;
+
     return verified
       ? {
           verified: true,
@@ -76,6 +103,7 @@ export class NhcxStubAdapter implements NhcxAdapter {
           rawResponse,
           latencyMs: 5,
           ...(discoveredPolicyNumber !== undefined ? { policyNumber: discoveredPolicyNumber } : {}),
+          ...(floaterMembers ? { members: floaterMembers } : {}),
           // Preflight benefits — what the new-case form auto-fills
           // into the Room & coverage card. Values mirror the
           // representative-policy fixture the stub adapter has
@@ -202,12 +230,45 @@ export class NhcxStubAdapter implements NhcxAdapter {
       };
     }
     const baseSuffix = input.identifier.slice(-6).toUpperCase();
+    // Slice CO — PMJAY is family-based, so the primary policy carries a
+    // member roster the operator picks from. A `STUB-SOLO` identifier
+    // returns no roster, exercising the single-beneficiary path where
+    // the member-selection table stays hidden.
+    const family: AdapterPmjayPolicy['members'] = input.identifier.startsWith('STUB-SOLO')
+      ? undefined
+      : [
+          {
+            memberId: `MEM-${baseSuffix}`,
+            name: 'Ramesh Kumar',
+            relationship: 'self',
+            gender: 'male',
+            age: 47,
+            abhaNumber: `11${baseSuffix.replace(/[^0-9]/g, '0').padEnd(12, '0').slice(0, 12)}`,
+          },
+          {
+            memberId: `MEM-${baseSuffix}-SP`,
+            name: 'Sunita Devi',
+            relationship: 'spouse',
+            gender: 'female',
+            age: 43,
+            abhaNumber: null,
+          },
+          {
+            memberId: `MEM-${baseSuffix}-S1`,
+            name: 'Aarav Kumar',
+            relationship: 'son',
+            gender: 'male',
+            age: 12,
+            abhaNumber: null,
+          },
+        ];
     const primary: AdapterPmjayPolicy = {
       payerId: 'pmjay@hcx',
       memberId: `MEM-${baseSuffix}`,
       productId: 'PMJAY-RAN-V2',
       productName: 'PMJAY Rajasthan',
       policyNumber: `PMJAY/RJ/${baseSuffix}`,
+      ...(family ? { members: family } : {}),
     };
     if (input.identifier.startsWith('STUB-MULTI')) {
       return {

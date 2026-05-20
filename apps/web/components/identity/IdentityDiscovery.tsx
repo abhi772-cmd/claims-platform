@@ -35,6 +35,7 @@ import {
   type IdentityDiscoverResponse,
   type Payer,
   type PmjayPolicy,
+  type PolicyMember,
   type VerifyCoverageByIdentifiersResponse,
 } from '@claims/contracts';
 import { useCallback, useState } from 'react';
@@ -63,6 +64,11 @@ export interface DiscoveredIdentity {
   // For NHCX verifies, we also surface the synchronous benefits so the
   // parent form can auto-fill the room-rent pre-warn fields.
   verifyResult?: VerifyCoverageByIdentifiersResponse;
+  // Slice CO — when the operator picks a member off a family/group
+  // policy roster, the parent form auto-fills the patient name + that
+  // member's ABHA. Absent when the policy has no member roster.
+  patientName?: string;
+  abhaNumber?: string;
 }
 
 interface Props {
@@ -111,6 +117,16 @@ export function IdentityDiscovery({
   const [looking, setLooking] = useState(false);
   const [validationMsg, setValidationMsg] = useState<string | null>(null);
   const [pmjayResults, setPmjayResults] = useState<PmjayPolicy[] | null>(null);
+  // Slice CO — unified member-roster picker, used by BOTH the PMJAY
+  // policy flow and the NHCX verify flow. Set when a lookup/verify
+  // returns members[]; holds the title + roster + the base identity to
+  // finalise once a member is chosen. Cleared on selection or when a
+  // member-less result finalises immediately.
+  const [pendingMemberPick, setPendingMemberPick] = useState<{
+    title: string;
+    members: PolicyMember[];
+    base: DiscoveredIdentity;
+  } | null>(null);
   const [abhaModalOpen, setAbhaModalOpen] = useState(false);
 
   // Phase 4 smart-search state — separate from the single-mode state
@@ -255,13 +271,26 @@ export function IdentityDiscovery({
         ...(kind === 'aadhaar' ? { aadhaar: value } : {}),
         ...(serviceDate ? { serviceDate } : {}),
       });
-      onIdentityDiscovered({
+      const base: DiscoveredIdentity = {
         identifierKind: kind,
         identifierValue: value,
         payerCode,
         ...(verify.planName !== null ? { productName: verify.planName } : {}),
         verifyResult: verify,
-      });
+      };
+      // Slice CO — floater/family policy: if the payer returned a
+      // member roster, let the operator pick who's being treated
+      // (same picker as PMJAY). Single-member policies return no
+      // roster and finalise immediately, as before.
+      if (verify.members && verify.members.length > 0) {
+        setPendingMemberPick({
+          title: verify.planName ?? 'Coverage',
+          members: verify.members,
+          base,
+        });
+      } else {
+        onIdentityDiscovered(base);
+      }
       showToast({
         tone: verify.verified ? 'success' : 'warning',
         message: verify.verified
@@ -355,16 +384,40 @@ export function IdentityDiscovery({
 
   const onPickPmjayPolicy = useCallback(
     (policy: PmjayPolicy) => {
-      onIdentityDiscovered({
+      const base: DiscoveredIdentity = {
         identifierKind: kind,
         identifierValue: value,
         payerCode: policy.payerId,
         policyNumber: policy.policyNumber,
         productName: policy.productName,
-      });
+      };
+      // Slice CO — if the policy carries a member roster (family/group),
+      // pause and let the operator pick who's being treated. Otherwise
+      // finalise immediately (single-beneficiary policy, no table).
+      if (policy.members && policy.members.length > 0) {
+        setPendingMemberPick({ title: policy.productName, members: policy.members, base });
+        return;
+      }
+      onIdentityDiscovered(base);
       setPmjayResults(null);
     },
     [kind, onIdentityDiscovered, value],
+  );
+
+  // Slice CO — finalise once a member is chosen off any roster (PMJAY
+  // policy or NHCX verify). The base identity is whatever the lookup
+  // produced; we layer on the selected member's name + ABHA.
+  const onPickMember = useCallback(
+    (base: DiscoveredIdentity, member: PolicyMember) => {
+      onIdentityDiscovered({
+        ...base,
+        patientName: member.name,
+        ...(member.abhaNumber ? { abhaNumber: member.abhaNumber } : {}),
+      });
+      setPendingMemberPick(null);
+      setPmjayResults(null);
+    },
+    [onIdentityDiscovered],
   );
 
   return (
@@ -526,7 +579,14 @@ export function IdentityDiscovery({
       </div>
       ) : null}
 
-      {mode === 'single' && pmjayResults !== null ? (
+      {mode === 'single' && pendingMemberPick !== null ? (
+        <MemberPickPanel
+          title={pendingMemberPick.title}
+          members={pendingMemberPick.members}
+          onPick={(member) => onPickMember(pendingMemberPick.base, member)}
+          onBack={() => setPendingMemberPick(null)}
+        />
+      ) : mode === 'single' && pmjayResults !== null ? (
         <PmjayResultsPanel results={pmjayResults} onPick={onPickPmjayPolicy} />
       ) : null}
 
@@ -607,13 +667,88 @@ function PmjayResultsPanel({
               {p.productName}
             </div>
             <div className="mt-1 text-body-sm text-on-surface-variant tabular-nums">
-              Member {p.memberId} · Policy {p.policyNumber}
+              {p.members && p.members.length > 0
+                ? `Family policy · ${p.members.length} members`
+                : `Member ${p.memberId}`}{' '}
+              · Policy {p.policyNumber}
             </div>
             <div className="mt-2 inline-flex items-center gap-1 text-eyebrow uppercase tracking-eyebrow text-primary">
-              Pick policy →
+              {p.members && p.members.length > 0 ? 'Pick member →' : 'Pick policy →'}
             </div>
           </button>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// Slice CO — family/group member roster. Rendered only when a lookup
+// (PMJAY policy) or verify (NHCX floater) returns members[]. The
+// operator selects who's being treated; that member's name + ABHA
+// flow into the case form. Rail-agnostic — driven by title + members.
+function MemberPickPanel({
+  title,
+  members,
+  onPick,
+  onBack,
+}: {
+  title: string;
+  members: PolicyMember[];
+  onPick: (member: PolicyMember) => void;
+  onBack: () => void;
+}): JSX.Element {
+  return (
+    <div className="mt-5">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+          {title} · who is being treated?
+        </span>
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-body-sm text-primary hover:underline"
+        >
+          ← Back
+        </button>
+      </div>
+      <div className="glass overflow-hidden rounded-lg">
+        <table className="w-full text-left">
+          <thead className="border-b border-outline-variant/40 bg-surface-container-lowest/50 text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+            <tr>
+              <th className="px-4 py-2">Member</th>
+              <th className="px-4 py-2">Relationship</th>
+              <th className="px-4 py-2">Age / Sex</th>
+              <th className="px-4 py-2">ABHA</th>
+              <th className="px-4 py-2 text-right">Select</th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((m) => (
+              <tr key={m.memberId} className="border-b border-outline-variant/20">
+                <td className="px-4 py-3 text-body text-on-surface">{m.name}</td>
+                <td className="px-4 py-3 text-body-sm capitalize text-on-surface-variant">
+                  {m.relationship ?? '—'}
+                </td>
+                <td className="px-4 py-3 text-body-sm tabular-nums text-on-surface-variant">
+                  {m.age !== null ? `${m.age}` : '—'}
+                  {m.gender ? ` · ${m.gender.charAt(0).toUpperCase()}` : ''}
+                </td>
+                <td className="px-4 py-3 font-mono text-body-sm text-on-surface-variant">
+                  {m.abhaNumber ?? '—'}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    type="button"
+                    onClick={() => onPick(m)}
+                    className="text-body-sm font-semibold text-primary hover:underline"
+                  >
+                    Treat this member →
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
