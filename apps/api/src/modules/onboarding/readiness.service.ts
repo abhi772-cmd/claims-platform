@@ -8,6 +8,7 @@ import { Injectable } from '@nestjs/common';
 
 import { OnboardingService } from './onboarding.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { PayerCommercialTermsService } from '../payer-commercial-terms';
 
 // Required steps for go-live. notification_test + payer_master are
 // required for PILOT and beyond; package_master is required for LIVE
@@ -15,11 +16,17 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 // target state once the lifecycle controller forwards it. v1 treats
 // them all as required for both since this version of the readiness
 // surface is binary (ready / not-ready).
+//
+// payer_commercial_terms is gated TWO ways: the step flag itself
+// (admin marked it complete) AND the data check below (every active
+// payer has terms + room rates). Belt and braces — admins sometimes
+// flip the step flag prematurely.
 const REQUIRED_STEPS: readonly OnboardingStepKey[] = [
   'tenant_profile',
   'roles_assigned',
   'nhcx_cert',
   'payer_master',
+  'payer_commercial_terms',
   'package_master',
   'notification_test',
   'legal_acceptance',
@@ -30,6 +37,7 @@ export class ReadinessService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly onboarding: OnboardingService,
+    private readonly commercialTerms: PayerCommercialTermsService,
   ) {}
 
   async run(tenantId: string): Promise<ReadinessReport> {
@@ -80,6 +88,19 @@ export class ReadinessService {
       message: terminal ? 'Tenant is CHURNED.' : 'Lifecycle is not terminal.',
     });
 
+    // 4. Per-payer commercial terms data check. The step-flag check
+    //    above only confirms the admin clicked "mark complete"; this
+    //    one verifies the underlying rows (terms row + room rate per
+    //    category per payer) actually exist.
+    const status = await this.commercialTerms.listOnboardingStatus(tenantId);
+    items.push({
+      key: 'data.payer_commercial_terms',
+      ok: status.allPayersComplete,
+      message: status.allPayersComplete
+        ? `Commercial terms set for all ${status.payers.length} active payer(s).`
+        : `Commercial terms incomplete for ${status.payers.filter((p) => !p.fullyComplete).length} of ${status.payers.length} active payer(s).`,
+    });
+
     return { ready: items.every((i) => i.ok), items };
   }
 }
@@ -102,6 +123,8 @@ function prettyKey(key: OnboardingStepKey): string {
       return 'PMJAY state';
     case 'payer_master':
       return 'Payer master';
+    case 'payer_commercial_terms':
+      return 'Payer commercial terms';
     case 'package_master':
       return 'Package master';
     case 'notification_test':

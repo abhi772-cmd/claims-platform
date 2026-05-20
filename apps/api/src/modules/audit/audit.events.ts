@@ -85,6 +85,14 @@ export const AuditEvents = {
   // one when v1 demand justifies it).
   CONSENT_GRANTED: 'CONSENT_GRANTED',
   CONSENT_WITHDRAWN: 'CONSENT_WITHDRAWN',
+
+  // Slice CM — DPDP consent OTP capture lifecycle. The OTP artifact
+  // is recorded independently of the eventual consent_record so that
+  // initiate / verify-fail / verify-success each leave a row even
+  // when the patient never completes verification.
+  CONSENT_OTP_INITIATED: 'CONSENT_OTP_INITIATED',
+  CONSENT_OTP_VERIFIED: 'CONSENT_OTP_VERIFIED',
+  CONSENT_OTP_VERIFY_FAILED: 'CONSENT_OTP_VERIFY_FAILED',
 } as const;
 
 export type AuditEvent = (typeof AuditEvents)[keyof typeof AuditEvents];

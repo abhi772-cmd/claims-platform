@@ -63,6 +63,10 @@ export class ConsentController {
       evidence: body.evidence,
       ...(body.expiresAt ? { expiresAt: new Date(body.expiresAt) } : {}),
       ...(body.documentId ? { documentId: body.documentId } : {}),
+      ...(body.acknowledgementMethod
+        ? { acknowledgementMethod: body.acknowledgementMethod }
+        : {}),
+      ...(body.acknowledgementRef ? { acknowledgementRef: body.acknowledgementRef } : {}),
     });
   }
 

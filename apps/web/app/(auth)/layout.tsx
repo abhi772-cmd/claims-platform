@@ -109,7 +109,7 @@ export default function AuthLayout({ children }: { children: ReactNode }): JSX.E
             className="m-0 text-[56px] font-semibold leading-[1.05]"
             style={{ letterSpacing: '-0.02em' }}
           >
-            A digital touch
+            A Digital Touch
             <br />
             <span
               className="font-auth-italic"

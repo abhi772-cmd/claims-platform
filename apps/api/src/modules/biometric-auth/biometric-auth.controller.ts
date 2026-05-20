@@ -63,8 +63,10 @@ export class BiometricAuthController {
       loginId: body.loginId,
       authMode: body.authMode,
       process: body.process,
-      payerId: body.payerId,
-      bearerToken: body.bearerToken,
+      // payerId + bearerToken are resolved server-side from the case's
+      // payer + ABDM session; only forwarded if explicitly overridden.
+      ...(body.payerId ? { payerId: body.payerId } : {}),
+      ...(body.bearerToken ? { bearerToken: body.bearerToken } : {}),
     });
     return result.txnId !== undefined
       ? { status: result.status, txnId: result.txnId }
@@ -100,8 +102,8 @@ export class BiometricAuthController {
           : {}),
       },
       process: body.process,
-      payerId: body.payerId,
-      bearerToken: body.bearerToken,
+      ...(body.payerId ? { payerId: body.payerId } : {}),
+      ...(body.bearerToken ? { bearerToken: body.bearerToken } : {}),
     });
     return result.verificationId !== undefined &&
       result.verifiedAt !== undefined &&

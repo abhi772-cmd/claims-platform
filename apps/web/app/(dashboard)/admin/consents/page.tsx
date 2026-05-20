@@ -16,13 +16,20 @@ import { useToast } from '../../../../components/toast/ToastProvider';
 import { ConsentApi } from '../../../../lib/api/consent.api';
 
 const TYPES: ConsentType[] = ['nhcx_processing', 'pmjay_processing', 'analytics', 'communication'];
-const STATUSES: ConsentStatus[] = ['granted', 'withdrawn', 'expired', 'superseded'];
+const STATUSES: ConsentStatus[] = [
+  'granted',
+  'withdrawn',
+  'expired',
+  'superseded',
+  'pending_countersign',
+];
 
 const STATUS_STYLE: Record<ConsentStatus, { cls: string; dot: string }> = {
   granted: { cls: 'bg-green-50 text-green-700 border-green-100', dot: 'bg-green-500' },
   withdrawn: { cls: 'bg-red-50 text-red-700 border-red-100', dot: 'bg-red-500' },
   expired: { cls: 'bg-surface-container text-on-surface-variant border-outline-variant/50', dot: 'bg-outline' },
   superseded: { cls: 'bg-amber-50 text-amber-700 border-amber-100', dot: 'bg-amber-500' },
+  pending_countersign: { cls: 'bg-blue-50 text-blue-700 border-blue-100', dot: 'bg-blue-500' },
 };
 
 export default function ConsentsViewerPage(): JSX.Element {

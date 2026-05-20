@@ -980,6 +980,27 @@ model Payer {
   @@map("payer")
 }
 
+// Slice CN — tenant ↔ payer empanelment. The `payer` table above is a
+// platform-curated registry (superadmin maintains it; NHCX participant
+// codes are national so there's one source of truth). This join row
+// records which registry payers a given hospital is actually tied up
+// with. Case-creation payer dropdowns + commercial-terms read THIS,
+// not the whole registry. `active=false` retires an empanelment
+// without losing the history (a hospital that drops a TPA).
+model TenantPayer {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @db.Uuid
+  payerId      String   @db.Uuid
+  active       Boolean  @default(true)
+  empanelledAt DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([tenantId, payerId])
+  @@index([tenantId, active])
+  @@map("tenant_payer")
+}
+
 // PMJAY HBP packages and private-rail treatment package master.
 // pmjayHbp=true rows are the national Health Benefits Package list;
 // pmjayHbp=false rows are tariff-style entries that hospitals add for
@@ -1032,6 +1053,140 @@ model BillingCode {
 
   @@index([category, active])
   @@map("billing_code")
+}
+
+// Tenant-scoped room rate catalog. Each tenant owns its own list of
+// room categories with default daily rates (cash / un-negotiated).
+// Per-payer overrides live in RoomCategoryPayerRate.
+//
+// Categories are free-text per tenant (`ward`, `private deluxe`, `icu`
+// — whatever the hospital uses). `code` is upper-snake and unique per
+// tenant; `dailyRatePaise` is the default rate before any payer-side
+// negotiation.
+model RoomCategory {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @db.Uuid
+  code           String
+  name           String
+  category       String
+  dailyRatePaise Int
+  sortOrder      Int      @default(0)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  payerRates RoomCategoryPayerRate[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, active, sortOrder])
+  @@map("room_category")
+}
+
+// Per-payer rate overrides on top of the tenant's room catalog. When
+// an override exists, intake resolves to this rate; otherwise it falls
+// back to RoomCategory.dailyRatePaise. payerCode is the stable Payer.code
+// (not an FK) — matches the codebase convention used by Claim,
+// IntegrationMessage, etc.
+model RoomCategoryPayerRate {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @db.Uuid
+  roomCategoryId  String   @db.Uuid
+  payerCode       String
+  dailyRatePaise  Int
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  roomCategory RoomCategory @relation(fields: [roomCategoryId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, roomCategoryId, payerCode])
+  @@index([tenantId, payerCode, active])
+  @@map("room_category_payer_rate")
+}
+
+// Per-payer commercial terms captured during onboarding. Mandatory
+// for LIVE transition: copayPercent OR copayFlatPaise must be set, and
+// deductiblePaise must be set (zero is a valid "no deductible").
+// Other fields are recommended but not blocking.
+//
+// `paymentMode` is constrained to a small enum-string set in the
+// service layer; `networkCategory` stays free text because payers use
+// wildly different vocabularies. `empanelledSpecialties` is a Postgres
+// String[] (one of the few array columns in the schema) so admin can
+// list "cardiology, oncology, …" without a join table; switch to a
+// join when per-specialty rates become a thing.
+model PayerCommercialTerms {
+  id                       String   @id @default(uuid()) @db.Uuid
+  tenantId                 String   @db.Uuid
+  payerCode                String
+
+  // ── Required for step completion ──
+  copayPercent             Int?
+  copayFlatPaise           Int?
+  copayAppliesTo           String?    // 'planned' | 'emergency' | 'both'
+  deductiblePaise          Int?
+  deductibleScope          String?    // 'per_admission' | 'per_claim' | 'per_year'
+
+  // ── Validity & lifecycle ──
+  effectiveFrom            DateTime
+  effectiveTo              DateTime?
+  signedOn                 DateTime?
+  signatoryName            String?
+  noticePeriodDays         Int?
+  autoRenews               Boolean    @default(false)
+
+  // ── Operational TATs ──
+  preauthTatMinutes        Int?
+  claimTatMinutes          Int?
+  priorIntimationRequired  Boolean    @default(false)
+  priorIntimationHours     Int?
+
+  // ── Tariff modifiers ──
+  flatDiscountPercent      Int?
+  pharmacyDiscountPercent  Int?
+  implantPassThrough       Boolean    @default(false)
+  implantMarkupCapPercent  Int?
+
+  // ── Per-day sub-limits ──
+  roomRentCapPaisePerDay   Int?
+  icuCapPaisePerDay        Int?
+  nursingCapPaisePerDay    Int?
+
+  // ── Per-claim sub-limits ──
+  consultationCapPaise     Int?
+  ambulanceCapPaise        Int?
+
+  // ── Coverage rules ──
+  preExistingWaitingMonths Int?
+  maternityCovered         Boolean    @default(false)
+  maternityWaitingMonths   Int?
+  dayCareProceduresCovered Boolean    @default(true)
+  modernTreatmentsCovered  Boolean    @default(false)
+
+  // ── Settlement ──
+  paymentTermDays          Int?
+  paymentMode              String?    // enum-constrained at the service layer
+  bankAccountRef           String?
+  tdsPercent               Int?
+  interestOnDelayedPercent Int?
+  disputeEscalationDays    Int?
+
+  // ── Network / compliance ──
+  networkCategory          String?
+  nabhRequired             Boolean    @default(false)
+  nablRequired             Boolean    @default(false)
+  empanelledSpecialties    String[]
+
+  // ── Metadata ──
+  notes                    String?
+  active                   Boolean    @default(true)
+  createdAt                DateTime   @default(now())
+  updatedAt                DateTime   @updatedAt
+
+  @@unique([tenantId, payerCode])
+  @@index([tenantId, active])
+  @@index([tenantId, effectiveTo])
+  @@map("payer_commercial_terms")
 }
 
 // Document checklist rules. The pre-auth, discharge and claim phases
@@ -1328,7 +1483,9 @@ model ConsentRecord {
   status             String   @default("granted")
   // Free-text capture of how the grant was obtained — 'in_person'
   // | 'abha_otp' | 'paper_form_doc:<docId>' | 'tele_consent_call:<id>'.
-  // Operators map this to their existing channels.
+  // Operators map this to their existing channels. Kept for legacy
+  // rows; new captures additionally populate `acknowledgementMethod`
+  // below with a typed enum value.
   source             String
   // Snapshot of the notice the data principal saw at consent time.
   // Stored verbatim so a later DPDP audit can reconstruct what they
@@ -1343,6 +1500,18 @@ model ConsentRecord {
   // paper form / signed PDF. Decoupled from the evidence JSON so a
   // future S3-backed audit can reach back to the original artifact.
   documentId         String?  @db.Uuid
+  // Slice CM — typed acknowledgement vocabulary:
+  //   'otp' | 'verbal_countersigned' | 'abha_hie_cm'.
+  // Nullable for backward compatibility with rows captured before
+  // CM landed. New intake paths always populate this column and
+  // (where applicable) acknowledgementRef.
+  acknowledgementMethod String?
+  // Slice CM — points at the per-method artifact row that carries
+  // the method-specific state machine: consent_otp.id /
+  // consent_verbal.id / consent_abha_request.id. No declarative
+  // foreign key (the target table is polymorphic on method); the
+  // service layer enforces consistency.
+  acknowledgementRef    String? @db.Uuid
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -1351,5 +1520,69 @@ model ConsentRecord {
   @@index([tenantId, expiresAt])
   // CD — BU recent-consent-changes list orders by updatedAt.
   @@index([tenantId, updatedAt])
+  // CM — sweepers (countersign deadline, OTP expiry) filter by method.
+  @@index([tenantId, acknowledgementMethod, status])
   @@map("consent_record")
+}
+
+// Slice CM — OTP artifact for `acknowledgementMethod='otp'` consents.
+//
+// Two-step capture: operator clicks "Send OTP" → a 6-digit code is
+// minted, sha256-hashed, persisted with a 10-minute TTL, and sent via
+// the existing SMS adapter. Operator then types the code back; we
+// match against the hash, flip `verifiedAt`, and only AFTER that does
+// the consent_record get created (with acknowledgementRef pointing
+// here).
+//
+// The unverified row sits as evidence the OTP was issued (audit story
+// for outbound SMS cost + DPDP "what did we send") even when the
+// patient doesn't complete the verify step.
+//
+// RLS: same-tenant SELECT/INSERT/UPDATE. DELETE blocked. Tenant
+// scoping is paramount because the hashed_otp value is the only thing
+// between the operator and a successful verify.
+model ConsentOtp {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @db.Uuid
+  // Slice CM follow-up — nullable so OTP can be issued during intake
+  // BEFORE the patient row exists (case-submit creates patient + OTP-
+  // backed consent_record together; the patientId here gets filled
+  // post-hoc by the consent grant path).
+  patientId         String?  @db.Uuid
+  consentType       String
+  // sha256(code + serverSalt). Plaintext code is never persisted.
+  hashedOtp         String
+  // Last 4 digits of the destination mobile, for audit display.
+  // Full mobile is on the patient row (encrypted at rest).
+  mobileLast4       String   @db.VarChar(4)
+  // SMS gateway message ID returned from TextGuru. Threaded back into
+  // integration_message in a follow-up slice; null for now.
+  gatewayMessageId  String?
+  // Verbatim notice the patient was agreeing to at issuance time.
+  // Captured here so the audit story is self-contained even when the
+  // consent_record gets created against a different `noticeText` (it
+  // shouldn't — the verify path enforces equality — but defence in
+  // depth).
+  noticeText        String   @db.Text
+  locales           Json     @default("[]")
+  // Number of failed verify attempts. Lockout at 3.
+  attempts          Int      @default(0)
+  sentAt            DateTime @default(now())
+  expiresAt         DateTime
+  verifiedAt        DateTime?
+  // Status: 'sent' | 'verified' | 'expired' | 'failed' (lockout).
+  // Mirrors consent_record but specific to this artifact's lifecycle.
+  status            String   @default("sent")
+  // The operator who initiated. Same person almost always verifies;
+  // we don't enforce that — could be a colleague reading the code
+  // aloud to an elderly patient.
+  initiatedByUserId String   @db.Uuid
+  verifiedByUserId  String?  @db.Uuid
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([tenantId, status])
+  @@index([tenantId, patientId])
+  @@index([tenantId, expiresAt])
+  @@map("consent_otp")
 }

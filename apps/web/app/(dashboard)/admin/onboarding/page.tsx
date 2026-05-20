@@ -7,10 +7,25 @@ import {
   type OnboardingStepKey,
   type ReadinessReport,
 } from '@claims/contracts';
+import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
 import { TenantApi } from '../../../../lib/api/tenant.api';
+
+// Internal "go configure this step" links for steps that have a
+// dedicated admin surface. Currently only payer_commercial_terms;
+// extend as more steps grow their own pages.
+const INTERNAL_STEP_ROUTES: Partial<Record<OnboardingStepKey, { label: string; href: string }>> = {
+  payer_master: {
+    label: 'Select your payers',
+    href: '/admin/onboarding/payer-empanelment',
+  },
+  payer_commercial_terms: {
+    label: 'Open payer commercial terms',
+    href: '/admin/onboarding/payer-commercial-terms',
+  },
+};
 
 // --- Step grouping --------------------------------------------------
 // The pre-Sprint-10 page rendered a flat 8-row checklist where every
@@ -55,6 +70,7 @@ const STEP_TO_GROUP: Record<OnboardingStepKey, StepGroupKey> = {
   nhcx_callback_url: 'nhcx',
   pmjay_state: 'pmjay',
   payer_master: 'masters',
+  payer_commercial_terms: 'masters',
   package_master: 'masters',
   notification_test: 'governance',
   legal_acceptance: 'governance',
@@ -494,6 +510,20 @@ function StepRow({
                 {descriptor.externalAction.label}
                 <span className="material-symbols-outlined text-[16px]">open_in_new</span>
               </a>
+            </div>
+          )}
+          {INTERNAL_STEP_ROUTES[step.key] && (
+            <div>
+              <p className="mb-2 text-eyebrow uppercase tracking-eyebrow text-on-surface-variant">
+                Configure
+              </p>
+              <Link
+                href={INTERNAL_STEP_ROUTES[step.key]!.href}
+                className="inline-flex items-center gap-1 text-body-sm font-medium text-primary transition-colors hover:text-primary-container"
+              >
+                {INTERNAL_STEP_ROUTES[step.key]!.label}
+                <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+              </Link>
             </div>
           )}
           {step.completedAt && (

@@ -29,11 +29,15 @@ export const BiometricInitRequestSchema = z.object({
   loginId: z.string().min(1).max(64),
   authMode: BiometricAuthModeSchema,
   process: BiometricProcessSchema,
-  // PMJAY payer NHCX participant id.
-  payerId: z.string().min(1).max(128),
-  // Outer ABHA-platform JWT — the caller plumbs this in from a
-  // separate flow; the biometric service does not mint it.
-  bearerToken: z.string().min(1),
+  // PMJAY payer NHCX participant id. OPTIONAL — the backend resolves
+  // it from the case's claim.payerCode → payer.hcxCode. Operators
+  // never know or type this; it's integration plumbing. Kept on the
+  // schema only as an escape hatch for tooling that wants to override.
+  payerId: z.string().min(1).max(128).optional(),
+  // Outer ABHA-platform JWT — OPTIONAL. In real mode the backend
+  // mints/threads it from the ABDM session flow (deferred); in
+  // stub/off modes it's ignored. Operators never paste a JWT.
+  bearerToken: z.string().min(1).optional(),
 });
 export type BiometricInitRequest = z.infer<typeof BiometricInitRequestSchema>;
 
@@ -58,8 +62,10 @@ export const BiometricVerifyRequestSchema = z.object({
     irisAuthPid: z.string().min(1).optional(),
   }),
   process: BiometricProcessSchema,
-  payerId: z.string().min(1).max(128),
-  bearerToken: z.string().min(1),
+  // Both backend-resolved — see BiometricInitRequestSchema. Optional
+  // on the wire so the operator UI never collects them.
+  payerId: z.string().min(1).max(128).optional(),
+  bearerToken: z.string().min(1).optional(),
 });
 export type BiometricVerifyRequest = z.infer<typeof BiometricVerifyRequestSchema>;
 

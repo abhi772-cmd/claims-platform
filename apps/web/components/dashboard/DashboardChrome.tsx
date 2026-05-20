@@ -24,6 +24,7 @@ import { type ReactNode, useEffect, useMemo, useState } from 'react';
 
 import { AuthApi } from '../../lib/api/auth.api';
 import { ApiError } from '../../lib/api/client';
+import { Logo } from '../brand/Logo';
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
 
 interface NavItem {
@@ -151,20 +152,11 @@ export function DashboardChrome({ children }: { children: ReactNode }): JSX.Elem
     <div className="flex min-h-screen">
       {/* Sidebar */}
       <aside className="font-nav sticky top-0 z-50 flex h-screen w-64 shrink-0 flex-col bg-gradient-to-b from-[#0d7a82] to-[#075c63] px-4 py-8 text-on-primary shadow-xl">
-        {/* Brand pill */}
-        <div className="mb-10 px-2">
-          <div className="inline-flex items-center gap-2 rounded-full bg-surface-container-lowest px-4 py-2 shadow-sm">
-            <span
-              className="material-symbols-outlined text-primary"
-              style={{ fontSize: 22, fontVariationSettings: "'FILL' 1" }}
-            >
-              health_and_safety
-            </span>
-            <span className="text-h3 font-black uppercase tracking-tighter text-primary">
-              DIGI SPARSH
-            </span>
-          </div>
-          <p className="mt-3 px-1 text-eyebrow uppercase tracking-eyebrow text-primary-fixed/70">
+        {/* Brand — white DigiSparsh wordmark (orange ₹) directly on the
+            teal sidebar, no pill. Centered + large. */}
+        <div className="mb-10 flex flex-col items-center">
+          <Logo variant="onTeal" size="xl" />
+          <p className="mt-3 text-center text-eyebrow uppercase tracking-eyebrow text-primary-fixed/70">
             Healthcare Claims
           </p>
         </div>

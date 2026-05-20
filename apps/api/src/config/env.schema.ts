@@ -108,6 +108,25 @@ export const EnvSchema = z.object({
   PASSWORD_RESET_TOKEN_TTL_MINUTES: z.coerce.number().int().positive().default(30),
   PASSWORD_RESET_RATE_LIMIT_PER_DAY: z.coerce.number().int().positive().default(5),
 
+  // Slice CM — DPDP consent OTP capture flow.
+  //   TTL: how long an issued OTP stays verifiable (10 min default).
+  //   MAX_ATTEMPTS: failed verify attempts before the OTP row flips to
+  //                 'failed' and a fresh initiate is required.
+  //   SENDS_PER_HOUR: per-patient rate limit for outbound OTP SMS to
+  //                   prevent telegram-bot style enumeration / SMS
+  //                   spam costs.
+  //   HASH_PEPPER: server-side pepper mixed into sha256(code) so a DB
+  //                snapshot alone can't brute-force a 6-digit code in
+  //                milliseconds. Dev default is non-empty so tests
+  //                pass; production MUST override with a 32+ byte
+  //                random value.
+  CONSENT_OTP_TTL_MINUTES:    z.coerce.number().int().positive().default(10),
+  CONSENT_OTP_MAX_ATTEMPTS:   z.coerce.number().int().positive().default(3),
+  CONSENT_OTP_SENDS_PER_HOUR: z.coerce.number().int().positive().default(5),
+  CONSENT_OTP_HASH_PEPPER:    NonEmptyString.default(
+    'dev-only-pepper-replace-in-production-with-32-byte-random',
+  ),
+
   // Sessions / trusted devices / concurrent cap (Slice E)
   CONCURRENT_SESSION_LIMIT: z.coerce.number().int().positive().default(5),
   TRUSTED_DEVICE_TTL_DAYS: z.coerce.number().int().positive().default(30),

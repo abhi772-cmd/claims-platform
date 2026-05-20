@@ -195,6 +195,16 @@ export class CaseService {
           ...(input.consent.expiresAt !== undefined
             ? { expiresAt: new Date(input.consent.expiresAt) }
             : {}),
+          // Slice CM — pass typed method + ref through. Application-
+          // layer cross-check of (method, ref) consistency happens here
+          // for the OTP case so the case-create rejects a forged ref
+          // before the consent row commits.
+          ...(input.consent.acknowledgementMethod
+            ? { acknowledgementMethod: input.consent.acknowledgementMethod }
+            : {}),
+          ...(input.consent.acknowledgementRef
+            ? { acknowledgementRef: input.consent.acknowledgementRef }
+            : {}),
         });
       }
       // Audit record carries DISPLAY-safe fields only — no encrypted

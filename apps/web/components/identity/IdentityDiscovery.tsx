@@ -400,10 +400,15 @@ export function IdentityDiscovery({
           : 'Fill in any identifiers you have. Smart search runs all of them across PMJAY + NHCX in parallel and shows every match.'}
       </p>
 
-      {/* Payer dropdown — required for NHCX verify paths in single
-          mode. Smart mode fans out across every NHCX payer so the
-          operator doesn't need to pick one. Hidden for self-pay. */}
-      {rail !== 'self_pay' && mode === 'single' ? (
+      {/* Payer dropdown — only rendered when the chosen identifier ×
+          rail combination actually consumes payerCode. NHCX always
+          needs it (verify-by-identifiers + discoverByMobile both
+          require it). PMJAY only needs it for Aadhaar / policy in
+          single mode (those fall through to verify-by-identifiers);
+          PMJAY mobile + ABHA hit policies-lookup which returns its
+          own payer. Smart mode fans out across every NHCX payer.
+          Self-pay never needs it. */}
+      {mode === 'single' && payerRequired(rail, kind) ? (
         <div className="mb-4">
           <label className={LABEL_CLS} htmlFor="identity-payer">Payer</label>
           <select
@@ -747,5 +752,14 @@ function sourceLabel(source: IdentityDiscoverCandidate['source']): string {
   if (source === 'pmjay_policies_lookup') return 'PMJAY';
   if (source === 'nhcx_verify_by_identifiers') return 'NHCX verify';
   return 'NHCX mobile';
+}
+
+// Mirrors the search()/routing matrix above. Used to gate the payer
+// dropdown so the operator only sees it when the chosen identifier
+// will actually consume payerCode downstream.
+function payerRequired(rail: Rail, kind: IdentifierKind): boolean {
+  if (rail === 'self_pay') return false;
+  if (rail === 'nhcx') return true;
+  return kind === 'aadhaar' || kind === 'policy';
 }
 

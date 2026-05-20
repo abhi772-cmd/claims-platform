@@ -7,6 +7,7 @@ import {
   ClaimStatusSchema,
 } from './claim.schema';
 import {
+  AcknowledgementMethodSchema,
   ConsentEvidenceSchema,
   ConsentTypeSchema,
   LawfulBasisSchema,
@@ -50,6 +51,11 @@ export const IntakeConsentSchema = z.object({
   source: z.string().min(1).max(500),
   evidence: ConsentEvidenceSchema,
   expiresAt: z.string().datetime().optional(),
+  // Slice CM — typed method + artifact ref. Optional for backward
+  // compat with legacy intake (tests, seed) that only ever sent
+  // `source`. The new intake form always populates these.
+  acknowledgementMethod: AcknowledgementMethodSchema.optional(),
+  acknowledgementRef: z.string().uuid().optional(),
 });
 export type IntakeConsent = z.infer<typeof IntakeConsentSchema>;
 
