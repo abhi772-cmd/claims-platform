@@ -99,23 +99,37 @@ export class PayerCommercialTermsService {
   // Onboarding completeness — per-payer status across the catalog
   // ---------------------------------------------------------------
 
-  // Returns one row per active Payer the tenant has marked relevant
-  // (today = every Payer master row tagged active; tomorrow may
-  // narrow once we model per-tenant payer empanelment). For each
-  // payer we count room rate overrides set vs the count of active
-  // room categories, and surface whether the mandatory terms are
-  // filled. fullyComplete is the AND of the two.
+  // Returns one row per payer the tenant has EMPANELLED (TenantPayer,
+  // active). A tenant only owes commercial terms for the payers it
+  // actually works with — not every payer in the global master. For
+  // each empanelled payer we count room rate overrides set vs the
+  // count of active room categories, and surface whether the
+  // mandatory terms are filled. fullyComplete is the AND of the two.
+  //
+  // allPayersComplete is vacuously true when the tenant has no
+  // empanelled payers — the "you need payers" requirement is the
+  // payer_master step's job, not this gate's. That also keeps a
+  // freshly-provisioned tenant (zero empanelment) from being blocked
+  // by a terms requirement that has nothing to apply to.
   async listOnboardingStatus(tenantId: string): Promise<{
     payers: PayerOnboardingStatus[];
     allPayersComplete: boolean;
   }> {
     return this.prisma.runInTenantContext(tenantId, 'tenant', async (tx) => {
+      const empanelled = await tx.tenantPayer.findMany({
+        where: { tenantId, active: true },
+        select: { payerId: true },
+      });
+      const payerIds = empanelled.map((e) => e.payerId);
+
       const [payers, categories, allTerms, allRates] = await Promise.all([
-        tx.payer.findMany({
-          where: { active: true },
-          select: { code: true, name: true },
-          orderBy: { name: 'asc' },
-        }),
+        payerIds.length === 0
+          ? Promise.resolve([] as Array<{ code: string; name: string }>)
+          : tx.payer.findMany({
+              where: { id: { in: payerIds } },
+              select: { code: true, name: true },
+              orderBy: { name: 'asc' },
+            }),
         tx.roomCategory.findMany({
           where: { tenantId, active: true },
           select: { id: true },
@@ -124,10 +138,7 @@ export class PayerCommercialTermsService {
           where: { tenantId, active: true },
         }),
         tx.roomCategoryPayerRate.findMany({
-          where: {
-            tenantId,
-            active: true,
-          },
+          where: { tenantId, active: true },
           select: { payerCode: true, roomCategoryId: true },
         }),
       ]);
@@ -158,7 +169,8 @@ export class PayerCommercialTermsService {
           fullyComplete,
         };
       });
-      const allPayersComplete = out.length > 0 && out.every((r) => r.fullyComplete);
+      // Vacuously true for zero empanelled payers (see method comment).
+      const allPayersComplete = out.every((r) => r.fullyComplete);
       return { payers: out, allPayersComplete };
     });
   }

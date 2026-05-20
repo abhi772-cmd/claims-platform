@@ -17,16 +17,17 @@ import { PayerCommercialTermsService } from '../payer-commercial-terms';
 // them all as required for both since this version of the readiness
 // surface is binary (ready / not-ready).
 //
-// payer_commercial_terms is gated TWO ways: the step flag itself
-// (admin marked it complete) AND the data check below (every active
-// payer has terms + room rates). Belt and braces — admins sometimes
-// flip the step flag prematurely.
+// payer_commercial_terms is intentionally NOT a required STEP flag.
+// Its onboarding step exists for the wizard UI, but readiness gates
+// on the substantive DATA check below (every EMPANELLED payer has
+// terms + room rates) rather than on the admin self-attesting the
+// step complete. Gating on truth, not on a flag, avoids the failure
+// mode where the flag is ticked but the underlying rows are missing.
 const REQUIRED_STEPS: readonly OnboardingStepKey[] = [
   'tenant_profile',
   'roles_assigned',
   'nhcx_cert',
   'payer_master',
-  'payer_commercial_terms',
   'package_master',
   'notification_test',
   'legal_acceptance',
@@ -88,17 +89,21 @@ export class ReadinessService {
       message: terminal ? 'Tenant is CHURNED.' : 'Lifecycle is not terminal.',
     });
 
-    // 4. Per-payer commercial terms data check. The step-flag check
-    //    above only confirms the admin clicked "mark complete"; this
-    //    one verifies the underlying rows (terms row + room rate per
-    //    category per payer) actually exist.
+    // 4. Per-payer commercial terms data check. Verifies the
+    //    underlying rows (terms row + room rate per active category)
+    //    exist for every EMPANELLED payer. Vacuously satisfied when
+    //    the tenant has empanelled no payers yet.
     const status = await this.commercialTerms.listOnboardingStatus(tenantId);
+    const incompletePayers = status.payers.filter((p) => !p.fullyComplete).length;
     items.push({
       key: 'data.payer_commercial_terms',
       ok: status.allPayersComplete,
-      message: status.allPayersComplete
-        ? `Commercial terms set for all ${status.payers.length} active payer(s).`
-        : `Commercial terms incomplete for ${status.payers.filter((p) => !p.fullyComplete).length} of ${status.payers.length} active payer(s).`,
+      message:
+        status.payers.length === 0
+          ? 'No empanelled payers require commercial terms yet.'
+          : status.allPayersComplete
+            ? `Commercial terms set for all ${status.payers.length} empanelled payer(s).`
+            : `Commercial terms incomplete for ${incompletePayers} of ${status.payers.length} empanelled payer(s).`,
     });
 
     return { ready: items.every((i) => i.ok), items };
