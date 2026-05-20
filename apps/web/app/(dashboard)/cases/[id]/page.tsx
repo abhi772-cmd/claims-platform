@@ -316,6 +316,7 @@ export default function CaseDetailPage({ params }: PageProps): JSX.Element {
           claimId={claim.id}
           status={claim.status as ClaimStatus}
           rail={detail.primaryRail}
+          admissionType={detail.admissionType}
           onChanged={() => void reload()}
         />
       ) : null}

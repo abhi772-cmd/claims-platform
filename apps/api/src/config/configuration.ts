@@ -46,6 +46,16 @@ export function loadConfig(raw: NodeJS.ProcessEnv): AppConfig {
     });
   }
 
+  // Bill OCR reuses the EOB OCR inference service (the /extract-bill
+  // route on the same machine), so real mode needs the same URL set.
+  if (env.BILL_OCR_MODE === 'real' && !env.EOB_OCR_INFERENCE_URL) {
+    throw new ConfigError({
+      BILL_OCR_MODE: [
+        'real mode requires EOB_OCR_INFERENCE_URL (the bill-OCR engine posts to its /extract-bill route)',
+      ],
+    });
+  }
+
   // Slice BF — real-mode biometric auth needs the ABDM endpoint or
   // every init / verify returns failed. Catch the misconfig at boot
   // rather than at first PMJAY case.

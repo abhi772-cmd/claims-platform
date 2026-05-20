@@ -58,6 +58,8 @@ const ListPayersQuerySchema = z.object({
 });
 
 const ListPackagesQuerySchema = z.object({
+  // Typeahead search over package code + name (D-023 picker).
+  q: z.string().max(120).optional(),
   category: z.string().optional(),
   pmjayHbp: z
     .union([z.literal('true'), z.literal('false')])

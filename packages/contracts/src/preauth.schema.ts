@@ -9,6 +9,11 @@ export const PreauthDraftSchema = z.object({
   diagnosisDescription: z.string().min(1).max(500).optional(),
   plannedProcedure: z.string().min(1).max(500).optional(),
   procedureCode: z.string().min(1).max(32).optional(),
+  // D-023 — HBP package code. When set, the save path snapshots the
+  // package as the PRIMARY claim line and auto-fills requestedAmount
+  // from its fixed rate (unless requestedAmount was sent explicitly —
+  // the operator can still override for enhancement / implant cases).
+  packageCode: z.string().min(1).max(64).optional(),
   estimatedLengthOfStayDays: z.number().int().nonnegative().max(365).optional(),
   requestedAmount: z.number().int().nonnegative().optional(),
   clinicalJustification: z.string().min(1).max(5000).optional(),

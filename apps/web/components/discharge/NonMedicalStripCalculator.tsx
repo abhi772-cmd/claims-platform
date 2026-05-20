@@ -41,7 +41,7 @@ import {
   type NonMedicalCategory,
   type SaveBillLineItem,
 } from '@claims/contracts';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { BillLineItemApi } from '../../lib/api/bill-line-item.api';
 import { DischargeApi } from '../../lib/api/discharge.api';
@@ -185,6 +185,26 @@ function fmtTime(iso: string): string {
   });
 }
 
+// Read a chosen file into base64 (sans the `data:<mime>;base64,`
+// prefix) for the extract-bill upload. The browser does the read so
+// the operator picks a PDF/image straight from disk.
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== 'string') {
+        reject(new Error('Could not read file'));
+        return;
+      }
+      const comma = result.indexOf(',');
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error('Could not read file'));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.Element {
   const { showApiError } = useErrorModal();
   const [text, setText] = useState('');
@@ -194,6 +214,11 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [savedLineCount, setSavedLineCount] = useState<number | null>(null);
   const [loaded, setLoaded] = useState(false);
+  // Bill-OCR upload state. `uploadNote` surfaces the outcome (lines
+  // extracted / disabled / low-confidence / failed) inline.
+  const [extracting, setExtracting] = useState(false);
+  const [uploadNote, setUploadNote] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   // Per-line operator overrides keyed by overrideKey(line). See
   // the type docstring above for semantics.
   const [overrides, setOverrides] = useState<Map<string, Override>>(() => new Map());
@@ -267,6 +292,45 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
     const id = setTimeout(() => void classify(), 400);
     return () => clearTimeout(id);
   }, [classify]);
+
+  // Bill-OCR upload: read the chosen file, POST to extract-bill, and
+  // seed the textarea with the parsed lines. The existing debounced
+  // classify + override/save flow then runs unchanged. Paste stays as
+  // the fallback when OCR is off / low-confidence / fails.
+  const onUploadBill = useCallback(
+    async (file: File) => {
+      setExtracting(true);
+      setUploadNote(null);
+      try {
+        const fileBase64 = await fileToBase64(file);
+        const res = await DischargeApi.extractBill({
+          fileBase64,
+          contentType: file.type || 'application/octet-stream',
+          originalFilename: file.name,
+        });
+        if (res.status === 'extracted' && res.lines.length > 0) {
+          setText(classifiedToText(res.lines));
+          setOverrides(new Map());
+          setUploadNote(
+            `Extracted ${res.lines.length} line${res.lines.length === 1 ? '' : 's'} from ${file.name} — review below.`,
+          );
+        } else if (res.status === 'skipped') {
+          setUploadNote('Bill OCR is turned off — paste or type the bill below instead.');
+        } else if (res.status === 'low_confidence') {
+          setUploadNote('Could not read the bill clearly — paste or type the lines below.');
+        } else {
+          setUploadNote(
+            res.error ? `Bill OCR failed: ${res.error}` : 'Bill OCR failed — paste the bill below.',
+          );
+        }
+      } catch (err) {
+        showApiError(err);
+      } finally {
+        setExtracting(false);
+      }
+    },
+    [showApiError],
+  );
 
   // Effective classification: classifier output overlaid with any
   // operator overrides. This — not result.lines — is the source of
@@ -438,6 +502,32 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
           ) : null}
         </span>
         <div className="flex items-center gap-3">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf,image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void onUploadBill(file);
+              // Reset so re-selecting the same file fires onChange again.
+              e.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={extracting}
+            className="inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-60"
+          >
+            <span
+              className="material-symbols-outlined"
+              style={{ fontSize: 16, fontVariationSettings: "'FILL' 1" }}
+            >
+              upload_file
+            </span>
+            {extracting ? 'Reading bill…' : 'Upload bill (PDF/image)'}
+          </button>
           {persistEnabled ? (
             <button
               type="button"
@@ -478,6 +568,12 @@ export function NonMedicalStripCalculator({ caseId, claimId }: Props = {}): JSX.
           )}
         </div>
       </div>
+
+      {uploadNote ? (
+        <p className="rounded-lg border border-primary-container/40 bg-primary-container/10 px-3 py-2 text-body-sm text-on-surface-variant">
+          {uploadNote}
+        </p>
+      ) : null}
 
       {result ? (
         <>

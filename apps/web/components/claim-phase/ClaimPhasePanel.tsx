@@ -11,43 +11,7 @@ import { EligibilityPurposeButton } from '../eligibility/EligibilityPurposeButto
 import { useErrorModal } from '../modals/ErrorModal/ErrorModalProvider';
 import { useToast } from '../toast/ToastProvider';
 import { CaseApi } from '../../lib/api/case.api';
-
-// Hard upper bound matches UploadInitRequestSchema's 50 MB cap on
-// the API. We surface a friendlier error than waiting for the
-// server to reject.
-const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
-
-// scanBufferBase64 on finalize caps at 5 MB raw — see
-// UploadFinalizeRequestSchema. Files larger than that under
-// STORAGE_MODE=stub skip the in-process scan; that's a dev-mode
-// limitation, not a production one (real ClamAV streams from S3).
-const STUB_SCAN_LIMIT_BYTES = 5 * 1024 * 1024;
-
-function fmtBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-// Web Crypto SHA-256 of the file bytes. Computed in the browser
-// so the server can verify the upload landed intact (real-mode
-// requirement at production hardening; optional in stub).
-async function sha256Hex(buffer: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', buffer);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  // Chunked to avoid call-stack overflow on large inputs.
-  const CHUNK = 0x8000;
-  let binary = '';
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(binary);
-}
+import { fmtBytes, MAX_UPLOAD_BYTES, uploadDocument } from '../../lib/upload';
 
 const PREAUTH_DONE: ReadonlySet<ClaimStatus> = new Set([
   'PREAUTH_APPROVED',
@@ -128,57 +92,9 @@ export function ClaimPhasePanel({
   async function uploadDoc(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault();
     if (!file) return;
-    if (file.size > MAX_UPLOAD_BYTES) {
-      showApiError(
-        new Error(`File is ${fmtBytes(file.size)} — the 50 MB upload limit applies.`),
-      );
-      return;
-    }
     setBusy('upload');
     try {
-      const buffer = await file.arrayBuffer();
-      const contentSha256 = await sha256Hex(buffer);
-
-      const init = await CaseApi.uploadInit(caseId, claimId, {
-        documentType: docType,
-        originalFilename: file.name,
-        contentType: file.type || 'application/octet-stream',
-        sizeBytes: file.size,
-      });
-
-      const isStub = init.uploadUrl.startsWith('stub://');
-      if (!isStub) {
-        const res = await fetch(init.uploadUrl, {
-          method: 'PUT',
-          headers: init.requiredHeaders,
-          body: file,
-        });
-        if (!res.ok) {
-          throw new Error(
-            `Upload PUT failed: ${res.status} ${res.statusText}`,
-          );
-        }
-      }
-
-      const finalizeBody: {
-        contentSha256: string;
-        scanBufferBase64?: string;
-      } = { contentSha256 };
-      // Under STORAGE_MODE=stub we hand the bytes to the in-process
-      // virus scanner via scanBufferBase64. Skip when over the
-      // 5 MB scan-buffer cap — finalize accepts the omission; the
-      // doc lands without an in-process scan, which is acceptable
-      // for dev/stub.
-      if (isStub && file.size <= STUB_SCAN_LIMIT_BYTES) {
-        finalizeBody.scanBufferBase64 = bytesToBase64(new Uint8Array(buffer));
-      }
-
-      await CaseApi.uploadFinalize(
-        caseId,
-        claimId,
-        init.document.id,
-        finalizeBody,
-      );
+      await uploadDocument(caseId, claimId, file, docType);
 
       const list = await CaseApi.listDocuments(caseId, claimId);
       setDocs(list.documents);
