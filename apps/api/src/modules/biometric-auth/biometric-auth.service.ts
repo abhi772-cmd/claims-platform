@@ -44,8 +44,11 @@ export interface InitiateBiometricInput {
   loginId: string;
   authMode: BiometricAuthMode;
   process: BiometricProcess;
-  payerId: string;
-  bearerToken: string;
+  // Optional overrides — normally resolved server-side from the case's
+  // payer (payerId) and the ABDM session flow (bearerToken). Operators
+  // never supply these.
+  payerId?: string;
+  bearerToken?: string;
 }
 
 export interface InitiateBiometricResult {
@@ -67,8 +70,9 @@ export interface VerifyBiometricInput {
     irisAuthPid?: string;
   };
   process: BiometricProcess;
-  payerId: string;
-  bearerToken: string;
+  // Optional overrides — see InitiateBiometricInput.
+  payerId?: string;
+  bearerToken?: string;
 }
 
 export interface VerifyBiometricResult {
@@ -87,15 +91,15 @@ export class BiometricAuthService {
   ) {}
 
   async initiate(input: InitiateBiometricInput): Promise<InitiateBiometricResult> {
-    await this.assertCaseOnTenant(input.tenantId, input.caseId);
+    const payerId = await this.resolvePayerCode(input.tenantId, input.caseId, input.payerId);
     const result = await this.adapter.init({
       scope: input.scope,
       loginHint: input.loginHint,
       loginId: input.loginId,
       authMode: input.authMode,
       process: input.process,
-      payerId: input.payerId,
-      bearerToken: input.bearerToken,
+      payerId,
+      bearerToken: this.resolveBearerToken(input.bearerToken),
     });
     if (result.status === 'disabled') return { status: 'disabled' };
     if (result.status === 'failed') {
@@ -108,14 +112,14 @@ export class BiometricAuthService {
   }
 
   async verify(input: VerifyBiometricInput): Promise<VerifyBiometricResult> {
-    await this.assertCaseOnTenant(input.tenantId, input.caseId);
+    const payerId = await this.resolvePayerCode(input.tenantId, input.caseId, input.payerId);
     const adapterResult = await this.adapter.verify({
       scope: input.scope,
       authMode: input.authMode,
       authData: input.authData,
       process: input.process,
-      payerId: input.payerId,
-      bearerToken: input.bearerToken,
+      payerId,
+      bearerToken: this.resolveBearerToken(input.bearerToken),
     });
     if (adapterResult.status === 'disabled') return { status: 'disabled' };
     if (adapterResult.status === 'failed') {
@@ -179,12 +183,78 @@ export class BiometricAuthService {
     }
   }
 
-  private async assertCaseOnTenant(tenantId: string, caseId: string): Promise<void> {
-    const found = await this.prisma.runInTenantContext(tenantId, 'tenant', (tx) =>
-      tx.case.findUnique({ where: { id: caseId }, select: { id: true } }),
-    );
-    if (!found) {
-      throw new ValidationFailedError({ caseId: ['Case not found.'] });
+  // Resolve the NHCX recipient (payer) participant code from the case
+  // itself so the operator never has to know or type it. The chain is
+  // case → its claim → claim.payerCode (stable Payer.code) →
+  // payer.hcxCode (the NHCX participant id, e.g. 'pmjay@hcx').
+  //
+  // An explicit override (`provided`) wins — useful for tooling /
+  // tests — but the normal path resolves server-side. Also validates
+  // the case is on this tenant (replaces the old assertCaseOnTenant).
+  private async resolvePayerCode(
+    tenantId: string,
+    caseId: string,
+    provided?: string,
+  ): Promise<string> {
+    return this.prisma.runInTenantContext(tenantId, 'tenant', async (tx) => {
+      const found = await tx.case.findUnique({
+        where: { id: caseId },
+        select: { id: true },
+      });
+      if (!found) {
+        throw new ValidationFailedError({ caseId: ['Case not found.'] });
+      }
+      if (provided) return provided;
+
+      // Newest claim on the case carries the payerCode captured at
+      // eligibility time. PMJAY cases always have one by the time the
+      // biometric gate runs (it's an admission-time step after the
+      // case + claim are created).
+      const claim = await tx.claim.findFirst({
+        where: { caseId },
+        orderBy: { initiatedAt: 'desc' },
+        select: { payerCode: true },
+      });
+      if (!claim?.payerCode) {
+        throw new ValidationFailedError({
+          payerId: [
+            'No payer is set on this case yet — run eligibility first so the payer is known.',
+          ],
+        });
+      }
+      const payer = await tx.payer.findUnique({
+        where: { code: claim.payerCode },
+        select: { hcxCode: true, name: true },
+      });
+      if (!payer?.hcxCode) {
+        throw new ValidationFailedError({
+          payerId: [
+            `Payer "${claim.payerCode}" has no NHCX participant code registered. ` +
+              `Add it on the payer master before biometric verification.`,
+          ],
+        });
+      }
+      return payer.hcxCode;
+    });
+  }
+
+  // ABDM consent bearer token. In stub/off modes the adapter ignores
+  // it, so a placeholder is fine. In real mode this is where the ABDM
+  // session/consent service plugs in to mint a scoped token — deferred
+  // (see the BIS productionization plan). Operators never paste a JWT.
+  private resolveBearerToken(provided?: string): string {
+    if (provided) return provided;
+    const mode = this.config.get('BIOMETRIC_AUTH_MODE', { infer: true });
+    if (mode === 'real') {
+      // Hard signal during productionization: real mode must not run
+      // with a placeholder token. The ABDM session service will fill
+      // this in; until then, fail loudly rather than send garbage.
+      throw new ValidationFailedError({
+        bearerToken: [
+          'ABDM consent token is required in real mode but the session flow is not wired yet.',
+        ],
+      });
     }
+    return 'stub-bearer-token';
   }
 }

@@ -19,6 +19,16 @@ import { TextGuruSmsProvider } from './textguru-sms.provider';
     NotificationService,
     NotificationRetryWorker,
   ],
-  exports: [NotificationService, NotificationRetryWorker, TenantCommsConfigService],
+  exports: [
+    NotificationService,
+    NotificationRetryWorker,
+    TenantCommsConfigService,
+    // Slice CM — ConsentOtpService dispatches OTPs directly via the
+    // SMS adapter (it bypasses the template/render layer because the
+    // OTP body is a fixed format and templated renders would also pull
+    // in NotificationOutbox bookkeeping that the OTP audit row already
+    // covers).
+    SmsAdapter,
+  ],
 })
 export class NotificationModule {}

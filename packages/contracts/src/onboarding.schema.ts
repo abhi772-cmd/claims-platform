@@ -18,6 +18,7 @@ export const OnboardingStepKeySchema = z.enum([
   'nhcx_callback_url',
   'pmjay_state',
   'payer_master',
+  'payer_commercial_terms',
   'package_master',
   'notification_test',
   'legal_acceptance',
@@ -134,13 +135,25 @@ export const ONBOARDING_STEP_DESCRIPTORS: ReadonlyArray<OnboardingStepDescriptor
   },
   {
     key: 'payer_master',
-    title: 'Payer master uploaded',
+    title: 'Payers you work with',
     purpose:
-      'List of insurers + TPAs this hospital deals with, mapped to their NHCX participant codes.',
+      'Select the insurers, TPAs, and PMJAY agencies this hospital is tied up with from the DigiSparsh-curated registry. Only empanelled payers appear in the case-creation dropdown.',
     captures: [
-      'Payer count',
-      "Each payer's @hcx code",
-      'Override list (custom turnaround promises)',
+      'Empanelled payer count',
+      'Active vs retired empanelments',
+      'NHCX participant code per empanelled payer (from the registry)',
+    ],
+    blocksNhcxCutover: true,
+  },
+  {
+    key: 'payer_commercial_terms',
+    title: 'Payer commercial terms',
+    purpose:
+      'Per-payer room rates, co-pay, and deductible. Required for go-live so every cashless intake can quote the correct out-of-pocket. The structured half of an MOU — additional optional fields (TAT, sub-limits, payment terms, network category) live behind the form for admins to fill as they have the data.',
+    captures: [
+      'Room category rates (per category, per payer)',
+      'Co-pay (% or flat) and deductible',
+      'Optional: TAT, payment terms, sub-limits, discount %, network',
     ],
     blocksNhcxCutover: true,
   },

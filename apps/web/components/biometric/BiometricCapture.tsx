@@ -53,11 +53,9 @@ interface Props {
   // persisting, but UI must keep it out of logs.
   loginId: string;
   loginHint: BiometricLoginHint;
-  // PMJAY payer participant code from the picked policy.
-  payerId: string;
-  // Outer ABHA-platform JWT — supplied upstream by an ABDM consent flow
-  // the API doesn't own. Pass through as opaque string.
-  bearerToken: string;
+  // Note: payerId (NHCX participant code) and the ABDM bearer token are
+  // resolved server-side from the case's payer + ABDM session — the
+  // operator never supplies them. See BiometricAuthService.
   process: 'Preauth' | 'Discharge';
   onCompleted: (result: BiometricResult) => void;
 }
@@ -80,8 +78,6 @@ export function BiometricCapture({
   caseId,
   loginId,
   loginHint,
-  payerId,
-  bearerToken,
   process,
   onCompleted,
 }: Props): JSX.Element {
@@ -103,8 +99,6 @@ export function BiometricCapture({
         loginId,
         authMode,
         process,
-        payerId,
-        bearerToken,
       });
       if (res.status === 'disabled') {
         setStage('disabled');
@@ -126,7 +120,7 @@ export function BiometricCapture({
       showApiError(err);
       setStage('idle');
     }
-  }, [authMode, bearerToken, caseId, loginHint, loginId, payerId, process, showApiError, showToast]);
+  }, [authMode, caseId, loginHint, loginId, process, showApiError, showToast]);
 
   const completeWithPid = useCallback(
     async (pid: string): Promise<void> => {
@@ -145,8 +139,6 @@ export function BiometricCapture({
             ...(authMode === 'FACE_AUTH' ? { faceAuthPid: pid } : {}),
           },
           process,
-          payerId,
-          bearerToken,
         });
         if (res.status === 'disabled') {
           setStage('disabled');
@@ -164,7 +156,7 @@ export function BiometricCapture({
         setStage('capture');
       }
     },
-    [authMode, bearerToken, caseId, loginHint, loginId, onCompleted, payerId, process, showApiError, showToast, txnId],
+    [authMode, caseId, loginHint, loginId, onCompleted, process, showApiError, showToast, txnId],
   );
 
   const onOtpFallbackConfirm = useCallback(() => {

@@ -159,6 +159,11 @@ const EVENT_TO_CLASS: Readonly<Record<AuditEvent, RetentionClass>> = {
   // retention.
   [AuditEvents.CONSENT_GRANTED]: RetentionClasses.CONSENT,
   [AuditEvents.CONSENT_WITHDRAWN]: RetentionClasses.CONSENT,
+  // Slice CM — OTP capture events ride alongside the consent record
+  // they authorise; same retention class (DPDP §6 evidence chain).
+  [AuditEvents.CONSENT_OTP_INITIATED]: RetentionClasses.CONSENT,
+  [AuditEvents.CONSENT_OTP_VERIFIED]: RetentionClasses.CONSENT,
+  [AuditEvents.CONSENT_OTP_VERIFY_FAILED]: RetentionClasses.CONSENT,
 };
 
 // Classify an audit event for retention. Defaults to FINANCIAL when

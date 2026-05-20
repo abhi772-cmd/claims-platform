@@ -19,6 +19,7 @@
 // here, not the database.
 
 import {
+  type AcknowledgementMethod,
   type ConsentEvidence,
   type ConsentRecordRow,
   type ConsentStatus,
@@ -46,6 +47,12 @@ export interface GrantConsentInput {
   evidence: ConsentEvidence;
   expiresAt?: Date;
   documentId?: string;
+  // Slice CM — typed acknowledgement method + ref into the per-method
+  // artifact table. Optional for backward compatibility: legacy intake
+  // paths that only set `source` continue to work and land with both
+  // columns NULL.
+  acknowledgementMethod?: AcknowledgementMethod;
+  acknowledgementRef?: string;
 }
 
 export interface WithdrawConsentInput {
@@ -101,6 +108,52 @@ export class ConsentService {
       throw new ValidationFailedError({ patientId: ['Patient not found in this tenant.'] });
     }
 
+    // Slice CM — typed method must come with a matching artifact ref,
+    // and that ref must point at a valid, verified, same-tenant,
+    // same-consent-type artifact row. The OTP was issued before the
+    // patient row existed (intake flow), so patient binding happens
+    // here: we backfill the OTP's patientId to the now-known id so
+    // access-ledger queries can resolve "which OTPs touched patient X"
+    // from either side of the join.
+    //
+    // Without this cross-check a malicious client could submit a
+    // method='otp' grant with a forged ref and the consent ledger
+    // would record a "verified OTP" that never actually happened.
+    if (input.acknowledgementMethod === 'otp') {
+      if (!input.acknowledgementRef) {
+        throw new ValidationFailedError(
+          { acknowledgementRef: ["acknowledgementRef is required when method='otp'."] },
+        );
+      }
+      const otpRow = await tx.consentOtp.findUnique({
+        where: { id: input.acknowledgementRef },
+      });
+      if (!otpRow || otpRow.tenantId !== input.tenantId) {
+        throw new ValidationFailedError(
+          { acknowledgementRef: ['OTP artifact not found in this tenant.'] },
+        );
+      }
+      if (otpRow.status !== 'verified' || !otpRow.verifiedAt) {
+        throw new ValidationFailedError(
+          { acknowledgementRef: ['OTP must be verified before consent can be granted.'] },
+        );
+      }
+      if (otpRow.consentType !== input.consentType) {
+        throw new ValidationFailedError(
+          { acknowledgementRef: ['OTP was issued for a different consent type.'] },
+        );
+      }
+      // Backfill the patientId so the OTP row resolves to the
+      // patient it ultimately authorised. No-op if a prior grant
+      // path already linked it (idempotent under repeated submits).
+      if (otpRow.patientId === null) {
+        await tx.consentOtp.update({
+          where: { id: otpRow.id },
+          data: { patientId: input.patientId },
+        });
+      }
+    }
+
     const row = await tx.consentRecord.create({
       data: {
         tenantId: input.tenantId,
@@ -115,6 +168,12 @@ export class ConsentService {
         expiresAt: input.expiresAt ?? null,
         capturedByUserId: input.actorUserId,
         documentId: input.documentId ?? null,
+        // Slice CM — typed method + artifact ref. Application-layer
+        // validation of the (method, ref) pair lives in the caller
+        // (CaseService threads a verified OTP id; ConsentOtpController
+        // ensures the OTP row is in 'verified' state).
+        acknowledgementMethod: input.acknowledgementMethod ?? null,
+        acknowledgementRef: input.acknowledgementRef ?? null,
       },
     });
 
@@ -294,6 +353,8 @@ function rowToShape(row: {
   withdrawalReason: string | null;
   capturedByUserId: string | null;
   documentId: string | null;
+  acknowledgementMethod: string | null;
+  acknowledgementRef: string | null;
   createdAt: Date;
   updatedAt: Date;
 }): ConsentRecordRow {
@@ -314,6 +375,8 @@ function rowToShape(row: {
     withdrawalReason: row.withdrawalReason,
     capturedByUserId: row.capturedByUserId,
     documentId: row.documentId,
+    acknowledgementMethod: row.acknowledgementMethod as AcknowledgementMethod | null,
+    acknowledgementRef: row.acknowledgementRef,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

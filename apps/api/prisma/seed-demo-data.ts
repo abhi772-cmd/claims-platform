@@ -328,8 +328,184 @@ async function seedDemo(): Promise<void> {
         `);
       }
 
+      // 7. Room rate catalog + per-payer commercial terms ---------
+      // Demo data for the room dropdown on /cases/new and the
+      // out-of-pocket pre-warn. Uses upsert so the seed stays
+      // idempotent — re-running won't trip the (tenantId, code) /
+      // (tenantId, payerCode) unique constraints.
+
+      const roomCategorySeeds: Array<{
+        code: string;
+        name: string;
+        category: string;
+        dailyRateRupees: number;
+        sortOrder: number;
+      }> = [
+        {
+          code: 'GENERAL_WARD',
+          name: 'General ward',
+          category: 'ward',
+          dailyRateRupees: 5000,
+          sortOrder: 10,
+        },
+        {
+          code: 'SEMI_PRIVATE',
+          name: 'Semi-private',
+          category: 'semi-private',
+          dailyRateRupees: 8000,
+          sortOrder: 20,
+        },
+        {
+          code: 'PRIVATE',
+          name: 'Private room',
+          category: 'private',
+          dailyRateRupees: 12000,
+          sortOrder: 30,
+        },
+        {
+          code: 'ICU',
+          name: 'Intensive care',
+          category: 'icu',
+          dailyRateRupees: 25000,
+          sortOrder: 40,
+        },
+      ];
+
+      const categoryIdsByCode = new Map<string, string>();
+      for (const c of roomCategorySeeds) {
+        const row = await tx.roomCategory.upsert({
+          where: { tenantId_code: { tenantId, code: c.code } },
+          create: {
+            tenantId,
+            code: c.code,
+            name: c.name,
+            category: c.category,
+            dailyRatePaise: c.dailyRateRupees * 100,
+            sortOrder: c.sortOrder,
+          },
+          update: {
+            name: c.name,
+            category: c.category,
+            dailyRatePaise: c.dailyRateRupees * 100,
+            sortOrder: c.sortOrder,
+            active: true,
+          },
+          select: { id: true },
+        });
+        categoryIdsByCode.set(c.code, row.id);
+      }
+
+      // Per-payer rate overrides — STAR_HEALTH + HDFC_ERGO on the
+      // higher-tier categories (private + ICU). Wards rarely get
+      // negotiated separately.
+      const overrideSeeds: Array<{
+        payerCode: string;
+        roomCode: string;
+        dailyRateRupees: number;
+      }> = [
+        { payerCode: 'STAR_HEALTH', roomCode: 'PRIVATE', dailyRateRupees: 9500 },
+        { payerCode: 'STAR_HEALTH', roomCode: 'ICU', dailyRateRupees: 22500 },
+        { payerCode: 'HDFC_ERGO', roomCode: 'PRIVATE', dailyRateRupees: 10200 },
+        { payerCode: 'HDFC_ERGO', roomCode: 'ICU', dailyRateRupees: 23000 },
+      ];
+
+      for (const o of overrideSeeds) {
+        const roomCategoryId = categoryIdsByCode.get(o.roomCode);
+        if (!roomCategoryId) continue;
+        await tx.roomCategoryPayerRate.upsert({
+          where: {
+            tenantId_roomCategoryId_payerCode: {
+              tenantId,
+              roomCategoryId,
+              payerCode: o.payerCode,
+            },
+          },
+          create: {
+            tenantId,
+            roomCategoryId,
+            payerCode: o.payerCode,
+            dailyRatePaise: o.dailyRateRupees * 100,
+          },
+          update: {
+            dailyRatePaise: o.dailyRateRupees * 100,
+            active: true,
+          },
+        });
+      }
+
+      // Commercial terms — co-pay + deductible (mandatory) plus a
+      // mix of recommended fields populated to show the form's
+      // breadth in the admin UI.
+      const termsSeeds: Array<{
+        payerCode: string;
+        copayPercent: number;
+        deductibleRupees: number;
+        preauthTatMinutes: number;
+        paymentTermDays: number;
+        flatDiscountPercent: number;
+        networkCategory: string;
+      }> = [
+        {
+          payerCode: 'STAR_HEALTH',
+          copayPercent: 10,
+          deductibleRupees: 5000,
+          preauthTatMinutes: 240,
+          paymentTermDays: 30,
+          flatDiscountPercent: 15,
+          networkCategory: 'Preferred',
+        },
+        {
+          payerCode: 'HDFC_ERGO',
+          copayPercent: 15,
+          deductibleRupees: 7500,
+          preauthTatMinutes: 180,
+          paymentTermDays: 45,
+          flatDiscountPercent: 12,
+          networkCategory: 'Platinum',
+        },
+      ];
+
+      for (const t of termsSeeds) {
+        await tx.payerCommercialTerms.upsert({
+          where: {
+            tenantId_payerCode: { tenantId, payerCode: t.payerCode },
+          },
+          create: {
+            tenantId,
+            payerCode: t.payerCode,
+            copayPercent: t.copayPercent,
+            copayAppliesTo: 'both',
+            deductiblePaise: t.deductibleRupees * 100,
+            deductibleScope: 'per_admission',
+            effectiveFrom: new Date('2026-01-01'),
+            effectiveTo: new Date('2027-12-31'),
+            signedOn: new Date('2025-12-15'),
+            signatoryName: 'A. Mehta, Director of Operations',
+            noticePeriodDays: 90,
+            preauthTatMinutes: t.preauthTatMinutes,
+            claimTatMinutes: 720,
+            paymentTermDays: t.paymentTermDays,
+            paymentMode: 'neft',
+            tdsPercent: 2,
+            flatDiscountPercent: t.flatDiscountPercent,
+            networkCategory: t.networkCategory,
+            nabhRequired: true,
+            empanelledSpecialties: ['cardiology', 'oncology', 'orthopaedics'],
+          },
+          update: {
+            copayPercent: t.copayPercent,
+            deductiblePaise: t.deductibleRupees * 100,
+            preauthTatMinutes: t.preauthTatMinutes,
+            paymentTermDays: t.paymentTermDays,
+            flatDiscountPercent: t.flatDiscountPercent,
+            networkCategory: t.networkCategory,
+            active: true,
+          },
+        });
+      }
+
       console.log(
-        `Demo seed complete. tenant=${TENANT_SLUG} patients=${patientIds.length} consents=${consentRows.length} decryptEvents=${decryptEvents.length} erasures=3 breaches=3 audit=${auditSpread.length}`,
+        `Demo seed complete. tenant=${TENANT_SLUG} patients=${patientIds.length} consents=${consentRows.length} decryptEvents=${decryptEvents.length} erasures=3 breaches=3 audit=${auditSpread.length} roomCategories=${roomCategorySeeds.length} payerRateOverrides=${overrideSeeds.length} commercialTerms=${termsSeeds.length}`,
       );
     });
   } finally {

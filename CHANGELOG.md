@@ -6,6 +6,209 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Slice CM — three-method DPDP consent capture (OTP + Emergency + ABHA)
+
+Replaces the free-text acknowledgement-method dropdown on `/cases/new`
+with a three-card method picker:
+
+- **ABHA Consent Manager** — visible only when the patient has an
+  ABHA ID; surfaced as the recommended option. UI flow ships in a
+  follow-up slice (HIE-CM adapter).
+- **OTP confirmation** — operator clicks "Send OTP" → backend mints a
+  6-digit code, sha256+pepper hashes it (server-side pepper from
+  `CONSENT_OTP_HASH_PEPPER`), persists with a 10-minute TTL, and
+  dispatches via the existing SMS adapter. Operator types the code
+  back; verify flips status. The verified `otpId` is threaded into
+  `IntakeConsent.acknowledgementRef`; `ConsentService.grantWithTx`
+  validates the (tenant, status='verified', consentType) tuple
+  before the consent_record commits. Rate limit: 5 sends per mobile
+  per rolling hour. Lockout: 3 failed verify attempts.
+- **Emergency / verbal** — two-witness verbal capture for
+  unconscious / illiterate / no-mobile patients. Reason code +
+  verbal transcript captured; counter-sign workflow + 24h sweeper
+  arrive in a follow-up slice. The dropped methods (`signed_paper`,
+  `tele_consent_call`) are no longer offered.
+
+Schema additions:
+- `consent_record.acknowledgementMethod` (`'otp' | 'verbal_countersigned' | 'abha_hie_cm' | null`)
+  + `consent_record.acknowledgementRef` (uuid → per-method artifact).
+- New `consent_otp` table — append-only OTP issuance + verification
+  artifact, RLS enabled with same-tenant SELECT/INSERT/UPDATE,
+  DELETE blocked.
+- New `'pending_countersign'` consent status (additive — status is
+  TEXT, no enum migration needed).
+- New audit events: `CONSENT_OTP_INITIATED`,
+  `CONSENT_OTP_VERIFIED`, `CONSENT_OTP_VERIFY_FAILED` (all
+  CONSENT retention class).
+
+Migrations:
+- `20260609000000_consent_method_otp` — adds columns + consent_otp.
+- `20260609000001_consent_otp_mobile_based` — drops the patient FK
+  and nulls `consent_otp.patientId` so OTP can be issued during
+  intake BEFORE the patient row exists (the case-submit path
+  backfills the patientId atomically with the consent_record).
+
+API surface:
+- `POST /consents/otp/initiate` → mints + dispatches OTP.
+- `POST /consents/otp/verify` → matches code, flips to verified.
+- `POST /consents` and the case-create path accept
+  `acknowledgementMethod` + `acknowledgementRef`.
+
+Backward compat: `evidence.acknowledgedVia` remains free-text;
+existing tests + seed using `'in_person_signature'` continue to
+work without migration. The new columns are nullable so legacy
+rows land with method/ref both NULL.
+
+Known gaps for follow-up slices: ABHA HIE-CM adapter not wired;
+verbal-countersigned status state machine + 24h sweeper not built
+(verbal currently lands as `status='granted'` not
+`'pending_countersign'`); no hard mobile-vs-OTP-mobile cross-check
+at consent-grant time (operator-verified linkage only); SMS dispatch
+not logged into `integration_message` (pre-existing gap, unrelated
+to this slice).
+
+### Cases/new room catalog dropdown + out-of-pocket pre-warn
+
+Replaces the free-text "Room daily rate (₹)" input on `/cases/new`
+with a dropdown driven by the per-tenant room catalog. When the
+operator picks a payer (via Find patient or the rail-specific
+selector), the dropdown re-fetches against
+`GET /room-categories?payerCode=…` and renders the resolved rate
+for each row — `Private room · ₹9,500 (negotiated · default ₹12,000)`
+when the payer has an override, the catalog default otherwise.
+Falls back to the free-text input when the catalog is empty so
+tenants who haven't built one yet aren't blocked.
+
+A new **out-of-pocket tile** in the Room & coverage card combines
+co-pay + deductible + room-rent shortfall into one estimate per the
+payer's commercial terms. Renders only when terms exist for the
+selected payer; honours `copayAppliesTo` (skips the co-pay
+component for emergencies when the MOU says "planned only"); shows
+each component (co-pay / deductible / shortfall) with its own hint
+("max of 10% or ₹5,000", "per admission", "₹3,500/day × 5 days").
+Drives the "tell the family BEFORE admission" workflow we already
+had for room-rent shortfalls — now with the negotiated commercial
+context layered in.
+
+### Room catalog admin page (`/admin/room-categories`)
+
+CRUD surface for the tenant's room catalog. Table lists every
+category (active + inactive) with code / name / category /
+default rate / sort order / status. Modal form for create + edit;
+soft-delete (active=false) preserves historical case captures.
+
+The page is reached either via the sidebar (if added later) or
+from the `/admin/onboarding/payer-commercial-terms` page's
+`Manage catalog →` link.
+
+### Demo seed — commercial terms slice
+
+`seed-demo-data.ts` extended with four room categories
+(General ward / Semi-private / Private / ICU at ₹5k / ₹8k / ₹12k / ₹25k)
+plus payer rate overrides for STAR_HEALTH and HDFC_ERGO on the
+higher-tier categories, plus full commercial terms for both
+payers (co-pay %, deductible, TAT, payment term, discount,
+network category, empanelled specialties). All upserts so the
+seed remains idempotent.
+
+### Payer commercial terms admin UI
+
+The form half of the previous slice. New page at
+`/admin/onboarding/payer-commercial-terms` lists every active payer
+with a fully-complete / incomplete badge and a sub-status for
+"room rates filled / total" and "mandatory terms set". Clicking a
+row opens a slide-over drawer with three tabs:
+
+* **Tariff (required)** — room rate matrix (one row per active room
+  category showing the catalog default + an input for the payer-
+  negotiated rate; blank = "use default") plus co-pay (% or flat,
+  with `appliesTo` picker) and deductible (amount + scope).
+* **Operations & settlement** — preauth/claim TAT, prior-intimation
+  rules, payment term, payment mode, bank ref, TDS, interest on
+  delayed, dispute escalation window, flat/pharmacy discount %,
+  implant pass-through, sub-limits (room/ICU/nursing per-day,
+  consultation/ambulance per-claim).
+* **Coverage & compliance** — pre-existing waiting, maternity (+
+  waiting), day-care, modern treatments, network category, notice
+  period, NABH/NABL flags, auto-renews, empanelled specialties
+  (comma-separated → Postgres `String[]`), free-text notes.
+
+Save runs two passes: room rate upserts via
+`RoomCategoryApi.upsertPayerRate` (and deletes for cleared cells),
+then a single `PayerCommercialTermsApi.upsert`. The two halves are
+independent — if rates persist but terms fail (or vice-versa),
+nothing is rolled back; the page refresh picks up whichever side
+succeeded so the operator can retry the other.
+
+Bottom CTA `Mark step complete` activates only when
+`status.allPayersComplete === true` from the
+`GET /admin/payer-commercial-terms/status` aggregate. Clicking it
+posts to the existing `/tenant/onboarding/steps/payer_commercial_terms/complete`
+endpoint.
+
+Onboarding wizard at `/admin/onboarding` gets a new
+"Configure → Open payer commercial terms" link inside the expanded
+step row (wired via a new `INTERNAL_STEP_ROUTES` map for steps
+that grow dedicated admin surfaces).
+
+### Per-payer commercial terms catalog (room rates + co-pay + deductible) at onboarding
+
+The structured half of an MOU — what every hospital ↔ TPA agreement
+contains, captured as a form (no PDF, no OCR, no AI). Mandatory for
+LIVE-state transition so every cashless intake can quote the correct
+out-of-pocket before admission. Optional fields (TAT, sub-limits,
+payment terms, network category) live behind the same form for admins
+to fill as they have the data; the completeness check only enforces
+the three mandatory inputs.
+
+Three new tenant-scoped tables, RLS-FORCE:
+
+* `room_category` — the hospital's room catalog with default cash
+  rates. Code is upper-snake (`GENERAL_WARD`, `ICU`); name and
+  category are free text so admins can use whatever vocabulary fits
+  the hospital. Rates in paise.
+* `room_category_payer_rate` — per-payer overrides on top of the
+  catalog. Cascade-deletes with its parent category. `payerCode`
+  is the stable `Payer.code` (string, no FK — matches the codebase
+  convention used by Claim, IntegrationMessage, etc.).
+* `payer_commercial_terms` — one row per (tenantId, payerCode) with
+  the structured MOU shape: co-pay (% or flat), deductible (with
+  scope: per-admission / per-claim / per-year), effective dates,
+  TAT overrides, sub-limits, discount %, payment terms, TDS,
+  network category, NABH/NABL flags, empanelled specialties
+  (Postgres `String[]`). `paymentMode` is a four-value enum
+  (`rtgs | neft | cheque | mixed`) renamed to `BankPaymentMode`
+  in contracts to avoid colliding with settlement.schema's
+  claim-route `PaymentMode`.
+
+New onboarding step `payer_commercial_terms` slotted between
+`payer_master` and `package_master`, `blocksNhcxCutover: true`.
+ReadinessService gates `PILOT` and `LIVE` transitions two ways: the
+step-flag check (admin marked it complete) AND a data check that
+every active payer has a terms row with the mandatory three filled
+plus one `room_category_payer_rate` row per active room category.
+Belt and braces — admins sometimes flip step flags prematurely.
+
+New API:
+
+* `GET /room-categories?payerCode=…` (`case.create`) — intake-facing
+  list with effective-rate resolution per row.
+* `GET/POST/PATCH/DELETE /admin/room-categories(/:id)`
+  (`tenant.onboarding.update`) — admin CRUD on the catalog.
+* `GET/PUT/DELETE /admin/room-categories/:id/payer-rates(/:payerCode)`
+  (`tenant.onboarding.update`) — per-payer rate overrides.
+* `GET/PUT/DELETE /admin/payer-commercial-terms(/:payerCode)`
+  (`tenant.onboarding.update`) — terms upsert by `(tenantId,
+  payerCode)`.
+* `GET /admin/payer-commercial-terms/status`
+  (`tenant.onboarding.update`) — aggregate per-payer completeness
+  status used by the onboarding step page.
+
+Soft-delete semantics on `RoomCategory` (set `active = false`) so
+historical case captures preserve audit context. The payer rate
+captured on the case is the **resolved** rate at intake time —
+catalog edits never mutate historical cases (forward-only).
+
 ### Claim assignment — owners + "Mine" filter for multi-operator teams
 
 Tier 2 #6 from the operator UX audit. Claims have an

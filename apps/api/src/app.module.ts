@@ -37,6 +37,7 @@ import { HealthModule } from './modules/health/health.module';
 import { HprModule } from './modules/hpr';
 import { IntegrationModule } from './modules/integration';
 import { MasterDataModule } from './modules/master-data';
+import { TenantPayerModule } from './modules/tenant-payer/tenant-payer.module';
 import { MfaModule } from './modules/mfa';
 import { NhcxModule } from './modules/nhcx';
 import { NhcxInboundModule } from './modules/nhcx/inbound/nhcx-inbound.module';
@@ -44,9 +45,11 @@ import { NotificationModule } from './modules/notification';
 import { OnboardingModule } from './modules/onboarding';
 import { PasswordModule } from './modules/password';
 import { PatientModule } from './modules/patient';
+import { PayerCommercialTermsModule } from './modules/payer-commercial-terms';
 import { PayerExtractorsModule } from './modules/payer-extractors/payer-extractors.module';
 import { PmjayPoliciesModule } from './modules/pmjay-policies';
 import { PreauthModule } from './modules/preauth';
+import { RoomCategoryModule } from './modules/room-category';
 import { AppSecurityModule } from './modules/security';
 import { SettlementModule } from './modules/settlement';
 import { StorageModule } from './modules/storage';
@@ -131,6 +134,9 @@ import { UserModule } from './modules/user/user.module';
     EobLineMatcherModule,
     AppealModule,
     MasterDataModule,
+    TenantPayerModule,
+    RoomCategoryModule,
+    PayerCommercialTermsModule,
     HealthModule,
     TenantModule,
     UserModule,

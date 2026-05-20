@@ -19,11 +19,21 @@ export const Permissions = {
   TENANT_ONBOARDING_UPDATE: 'tenant.onboarding.update',
   TENANT_COMMS_CONFIG_UPDATE: 'tenant.comms_config.update',
 
-  // Master data
+  // Master data. PAYER_MASTER_VIEW is broad (tenants browse the
+  // registry to empanel from it). PAYER_MASTER_EDIT is now
+  // platform-admin ONLY — the payer registry (incl. NHCX participant
+  // codes) is curated centrally by DigiSparsh superadmin. Tenants
+  // don't edit the registry; they empanel via TENANT_PAYER_EMPANEL.
   PAYER_MASTER_VIEW: 'payer.master.view',
   PAYER_MASTER_EDIT: 'payer.master.edit',
   PACKAGE_MASTER_SYNC: 'package.master.sync',
   DOCUMENT_CHECKLIST_EDIT: 'document_checklist.edit',
+
+  // Slice CN — tenant ↔ payer empanelment. Tenant admin selects which
+  // registry payers/TPAs the hospital is tied up with; those drive the
+  // case-creation payer dropdown. Distinct from PAYER_MASTER_EDIT
+  // (which edits the shared registry, superadmin-only).
+  TENANT_PAYER_EMPANEL: 'tenant.payer.empanel',
 
   // Case
   CASE_CREATE: 'case.create',

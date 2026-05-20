@@ -31,12 +31,6 @@ const LABEL_CLS =
 export function BiometricGateCard({ caseId, rail }: Props): JSX.Element | null {
   const [loginId, setLoginId] = useState('');
   const [loginHint, setLoginHint] = useState<BiometricLoginHint>('abha-number');
-  const [bearerToken, setBearerToken] = useState('');
-  // PMJAY payer NHCX participant code (e.g. 'pmjay@hcx'). The
-  // canonical value lives on the claim's payer master row, but the
-  // claim API doesn't surface payerCode yet; until it does the
-  // operator types it here.
-  const [payerId, setPayerId] = useState('');
   const [captureOpen, setCaptureOpen] = useState(false);
   const [completed, setCompleted] = useState<BiometricResult | null>(null);
 
@@ -67,9 +61,9 @@ export function BiometricGateCard({ caseId, rail }: Props): JSX.Element | null {
           <h3 className="text-h3 font-h3 text-on-surface">Beneficiary BIS verification</h3>
         </div>
         <p className="text-body-sm text-on-surface-variant">
-          PMJAY requires ABHA biometric authentication at admission. Supply the
-          beneficiary identifier and the ABDM consent token issued upstream,
-          then open the capture flow.
+          PMJAY requires ABHA biometric authentication at admission. Capture the
+          beneficiary&apos;s identifier from their ABHA / Aadhaar card, then open
+          the capture flow. Routing to the payer is handled automatically.
         </p>
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[200px_1fr]">
           <div>
@@ -106,46 +100,11 @@ export function BiometricGateCard({ caseId, rail }: Props): JSX.Element | null {
             />
           </div>
         </div>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-[280px_1fr]">
-          <div>
-            <label className={LABEL_CLS} htmlFor="biometric-payer">
-              Payer participant code
-            </label>
-            <input
-              id="biometric-payer"
-              value={payerId}
-              onChange={(e) => setPayerId(e.target.value.trim())}
-              className="glass-input"
-              placeholder="pmjay@hcx"
-              autoComplete="off"
-            />
-            <p className="mt-1 text-body-sm text-on-surface-variant">
-              The PMJAY SHA&apos;s NHCX participant code.
-            </p>
-          </div>
-          <div>
-            <label className={LABEL_CLS} htmlFor="biometric-bearer">
-              ABDM consent token
-            </label>
-            <input
-              id="biometric-bearer"
-              value={bearerToken}
-              onChange={(e) => setBearerToken(e.target.value)}
-              className="glass-input"
-              placeholder="JWT issued by the ABDM consent flow"
-              autoComplete="off"
-            />
-            <p className="mt-1 text-body-sm text-on-surface-variant">
-              Plumbed in from a separate ABDM consent flow upstream — the
-              biometric service does not mint this.
-            </p>
-          </div>
-        </div>
         <div>
           <button
             type="button"
             onClick={() => setCaptureOpen(true)}
-            disabled={!loginId || !bearerToken || !payerId}
+            disabled={!loginId}
             className="btn-cta"
           >
             Open capture flow
@@ -160,8 +119,6 @@ export function BiometricGateCard({ caseId, rail }: Props): JSX.Element | null {
       caseId={caseId}
       loginId={loginId}
       loginHint={loginHint}
-      payerId={payerId}
-      bearerToken={bearerToken}
       process="Preauth"
       onCompleted={(result) => {
         setCompleted(result);

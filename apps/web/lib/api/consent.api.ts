@@ -1,6 +1,10 @@
 import {
   type ConsentListFilter,
   type ConsentListResponse,
+  type ConsentOtpInitiateRequest,
+  type ConsentOtpInitiateResponse,
+  type ConsentOtpVerifyRequest,
+  type ConsentOtpVerifyResponse,
   type ConsentRecordRow,
   type GrantConsent,
   type WithdrawConsent,
@@ -30,4 +34,20 @@ export const ConsentApi = {
 
   withdraw: (id: string, body: WithdrawConsent): Promise<ConsentRecordRow> =>
     apiRequest<ConsentRecordRow>(`/consents/${id}/withdraw`, { method: 'POST', body }),
+
+  // Slice CM — DPDP OTP consent capture. Two-step: initiate mints +
+  // dispatches the 6-digit code; verify matches it. The returned otpId
+  // is threaded into IntakeConsent.acknowledgementRef when the case
+  // form submits.
+  otpInitiate: (body: ConsentOtpInitiateRequest): Promise<ConsentOtpInitiateResponse> =>
+    apiRequest<ConsentOtpInitiateResponse>('/consents/otp/initiate', {
+      method: 'POST',
+      body,
+    }),
+
+  otpVerify: (body: ConsentOtpVerifyRequest): Promise<ConsentOtpVerifyResponse> =>
+    apiRequest<ConsentOtpVerifyResponse>('/consents/otp/verify', {
+      method: 'POST',
+      body,
+    }),
 };

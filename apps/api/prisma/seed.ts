@@ -61,7 +61,10 @@ const ROLE_SEEDS: RoleSeed[] = [
       'tenant.lifecycle.transition',
       'tenant.comms_config.update',
       'payer.master.view',
-      'payer.master.edit',
+      // Slice CN — the payer registry (incl. NHCX participant codes) is
+      // now superadmin-curated; tenant_admin can VIEW it but no longer
+      // EDIT it. Instead they empanel (tie up with) registry payers.
+      'tenant.payer.empanel',
       'package.master.sync',
       'document_checklist.edit',
       'case.create',
