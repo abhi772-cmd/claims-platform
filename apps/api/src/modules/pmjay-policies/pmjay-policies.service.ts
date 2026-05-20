@@ -31,6 +31,16 @@ export interface LookupPmjayPoliciesResult {
     productId: string;
     productName: string;
     policyNumber: string;
+    // Slice CO — family/group roster, passed straight through from the
+    // adapter when present.
+    members?: Array<{
+      memberId: string;
+      name: string;
+      relationship: string | null;
+      gender: string | null;
+      age: number | null;
+      abhaNumber: string | null;
+    }>;
   }>;
   identifierType: AdapterPmjayLookupIdentifierType;
   identifier: string;

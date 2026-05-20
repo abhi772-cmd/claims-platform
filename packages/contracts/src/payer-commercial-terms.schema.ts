@@ -25,6 +25,13 @@ export type BankPaymentMode = z.infer<typeof BankPaymentModeSchema>;
 export const CopayAppliesToSchema = z.enum(['planned', 'emergency', 'both']);
 export type CopayAppliesTo = z.infer<typeof CopayAppliesToSchema>;
 
+// How copayPercent and copayFlatPaise combine when BOTH are set:
+//   'cap'   — "X% capped at ₹Y"  → patient pays min(percent, flat)
+//   'floor' — "X%, minimum ₹Y"   → patient pays max(percent, flat)
+// Ignored when only one of the two values is present.
+export const CopayFlatModeSchema = z.enum(['cap', 'floor']);
+export type CopayFlatMode = z.infer<typeof CopayFlatModeSchema>;
+
 export const DeductibleScopeSchema = z.enum([
   'per_admission',
   'per_claim',
@@ -42,6 +49,7 @@ export const PayerCommercialTermsSchema = z.object({
   // have them yet; readiness service checks they're non-null).
   copayPercent: PERCENT.nullable(),
   copayFlatPaise: z.number().int().nonnegative().max(PAISE_MAX).nullable(),
+  copayFlatMode: CopayFlatModeSchema.nullable(),
   copayAppliesTo: CopayAppliesToSchema.nullable(),
   deductiblePaise: z.number().int().nonnegative().max(PAISE_MAX).nullable(),
   deductibleScope: DeductibleScopeSchema.nullable(),
@@ -116,6 +124,7 @@ export const UpsertPayerCommercialTermsRequestSchema = z
 
     copayPercent: PERCENT.nullable().optional(),
     copayFlatPaise: z.number().int().nonnegative().max(PAISE_MAX).nullable().optional(),
+    copayFlatMode: CopayFlatModeSchema.nullable().optional(),
     copayAppliesTo: CopayAppliesToSchema.nullable().optional(),
     deductiblePaise: z.number().int().nonnegative().max(PAISE_MAX).nullable().optional(),
     deductibleScope: DeductibleScopeSchema.nullable().optional(),

@@ -6,6 +6,32 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Co-pay floor-vs-cap modelling on payer commercial terms
+
+Fixes a correctness gap in the out-of-pocket co-pay math. Previously,
+when a payer had BOTH a percent and a flat co-pay, the estimate took
+`max(percent, flat)` — wrong for the dominant Indian MOU phrasing
+"10% capped at ₹50,000", which is `min(percent, flat)`. Since this
+number is read out to a family before admission, the over-statement
+risked eroding trust.
+
+New nullable `copayFlatMode` enum (`'cap' | 'floor'`) on
+`payer_commercial_terms` (migration
+`20260609000000_payer_terms_copay_flat_mode`, no backfill — existing
+rows keep NULL):
+
+* `cap` — "X% capped at ₹Y" → patient pays `min(percent, flat)`
+* `floor` — "X%, minimum ₹Y" → patient pays `max(percent, flat)`
+* NULL/ignored when only one of the two values is set.
+
+The commercial terms drawer surfaces a "Percent + flat combine as"
+selector that appears only when both co-pay fields are filled. The
+`computeOop` helper on `/cases/new` branches on the mode (defaulting
+to `cap` — the safer/lower assumption — when both are set but the
+basis didn't specify). The policy basis (coverage check) always
+passes `null` since the eligibility response returns a single co-pay
+figure, never both.
+
 ### Slice CM — three-method DPDP consent capture (OTP + Emergency + ABHA)
 
 Replaces the free-text acknowledgement-method dropdown on `/cases/new`
@@ -66,6 +92,29 @@ verbal-countersigned status state machine + 24h sweeper not built
 at consent-grant time (operator-verified linkage only); SMS dispatch
 not logged into `integration_message` (pre-existing gap, unrelated
 to this slice).
+
+### Out-of-pocket: policy vs MOU comparison with operator choice
+
+The single out-of-pocket tile becomes a **two-panel comparison** so
+the billing desk can see — and choose between — the two bases that
+drive a patient's upfront cost:
+
+* **Per patient's policy** — co-pay / deductible / room cap from the
+  verified coverage check (`VerifyCoverageByIdentifiersResponse`).
+  The patient's policy co-pay always applies (contractual liability).
+* **Per payer MOU** — the same fields from the negotiated commercial
+  terms; honours `copayAppliesTo` against the admission type.
+
+Each panel shows its own co-pay / deductible / room-shortfall / total.
+When both bases carry data they render side by side with a "Use these"
+selector; picking one highlights it and feeds that basis's room cap
+into `policyRoomRentLimit` so the existing shortfall warning + the
+case capture align with the operator's choice. When only one source
+has data, that panel renders alone (no choice needed); when neither
+does, the section stays hidden. Room rate is shared across both
+panels (from the catalog dropdown) — the bases differ only in
+co-pay / deductible / cap. A prompt nudges the operator to decide
+when the two totals diverge.
 
 ### Cases/new room catalog dropdown + out-of-pocket pre-warn
 

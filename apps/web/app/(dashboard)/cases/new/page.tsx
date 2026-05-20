@@ -16,7 +16,6 @@ import {
   type Payer,
   type PatientPiiInput,
   type PayerCommercialTerms,
-  type PmjayPolicy,
   type ResolvedRoomCategory,
   type VerifyCoverageByIdentifiersResponse,
 } from '@claims/contracts';
@@ -26,7 +25,6 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { CoverageDetailsCard } from '../../../../components/identity/CoverageDetailsCard';
 import { IdentityDiscovery, type DiscoveredIdentity } from '../../../../components/identity/IdentityDiscovery';
 import { useErrorModal } from '../../../../components/modals/ErrorModal/ErrorModalProvider';
-import { PolicySelector } from '../../../../components/pmjay/PolicySelector';
 import { CaseApi } from '../../../../lib/api/case.api';
 import { ConsentApi } from '../../../../lib/api/consent.api';
 import { TenantPayerApi } from '../../../../lib/api/tenant-payer.api';
@@ -96,11 +94,6 @@ export default function NewCasePage(): JSX.Element {
   // override.
   const [roomLimitEdited, setRoomLimitEdited] = useState(false);
 
-  // PMJAY-only — once the operator picks a policy from the policies
-  // lookup it auto-fills payerCode, policyNumber, and (if the lookup
-  // identifier was ABHA) abhaId so the rest of the form is pre-seeded.
-  const [pmjayPolicy, setPmjayPolicy] = useState<PmjayPolicy | null>(null);
-
   // T2-14 — room rent pre-warn (all optional). Operator enters
   // rupees in the UI; we convert to paise at submit time to match
   // the Int-paise wire format.
@@ -115,6 +108,12 @@ export default function NewCasePage(): JSX.Element {
   const [roomCategories, setRoomCategories] = useState<ResolvedRoomCategory[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('');
   const [commercialTerms, setCommercialTerms] = useState<PayerCommercialTerms | null>(null);
+  // Which out-of-pocket basis the operator picked: the patient's
+  // policy (from the coverage check) or the payer MOU (commercial
+  // terms). Picking one feeds that source's room cap into
+  // policyRoomRentLimitRupees so the shortfall warning + case capture
+  // align with the chosen basis. Null until they decide.
+  const [oopSource, setOopSource] = useState<'policy' | 'mou' | null>(null);
 
   // Consent capture (Slice CM — three-method picker)
   const [captureConsent, setCaptureConsent] = useState(true);
@@ -408,6 +407,13 @@ export default function NewCasePage(): JSX.Element {
             onIdentityDiscovered={(identity: DiscoveredIdentity) => {
               if (identity.payerCode) setPayerCode(identity.payerCode);
               if (identity.policyNumber) setPolicyNumber(identity.policyNumber);
+              // Slice CO — a member picked off a family/group roster
+              // auto-fills the patient name + that member's ABHA.
+              if (identity.patientName) setPatientName(identity.patientName);
+              if (identity.abhaNumber) {
+                setAbhaId(identity.abhaNumber);
+                setAutoFilledFromSearch((prev) => ({ ...prev, abha: true }));
+              }
               if (identity.identifierKind === 'abha') {
                 setAbhaId(identity.identifierValue);
                 setAutoFilledFromSearch((prev) => ({ ...prev, abha: true }));
@@ -436,26 +442,6 @@ export default function NewCasePage(): JSX.Element {
             coupled to that card's own button. */}
         <CoverageDetailsCard result={verifyResult} />
 
-
-        {/* PMJAY-only Card 00 — kept for backward compatibility. The
-            IdentityDiscovery widget above now handles the PMJAY policy
-            picker flow, but this card stays so operators who already
-            have a policy number can drop straight into it. */}
-        {primaryRail === 'pmjay' ? (
-          <PolicySelector
-            pickedPolicy={pmjayPolicy}
-            onPolicyPicked={(policy) => {
-              setPmjayPolicy(policy);
-              setPayerCode(policy.payerId);
-              setPolicyNumber(policy.policyNumber);
-            }}
-            onCleared={() => {
-              setPmjayPolicy(null);
-              setPayerCode('');
-              setPolicyNumber('');
-            }}
-          />
-        ) : null}
 
         {/* Card 1: Case Details */}
         <fieldset className="glass rounded-xl p-6">
@@ -580,6 +566,19 @@ export default function NewCasePage(): JSX.Element {
           }}
           commercialTerms={commercialTerms}
           admissionType={admissionType}
+          verifyResult={verifyResult}
+          oopSource={oopSource}
+          onOopSourceChange={(source, capRupees) => {
+            setOopSource(source);
+            // Feed the chosen basis's room cap into the form so the
+            // shortfall warning + case capture align with the
+            // operator's pick. Mark edited so a later preflight
+            // doesn't clobber it.
+            if (capRupees !== null) {
+              setPolicyRoomRentLimitRupees(String(capRupees));
+              setRoomLimitEdited(true);
+            }
+          }}
         />
 
         {/* Card 2: Review & complete identifiers
@@ -866,6 +865,14 @@ interface RoomCoverageCardProps {
   onCategoryChange: (id: string) => void;
   commercialTerms: PayerCommercialTerms | null;
   admissionType: 'planned' | 'emergency' | 'day_care';
+  // PR C follow-up — the two out-of-pocket bases the operator compares
+  // and chooses between. verifyResult carries the patient's policy
+  // terms (from the coverage check); commercialTerms carries the
+  // payer MOU. oopSource is the operator's pick; onOopSourceChange
+  // flows the chosen basis's room cap (rupees) back into the form.
+  verifyResult: VerifyCoverageByIdentifiersResponse | null;
+  oopSource: 'policy' | 'mou' | null;
+  onOopSourceChange: (source: 'policy' | 'mou', capRupees: number | null) => void;
 }
 
 function RoomCoverageCard({
@@ -881,6 +888,9 @@ function RoomCoverageCard({
   onCategoryChange,
   commercialTerms,
   admissionType,
+  verifyResult,
+  oopSource,
+  onOopSourceChange,
 }: RoomCoverageCardProps): JSX.Element {
   const rate = roomDailyRateRupees.trim() ? Number(roomDailyRateRupees) : null;
   const limit = policyRoomRentLimitRupees.trim() ? Number(policyRoomRentLimitRupees) : null;
@@ -988,17 +998,20 @@ function RoomCoverageCard({
         </div>
       </div>
 
-      {/* Out-of-pocket pre-warn — PR C. Renders when payer commercial
-          terms are loaded and the room rate is known. Combines co-pay,
-          deductible, and room-rent shortfall into a single estimate so
-          the family knows the upfront before admission. */}
-      {commercialTerms && rate !== null ? (
-        <OutOfPocketTile
+      {/* Out-of-pocket comparison — PR C follow-up. Renders the
+          patient-policy basis (from the coverage check) and the payer
+          MOU basis (from commercial terms) side by side and lets the
+          operator pick which to quote. Only shows when the room rate
+          is known AND at least one source has data. */}
+      {rate !== null ? (
+        <OutOfPocketComparison
           rate={rate}
-          limit={limit}
           days={days}
           terms={commercialTerms}
+          verifyResult={verifyResult}
           admissionType={admissionType}
+          selected={oopSource}
+          onSelect={onOopSourceChange}
         />
       ) : null}
 
@@ -1049,104 +1062,279 @@ function fmtINR(rupees: number): string {
   return rupees.toLocaleString('en-IN', { maximumFractionDigits: 0 });
 }
 
-// ────── PR C — Out-of-pocket pre-warn ─────────────────────────────
-// Combines co-pay + deductible + room shortfall into one tile so the
-// operator can quote the family before admission. All inputs are in
-// rupees (rate, limit) for direct paise math against the terms.
-function OutOfPocketTile({
-  rate,
-  limit,
-  days,
-  terms,
-  admissionType,
-}: {
-  rate: number;            // rupees / day
-  limit: number | null;    // rupees / day; null when not yet entered
-  days: number | null;     // stay days; null when not yet entered
-  terms: PayerCommercialTerms;
-  admissionType: 'planned' | 'emergency' | 'day_care';
-}): JSX.Element | null {
-  const stayDays = days !== null && Number.isFinite(days) && days > 0 ? days : 1;
-  const copayApplies =
-    terms.copayAppliesTo === null ||
-    terms.copayAppliesTo === 'both' ||
-    (terms.copayAppliesTo === 'planned' && admissionType === 'planned') ||
-    (terms.copayAppliesTo === 'emergency' && admissionType === 'emergency');
+// ────── PR C follow-up — Out-of-pocket comparison ─────────────────
+// Two bases, side by side:
+//   • Policy  — co-pay / deductible / room cap from the coverage check
+//   • MOU     — same fields from the payer commercial terms
+// The operator picks one ("Use these") and that basis's room cap
+// flows back into the form. Room rate is shared (from the catalog
+// dropdown); the bases differ only in co-pay / deductible / cap.
 
-  // Co-pay: take the higher of percent-based or flat (some MOUs say
-  // "10% capped at ₹50k" — the cap is the floor of what the patient
-  // pays; without cap-handling here we use the larger of the two).
+interface OopBreakdown {
+  copayRupees: number;
+  copayHint: string;
+  deductibleRupees: number;
+  deductibleHint: string;
+  roomShortfallRupees: number;
+  roomShortfallHint: string;
+  capRupees: number | null;
+  total: number;
+  hasData: boolean;
+}
+
+function computeOop(args: {
+  rate: number;
+  days: number | null;
+  copayPercent: number | null;
+  copayFlatRupees: number | null;
+  // How percent + flat combine when BOTH are set. 'cap' → patient
+  // pays min(percent, flat); 'floor' → max(percent, flat). Defaults
+  // to 'cap' when both are set but the basis didn't specify — "capped
+  // at" is the dominant MOU phrasing, and capping is the safer (lower)
+  // assumption to read out to a family.
+  copayFlatMode: 'cap' | 'floor' | null;
+  deductibleRupees: number | null;
+  capRupees: number | null;
+  copayApplies: boolean;
+  copayAppliesHint: string;
+  deductibleScopeHint: string;
+}): OopBreakdown {
+  const stayDays = args.days !== null && Number.isFinite(args.days) && args.days > 0 ? args.days : 1;
+
   let copayRupees = 0;
-  if (copayApplies) {
-    const billRupees = rate * stayDays;
-    const fromPercent =
-      terms.copayPercent !== null ? Math.round((billRupees * terms.copayPercent) / 100) : 0;
-    const fromFlat =
-      terms.copayFlatPaise !== null ? Math.round(terms.copayFlatPaise / 100) : 0;
-    copayRupees = Math.max(fromPercent, fromFlat);
+  let copayHint = '—';
+  if (args.copayApplies) {
+    const billRupees = args.rate * stayDays;
+    const hasPercent = args.copayPercent !== null;
+    const hasFlat = args.copayFlatRupees !== null;
+    const fromPercent = hasPercent ? Math.round((billRupees * args.copayPercent!) / 100) : 0;
+    const fromFlat = hasFlat ? Math.round(args.copayFlatRupees!) : 0;
+
+    if (hasPercent && hasFlat) {
+      // Both set — combine per the mode. 'cap' = "X% capped at ₹Y"
+      // (lower of the two); 'floor' = "X% min ₹Y" (higher). Default
+      // to cap.
+      const mode = args.copayFlatMode ?? 'cap';
+      copayRupees = mode === 'floor' ? Math.max(fromPercent, fromFlat) : Math.min(fromPercent, fromFlat);
+      copayHint =
+        mode === 'floor'
+          ? `${args.copayPercent}% (min ₹${fmtINR(args.copayFlatRupees!)})`
+          : `${args.copayPercent}% (capped at ₹${fmtINR(args.copayFlatRupees!)})`;
+    } else if (hasPercent) {
+      copayRupees = fromPercent;
+      copayHint = `${args.copayPercent}% of room cost`;
+    } else if (hasFlat) {
+      copayRupees = fromFlat;
+      copayHint = `flat ₹${fmtINR(args.copayFlatRupees!)}`;
+    } else {
+      copayHint = 'no co-pay';
+    }
+  } else {
+    copayHint = args.copayAppliesHint;
   }
 
-  const deductibleRupees =
-    terms.deductiblePaise !== null ? Math.round(terms.deductiblePaise / 100) : 0;
+  const deductibleRupees = args.deductibleRupees !== null ? Math.round(args.deductibleRupees) : 0;
 
   const roomShortfallPerDay =
-    limit !== null && Number.isFinite(limit) ? Math.max(0, rate - limit) : 0;
-  const roomShortfallTotal = roomShortfallPerDay * stayDays;
+    args.capRupees !== null && Number.isFinite(args.capRupees)
+      ? Math.max(0, args.rate - args.capRupees)
+      : 0;
+  const roomShortfallRupees = roomShortfallPerDay * stayDays;
+  const roomShortfallHint =
+    roomShortfallPerDay > 0
+      ? `₹${fmtINR(roomShortfallPerDay)}/day × ${stayDays} day${stayDays === 1 ? '' : 's'}`
+      : args.capRupees === null
+        ? 'no room cap on this basis'
+        : 'within cap';
 
-  const total = copayRupees + deductibleRupees + roomShortfallTotal;
+  const total = copayRupees + deductibleRupees + roomShortfallRupees;
+  const hasData =
+    args.copayPercent !== null ||
+    args.copayFlatRupees !== null ||
+    args.deductibleRupees !== null ||
+    args.capRupees !== null;
 
-  // If every component is zero / unset, hide the tile — nothing useful
-  // to show.
-  if (total === 0 && copayRupees === 0 && deductibleRupees === 0) return null;
+  return {
+    copayRupees,
+    copayHint,
+    deductibleRupees,
+    deductibleHint: args.deductibleScopeHint,
+    roomShortfallRupees,
+    roomShortfallHint,
+    capRupees: args.capRupees,
+    total,
+    hasData,
+  };
+}
+
+function OutOfPocketComparison({
+  rate,
+  days,
+  terms,
+  verifyResult,
+  admissionType,
+  selected,
+  onSelect,
+}: {
+  rate: number;
+  days: number | null;
+  terms: PayerCommercialTerms | null;
+  verifyResult: VerifyCoverageByIdentifiersResponse | null;
+  admissionType: 'planned' | 'emergency' | 'day_care';
+  selected: 'policy' | 'mou' | null;
+  onSelect: (source: 'policy' | 'mou', capRupees: number | null) => void;
+}): JSX.Element | null {
+  // Policy basis — patient's policy co-pay always applies (it's their
+  // contractual liability regardless of admission type).
+  const policy: OopBreakdown | null = verifyResult
+    ? computeOop({
+        rate,
+        days,
+        copayPercent: verifyResult.coPayPercent,
+        copayFlatRupees: verifyResult.coPayRupees,
+        // The coverage check returns one co-pay figure (percent OR
+        // flat), never both, so no combine rule applies.
+        copayFlatMode: null,
+        deductibleRupees: verifyResult.deductibleRupees,
+        capRupees: verifyResult.roomRentLimitRupees,
+        copayApplies: true,
+        copayAppliesHint: 'per policy',
+        deductibleScopeHint: 'per policy',
+      })
+    : null;
+
+  // MOU basis — honours copayAppliesTo against the admission type.
+  const mouCopayApplies =
+    terms === null
+      ? false
+      : terms.copayAppliesTo === null ||
+        terms.copayAppliesTo === 'both' ||
+        (terms.copayAppliesTo === 'planned' && admissionType === 'planned') ||
+        (terms.copayAppliesTo === 'emergency' && admissionType === 'emergency');
+  const mou: OopBreakdown | null = terms
+    ? computeOop({
+        rate,
+        days,
+        copayPercent: terms.copayPercent,
+        copayFlatRupees: terms.copayFlatPaise !== null ? terms.copayFlatPaise / 100 : null,
+        copayFlatMode: terms.copayFlatMode,
+        deductibleRupees: terms.deductiblePaise !== null ? terms.deductiblePaise / 100 : null,
+        capRupees:
+          terms.roomRentCapPaisePerDay !== null ? terms.roomRentCapPaisePerDay / 100 : null,
+        copayApplies: mouCopayApplies,
+        copayAppliesHint: `not applicable (${admissionType})`,
+        deductibleScopeHint: terms.deductibleScope ?? 'per admission',
+      })
+    : null;
+
+  const policyHasData = policy?.hasData ?? false;
+  const mouHasData = mou?.hasData ?? false;
+  if (!policyHasData && !mouHasData) return null;
+
+  const bothAvailable = policyHasData && mouHasData;
 
   return (
-    <div className="mt-5 rounded-lg border border-primary/30 bg-primary-fixed/10 p-4">
-      <div className="flex items-start gap-3">
-        <span className="material-symbols-outlined mt-0.5 text-primary">
-          account_balance_wallet
-        </span>
-        <div className="flex-1">
-          <p className="text-body font-semibold text-on-surface">
-            Family pays approximately ₹{fmtINR(total)} out-of-pocket
-          </p>
-          <p className="mt-0.5 text-[12px] text-on-surface-variant">
-            Per the payer&apos;s commercial terms. Quote this BEFORE admission so
-            the family signs in informed.
-          </p>
-          <div className="mt-3 grid grid-cols-1 gap-2 text-body-sm md:grid-cols-3">
-            <OopRow
-              label="Co-pay"
-              value={copayRupees}
-              hint={
-                !copayApplies
-                  ? `Not applicable (${admissionType})`
-                  : terms.copayPercent !== null && terms.copayFlatPaise !== null
-                    ? `max of ${terms.copayPercent}% or ₹${fmtINR(Math.round(terms.copayFlatPaise / 100))}`
-                    : terms.copayPercent !== null
-                      ? `${terms.copayPercent}% of room cost`
-                      : terms.copayFlatPaise !== null
-                        ? `flat ₹${fmtINR(Math.round(terms.copayFlatPaise / 100))}`
-                        : '—'
-              }
-            />
-            <OopRow
-              label="Deductible"
-              value={deductibleRupees}
-              hint={terms.deductibleScope ?? 'per admission'}
-            />
-            <OopRow
-              label="Room shortfall"
-              value={roomShortfallTotal}
-              hint={
-                roomShortfallPerDay > 0
-                  ? `₹${fmtINR(roomShortfallPerDay)}/day × ${stayDays} day${stayDays === 1 ? '' : 's'}`
-                  : limit === null
-                    ? 'enter policy cap to compute'
-                    : 'within cap'
-              }
-            />
-          </div>
+    <div className="mt-5">
+      <div className="mb-2 flex items-center gap-2">
+        <span className="material-symbols-outlined text-primary">account_balance_wallet</span>
+        <h4 className="text-body font-semibold text-on-surface">
+          Out-of-pocket estimate
+        </h4>
+        {bothAvailable ? (
+          <span className="text-body-sm text-on-surface-variant">
+            — two bases; pick which to quote
+          </span>
+        ) : null}
+      </div>
+      <div className={`grid grid-cols-1 gap-4 ${bothAvailable ? 'md:grid-cols-2' : ''}`}>
+        {policyHasData && policy ? (
+          <OopPanel
+            title="Per patient's policy"
+            subtitle="From the verified coverage check"
+            breakdown={policy}
+            selected={selected === 'policy'}
+            selectable={bothAvailable}
+            onSelect={() => onSelect('policy', policy.capRupees)}
+          />
+        ) : null}
+        {mouHasData && mou ? (
+          <OopPanel
+            title="Per payer MOU"
+            subtitle="From the negotiated commercial terms"
+            breakdown={mou}
+            selected={selected === 'mou'}
+            selectable={bothAvailable}
+            onSelect={() => onSelect('mou', mou.capRupees)}
+          />
+        ) : null}
+      </div>
+      {bothAvailable && selected === null ? (
+        <p className="mt-2 text-[12px] text-secondary">
+          The two bases differ. Pick which one to quote the family — your choice sets the
+          room cap used for the shortfall warning and the case record.
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function OopPanel({
+  title,
+  subtitle,
+  breakdown,
+  selected,
+  selectable,
+  onSelect,
+}: {
+  title: string;
+  subtitle: string;
+  breakdown: OopBreakdown;
+  selected: boolean;
+  selectable: boolean;
+  onSelect: () => void;
+}): JSX.Element {
+  return (
+    <div
+      className={`rounded-lg border p-4 transition-colors ${
+        selected
+          ? 'border-primary bg-primary-fixed/15'
+          : 'border-outline-variant/40 bg-surface-container-lowest/40'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-body font-semibold text-on-surface">{title}</p>
+          <p className="text-[12px] text-on-surface-variant">{subtitle}</p>
         </div>
+        {selectable ? (
+          <button
+            type="button"
+            onClick={onSelect}
+            className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-eyebrow transition-colors ${
+              selected
+                ? 'border-primary bg-primary text-on-primary'
+                : 'border-outline-variant text-on-surface-variant hover:border-primary hover:text-primary'
+            }`}
+          >
+            {selected ? 'Selected' : 'Use these'}
+          </button>
+        ) : null}
+      </div>
+      <p className="mt-3 text-h3 font-semibold tabular-nums text-on-surface">
+        ₹{fmtINR(breakdown.total)}
+      </p>
+      <div className="mt-3 grid grid-cols-1 gap-2">
+        <OopRow label="Co-pay" value={breakdown.copayRupees} hint={breakdown.copayHint} />
+        <OopRow
+          label="Deductible"
+          value={breakdown.deductibleRupees}
+          hint={breakdown.deductibleHint}
+        />
+        <OopRow
+          label="Room shortfall"
+          value={breakdown.roomShortfallRupees}
+          hint={breakdown.roomShortfallHint}
+        />
       </div>
     </div>
   );

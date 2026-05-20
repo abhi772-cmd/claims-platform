@@ -570,6 +570,16 @@ export class EligibilityService implements OnApplicationBootstrap {
     coPayRupees: number | null;
     roomRentLimitRupees: number | null;
     failureReason: string | null;
+    // Slice CO — floater/group roster, passed through when the payer
+    // returns it. Omitted otherwise so the UI shows no member table.
+    members?: Array<{
+      memberId: string;
+      name: string;
+      relationship: string | null;
+      gender: string | null;
+      age: number | null;
+      abhaNumber: string | null;
+    }>;
   }> {
     // Placeholder claimId for the adapter — it expects one for
     // idempotency / log-stitching but no DB row is associated.
@@ -607,6 +617,7 @@ export class EligibilityService implements OnApplicationBootstrap {
       coPayRupees: result.benefits?.coPayRupees ?? null,
       roomRentLimitRupees: result.benefits?.roomRentLimitRupees ?? null,
       failureReason: result.failureReason ?? null,
+      ...(result.members ? { members: result.members } : {}),
     };
   }
 

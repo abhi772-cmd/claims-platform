@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { PolicyMemberSchema } from './pmjay-policies.schema';
+
 // IntegrationMessage — every external call (NHCX, PMJAY, ABDM, OpenAI,
 // SMTP, TextGuru) writes a row here, both directions. Slice K introduces
 // the table + the stub NHCX path; later slices reuse it for the real
@@ -217,6 +219,10 @@ export const VerifyCoverageByIdentifiersResponseSchema = z.object({
   coPayRupees: z.number().nullable(),
   roomRentLimitRupees: z.number().nullable(),
   failureReason: z.string().nullable(),
+  // Slice CO — floater/group member roster, when the payer returns it.
+  // Optional: most NHCX payers verify a single identified member and
+  // return nothing here, so the member-selection table stays hidden.
+  members: z.array(PolicyMemberSchema).optional(),
 });
 export type VerifyCoverageByIdentifiersResponse = z.infer<
   typeof VerifyCoverageByIdentifiersResponseSchema
