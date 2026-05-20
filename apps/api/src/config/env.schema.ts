@@ -223,6 +223,16 @@ export const EnvSchema = z.object({
   // upward if you're scanning very large multi-page EOBs.
   EOB_OCR_HTTP_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
 
+  // Bill OCR adapter — final-bill line-item extraction for the
+  // non-medical classifier (Tier 1 / T2-13 follow-up). Same three
+  // modes as EOB OCR; 'real' reuses EOB_OCR_INFERENCE_URL /
+  // EOB_OCR_API_KEY / EOB_OCR_HTTP_TIMEOUT_MS (one OCR machine, two
+  // routes — bill posts to /extract-bill).
+  //   off  — DisabledBillOcrAdapter; every request returns 'skipped'.
+  //   stub — StubBillOcrAdapter; sentinel-matched fixtures for tests.
+  //   real — HttpBillOcrAdapter; POSTs to <EOB_OCR_INFERENCE_URL>/extract-bill.
+  BILL_OCR_MODE: z.enum(['off', 'stub', 'real']).default('off'),
+
   // Slice BF — ABDM biometric authentication adapter. Required for
   // PMJAY-via-NHCX flows: PMJAY mandates Aadhaar biometric / face /
   // iris verification before preauth and before claim submit.

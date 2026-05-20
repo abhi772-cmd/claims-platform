@@ -44,6 +44,9 @@ export interface ListPayersInput {
 }
 
 export interface ListPackagesInput {
+  // Free-text search over code + name (case-insensitive). Drives the
+  // preauth package picker typeahead (D-023).
+  q?: string;
   category?: string;
   pmjayHbp?: boolean;
   active?: boolean;
@@ -188,10 +191,24 @@ export class MasterDataService {
     ctx: ReadCtx,
     input: ListPackagesInput,
   ): Promise<{ packages: Package[]; total: number }> {
-    const where: { category?: string; pmjayHbp?: boolean; active?: boolean } = {};
+    const where: {
+      category?: string;
+      pmjayHbp?: boolean;
+      active?: boolean;
+      OR?: Array<
+        | { code: { contains: string; mode: 'insensitive' } }
+        | { name: { contains: string; mode: 'insensitive' } }
+      >;
+    } = {};
     if (input.category) where.category = input.category;
     if (input.pmjayHbp !== undefined) where.pmjayHbp = input.pmjayHbp;
     if (input.active !== undefined) where.active = input.active;
+    if (input.q && input.q.length > 0) {
+      where.OR = [
+        { code: { contains: input.q, mode: 'insensitive' } },
+        { name: { contains: input.q, mode: 'insensitive' } },
+      ];
+    }
     const limit = clampLimit(input.limit);
     const offset = clampOffset(input.offset);
 

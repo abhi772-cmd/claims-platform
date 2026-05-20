@@ -311,6 +311,28 @@ Each decision below is structured: **what we decided**, **what was considered**,
 
 ---
 
+### D-023: PMJAY costing — package-driven via claim line items, single-package by default
+
+**Decided**: PMJAY claims are costed off the HBP package, not a free-typed amount. The costing source of truth is a new `ClaimLineItem` child table (`lineType`: package | implant | addon); `Claim.preauthAmount` / `claimAmount` / `approvedAmount` become materialised sums over the live lines (consistent with `Claim` being a materialised view — see `docs/03-data-model.md`). The operator picks a package via typeahead; the rate, a suggested ICD-10, and the document checklist all derive from it; the amount auto-fills from the package's fixed rate and stays **overridable**. The UI shows a single line by default — multi-package / implant lines are progressive disclosure. The primary (first) package is denormalised onto `Claim.packageCode`, the field already sketched in `docs/03-data-model.md` §"Case and claim" but never implemented in `prisma/schema.prisma`.
+
+**Considered**:
+1. **Single scalar `packageCode` + free amount** (the original `docs/03` sketch). Rejected as the end-state: can't represent multi-package admissions, implants/add-ons, or per-line payer adjudication — all routine in PMJAY — and would force a schema repaint the first time any of them appears.
+2. **Keep the free-typed amount, package as reference only** (today's behaviour). Rejected: not how PMJAY works, and it makes rate-vs-claimed variance (the core denial/leakage signal) impossible to compute.
+3. **JSON array of lines on `Claim`**. Rejected: payers adjudicate per-package (approve some, reject others on one claim); per-line rows with their own `lineStatus` / `approvedAmount` are far cleaner than JSON for adjudication and for the D-018 analytics tables.
+
+**Why**: PMJAY is a package-priced scheme — the package code *is* the claim's costing spine. Modelling lines relationally (a) matches the real submission shape (`Claim.item[]`), (b) lets per-line payer adjudication land on per-line rows, (c) makes rate-vs-claimed variance queryable (supports D-018), and (d) keeps `Claim` a read-optimised materialised view. Crucially it keeps the operator UX simple — one package decision drives rate + ICD + checklist — while the platform absorbs the complexity. One workflow serves both rails (D-008): line items are rail-neutral; only the FHIR builder knows the PMJAY `payer.pmjay.nha.gov.in` coding, so the package `item[]` is emitted **only when `rail === 'pmjay'`** to avoid sending PMJAY-namespaced codes to private payers.
+
+**Phasing**:
+1. `ClaimLineItem` table + denormalised primary `Claim.packageCode` + package-first picker + auto-fill amount (overridable). No FHIR shape change → no contract-test churn.
+2. Emit `Claim.item[]` from the line items, gated on `rail === 'pmjay'`; regenerate `reference/fhir-bundles/*` + the snapshot specs; land per-line adjudication on the inbound parse path.
+3. Multi-line UI (implants/add-ons) + package on the `CoverageEligibilityRequest` item for full eligibility parity.
+
+**Risk**: Phase 2 deliberately breaks the locked FHIR snapshot/contract tests — reference bundles must be regenerated and diffed by hand, never blind-updated, because the snapshot is the gateway contract. Making `packageCode` required for PMJAY submit must tolerate the thin seed (~14 of ~1,949 HBPs): widen the seed or validate as known-or-freetext, else legitimate cases fail. The amount must auto-fill but **not** hard-lock, or the enhancement flow (deliberately-higher-than-rate requests) breaks.
+
+**Revisit when**: The NHA sandbox rejects the `Claim.item[]` shape we mirror from the PMJAY reference bundles (the sandbox is the forcing function), OR a state co-scheme (D-019 / state-scheme co-existence) prices off something other than HBP packages — then `lineType` widens.
+
+---
+
 ## How to add a new decision
 
 1. Allocate the next D-NNN number.

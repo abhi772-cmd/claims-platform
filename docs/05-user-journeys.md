@@ -46,6 +46,15 @@ Endpoint base path: `/api/v1`. All endpoints require auth except where noted.
 | 9    | Document upload                  | Drag-drop preauth form, investigations         | `POST /documents` (multipart, returns presigned PUT)  |
 | 10   | Doctor signature request         | Send link to doctor                            | `POST /preauth/:id/request-signature`                 |
 | 11   | Submit preauth                   | Click Submit                                    | `POST /preauth/:id/submit` → 202 Accepted             |
+
+> **T1.1 — checklist gate on submit.** Step 11 is gated on the per-payer
+> document checklist (the same `document_checklist_rule` engine used at
+> discharge/claim). If any `required: true` document type for
+> `(phase=preauth, rail, payer, package, admissionType)` is missing,
+> submit returns `412 PREAUTH_DOCUMENTS_INCOMPLETE` with the missing
+> `documentType`s in `errors.documents`. The `PreauthChecklist` panel in
+> the pre-auth UI shows present/missing status with inline upload so the
+> operator clears it before submitting. No rules → no gate.
 | 12   | Live status panel                | "Submitted to NHCX, awaiting response"         | SSE: `GET /cases/:id/events` (Server-Sent Events)     |
 | 13   | Approval modal                   | "Pre-auth Approved — ₹3,80,000"                | (callback updates state, SSE pushes to UI)            |
 

@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  type ChecklistAdmissionType,
+  type PayerRail,
   type PreauthDecisionKind,
   type PreauthDraft,
   type PreauthDraftResponse,
@@ -14,16 +16,20 @@ import {
 import { ConfigService } from '@nestjs/config';
 
 import { InvalidClaimTransitionError } from '../../common/errors/claim-errors';
+import { PreauthDocumentsIncompleteError } from '../../common/errors/preauth-errors';
 import { ValidationFailedError } from '../../common/errors/validation-errors';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { type AppConfig } from '../../config/configuration';
 import { BiometricAuthService } from '../biometric-auth';
 import { ClaimService } from '../claim';
+import { syncPrimaryPackageLine } from '../claim-line-item/claim-line-item.helpers';
+import { DocumentService } from '../document';
 import {
   classifyAdapterError,
   IntegrationMessageService,
   NhcxReplayWorker,
 } from '../integration';
+import { MasterDataService } from '../master-data';
 import { FhirContextService, NHCX_ADAPTER, type NhcxAdapter } from '../nhcx';
 import { TenantService } from '../tenant/tenant.service';
 
@@ -86,6 +92,8 @@ export class PreauthService implements OnApplicationBootstrap {
     private readonly config: ConfigService<AppConfig, true>,
     private readonly tenants: TenantService,
     private readonly biometric: BiometricAuthService,
+    private readonly documents: DocumentService,
+    private readonly masterData: MasterDataService,
     @Inject(NHCX_ADAPTER) private readonly nhcx: NhcxAdapter,
     private readonly replay: NhcxReplayWorker,
   ) {}
@@ -110,15 +118,43 @@ export class PreauthService implements OnApplicationBootstrap {
 
       // Upsert the draft row first (idempotent — the user can save many
       // times before submitting).
-      const data = {
+      const data: {
+        diagnosisIcdCode?: string;
+        diagnosisDescription?: string;
+        plannedProcedure?: string;
+        procedureCode?: string;
+        packageCode?: string;
+        estimatedLengthOfStayDays?: number;
+        requestedAmount?: number;
+        clinicalJustification?: string;
+      } = {
         ...(input.draft.diagnosisIcdCode !== undefined ? { diagnosisIcdCode: input.draft.diagnosisIcdCode } : {}),
         ...(input.draft.diagnosisDescription !== undefined ? { diagnosisDescription: input.draft.diagnosisDescription } : {}),
         ...(input.draft.plannedProcedure !== undefined ? { plannedProcedure: input.draft.plannedProcedure } : {}),
         ...(input.draft.procedureCode !== undefined ? { procedureCode: input.draft.procedureCode } : {}),
+        ...(input.draft.packageCode !== undefined ? { packageCode: input.draft.packageCode } : {}),
         ...(input.draft.estimatedLengthOfStayDays !== undefined ? { estimatedLengthOfStayDays: input.draft.estimatedLengthOfStayDays } : {}),
         ...(input.draft.requestedAmount !== undefined ? { requestedAmount: input.draft.requestedAmount } : {}),
         ...(input.draft.clinicalJustification !== undefined ? { clinicalJustification: input.draft.clinicalJustification } : {}),
       };
+
+      // D-023 — when a package is chosen, snapshot it as the primary
+      // claim line (sequence 1) and auto-fill the amount from the
+      // package's fixed rate, unless the operator sent an explicit
+      // requestedAmount (enhancement / implant override). We mirror the
+      // line's amount back onto the draft so the form and the costing
+      // spine never drift. Runs in THIS tenant tx so all three writes
+      // (draft / line / claim.packageCode) commit atomically.
+      if (input.draft.packageCode !== undefined) {
+        const synced = await syncPrimaryPackageLine(tx, {
+          tenantId: input.tenantId,
+          claimId: input.claimId,
+          rail: claim.rail,
+          packageCode: input.draft.packageCode,
+          requestedAmountOverride: input.draft.requestedAmount ?? null,
+        });
+        data.requestedAmount = synced.requestedAmount;
+      }
 
       const row = await tx.preauthDraft.upsert({
         where: { claimId: input.claimId },
@@ -160,6 +196,17 @@ export class PreauthService implements OnApplicationBootstrap {
       errors['requestedAmount'] = ['Must be a positive amount.'];
     }
     if (Object.keys(errors).length > 0) throw new ValidationFailedError(errors);
+
+    // 1b. T1.1 — checklist enforcement gate. Block submit when any
+    // document the resolved checklist marks `required: true` for this
+    // (phase=preauth, rail, payer, package, admissionType) has not yet
+    // been uploaded. This converts the previously advisory-only
+    // checklist into a real gate — the per-payer mechanism that catches
+    // "a mandatory field/doc the IPD doctor didn't know this TPA needs".
+    // Vacuously satisfied when no rules match (e.g. environments without
+    // seeded checklist rules), so it never surprises a flow that had no
+    // rules — see [[feedback_env_gates]].
+    await this.assertChecklistComplete(input.tenantId, input.claimId, draft.packageCode);
 
     // Slice BG — PMJAY tenants must have a recent ABDM biometric
     // verification (process='Preauth') on the case before submit.
@@ -674,6 +721,58 @@ export class PreauthService implements OnApplicationBootstrap {
     });
   }
 
+  // T1.1 — resolve the pre-auth document checklist for the claim and
+  // throw PreauthDocumentsIncompleteError listing any required document
+  // type that has no completed + clean (or scan-skipped) upload. Reads
+  // claim rail/payer + case admissionType so the rule set is narrowed
+  // the same way the operator's checklist UI narrows it. No-op when the
+  // resolved checklist has no required items.
+  private async assertChecklistComplete(
+    tenantId: string,
+    claimId: string,
+    packageCode: string | null,
+  ): Promise<void> {
+    const scope = await this.prisma.runInTenantContext(tenantId, 'tenant', async (tx) => {
+      const claim = await tx.claim.findUniqueOrThrow({
+        where: { id: claimId },
+        select: { rail: true, payerCode: true, caseId: true },
+      });
+      const kase = await tx.case.findUniqueOrThrow({
+        where: { id: claim.caseId },
+        select: { admissionType: true },
+      });
+      return {
+        rail: claim.rail,
+        payerCode: claim.payerCode,
+        admissionType: kase.admissionType,
+      };
+    });
+
+    const items = await this.masterData.resolveChecklist(
+      { tenantId, role: 'tenant' },
+      {
+        phase: 'preauth',
+        // rail / admissionType are stored as free strings on the
+        // aggregate but are constrained to the contract enums by the
+        // intake schema — narrowing assertion is safe here.
+        rail: scope.rail as PayerRail,
+        ...(scope.payerCode ? { payerCode: scope.payerCode } : {}),
+        ...(packageCode ? { packageCode } : {}),
+        admissionType: scope.admissionType as ChecklistAdmissionType,
+      },
+    );
+
+    const missing: string[] = [];
+    for (const item of items) {
+      if (!item.required) continue;
+      const has = await this.documents.hasDocumentType(tenantId, claimId, item.documentType);
+      if (!has) missing.push(item.documentType);
+    }
+    if (missing.length > 0) {
+      throw new PreauthDocumentsIncompleteError([...missing].sort());
+    }
+  }
+
   // T1-5 — park a transient-failed preauth submit. Outbound row
   // carries a server-generated correlationId so the worker's retry
   // can be matched on the gateway. Claim stays at PREAUTH_QUEUED;
@@ -850,6 +949,7 @@ function pickDraft(row: {
   diagnosisDescription: string | null;
   plannedProcedure: string | null;
   procedureCode: string | null;
+  packageCode: string | null;
   estimatedLengthOfStayDays: number | null;
   requestedAmount: number | null;
   clinicalJustification: string | null;
@@ -859,6 +959,7 @@ function pickDraft(row: {
     ...(row.diagnosisDescription !== null ? { diagnosisDescription: row.diagnosisDescription } : {}),
     ...(row.plannedProcedure !== null ? { plannedProcedure: row.plannedProcedure } : {}),
     ...(row.procedureCode !== null ? { procedureCode: row.procedureCode } : {}),
+    ...(row.packageCode !== null ? { packageCode: row.packageCode } : {}),
     ...(row.estimatedLengthOfStayDays !== null ? { estimatedLengthOfStayDays: row.estimatedLengthOfStayDays } : {}),
     ...(row.requestedAmount !== null ? { requestedAmount: row.requestedAmount } : {}),
     ...(row.clinicalJustification !== null ? { clinicalJustification: row.clinicalJustification } : {}),

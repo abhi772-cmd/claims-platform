@@ -55,6 +55,8 @@ export const MasterDataApi = {
 
   // Package
   listPackages: (params?: {
+    // Typeahead search over package code + name (D-023 picker).
+    q?: string;
     category?: string;
     pmjayHbp?: boolean;
     active?: boolean;

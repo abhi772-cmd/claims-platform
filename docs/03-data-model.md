@@ -86,7 +86,7 @@ Claim
   payerId,
   policyId (nullable, for nhcx),
   pmjayBeneficiaryId (nullable, for pmjay),
-  packageCode (nullable, for pmjay),
+  packageCode (nullable; denormalised PRIMARY package — full costing lives in ClaimLineItem; see D-023),
   preauthAmount, claimAmount, approvedAmount, paidAmount,
   preauthRefNum, claimRefNum, payerRefNum,
   initiatedAt, submittedAt, approvedAt, paidAt, closedAt,
@@ -103,6 +103,30 @@ ClaimEvent  (APPEND ONLY — RLS denies UPDATE/DELETE)
 ```
 
 `Claim` is the materialised view. `ClaimEvent` is the source of truth. Reconstructing a claim's state from events is a service method, not a code-path used in hot reads, but it is used for disputes and for rebuilding the materialised view if we ever need to.
+
+### Claim line items (costing spine)
+
+Per **D-023**, what a claim is *for* — and what it costs — lives in `ClaimLineItem`, not in a single free-typed amount. For PMJAY each `package` line is an HBP package at its fixed rate; the same table carries `implant` and `addon` lines. The rate and display name are snapshotted at add-time so a claim stays linked to the package version it was filed under (see "Master data versioning pattern" below).
+
+```
+ClaimLineItem
+  id, tenantId, claimId,
+  lineType,            // "package" | "implant" | "addon"
+  code,                // HBP package code (pmjay) / internal code
+  display,             // human-readable name, denormalised at add-time
+  rail,                // "nhcx" | "pmjay" — selects the FHIR coding system
+  unitAmount,          // paise; for a package = the HBP fixed rate at add-time
+  quantity,            // default 1
+  requestedAmount,     // paise; defaults to unitAmount × quantity, overridable (enhancement/implant)
+  approvedAmount,      // paise, nullable — set from payer per-line adjudication
+  lineStatus,          // "requested" | "approved" | "rejected" | "partial"
+  sequence,            // stable ordering → FHIR Claim.item[].sequence
+  createdAt, updatedAt
+
+  Indices: (claimId, sequence)
+```
+
+`Claim.preauthAmount` / `claimAmount` / `approvedAmount` are materialised sums over the live line items (plus the event log), keeping `Claim` a read-optimised view. `Claim.packageCode` is the denormalised *primary* (first `package`) line, kept for list views and denial analytics (D-018). The FHIR builder renders `package` lines as `Claim.item[].productOrService` under `payer.pmjay.nha.gov.in` **only when `rail === "pmjay"`**.
 
 ### NHCX-specific
 

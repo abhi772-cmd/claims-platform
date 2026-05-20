@@ -6,6 +6,88 @@ sprint slices rather than calendar releases.
 
 ## Sprint 11 — in flight (May 2026)
 
+### Pre-auth document checklist enforcement gate (T1.1)
+
+Converts the per-payer / per-phase document checklist from advisory-only
+display into a real submit gate. Pre-auth submit now blocks when any
+document the resolved checklist marks `required: true` for the claim's
+`(phase=preauth, rail, payer, package, admissionType)` has not been
+uploaded — directly attacking the top cause of preauth query/rework
+cycles (a mandatory doc the IPD desk didn't know the payer required).
+
+- `PreauthService.submit` now resolves the checklist (`MasterDataService
+  .resolveChecklist`) and verifies each required document type has a
+  completed + clean/skipped upload (`DocumentService.hasDocumentType`)
+  before transitioning. Vacuously satisfied when no rules match, so it
+  never surprises a flow that had no rules.
+- New error code `PREAUTH_DOCUMENTS_INCOMPLETE` (412) wired through
+  `@claims/error-codes` (codes + presentation) and a new
+  `PreauthDocumentsIncompleteError` — the `errors.documents` array lists
+  the missing `documentType`s. Modal copy already existed in
+  `reference/error-codes.md`.
+- Web: new `PreauthChecklist` component (rendered in `PreauthPanel`)
+  shows required docs with present/missing status and an inline upload
+  for missing ones, so the gate is operable in the pre-auth phase. The
+  upload pipeline was extracted to a shared `lib/upload.ts`
+  (`uploadDocument` + helpers), reused by `ClaimPhasePanel`.
+- Integration test `preauth-checklist-gate.e2e-spec.ts`: gate fires
+  (412 + missing list), clears on upload, ignores non-required items,
+  and is a no-op with no rules.
+
+### Bill OCR — upload a final bill to seed the non-medical classifier (T2-13 follow-up)
+
+Replaces the paste-as-text step in the discharge non-medical classifier
+with a real "Upload bill (PDF/image)" path. The operator uploads a
+hospital final bill; it's OCR'd into line items that pre-fill the
+classifier, and the existing classify / per-line override / save flow
+runs unchanged.
+
+- New `bill-ocr` adapter family (`apps/api/src/modules/bill-ocr/`):
+  `off` (disabled), `stub` (sentinel fixtures), `real` (HTTP). Mirrors
+  the `eob-ocr` pattern but stateless/buffer-only. `BILL_OCR_MODE` env;
+  `real` reuses `EOB_OCR_INFERENCE_URL` / `EOB_OCR_API_KEY` (one OCR
+  machine, two routes — bill posts to `/extract-bill`).
+- New stateless endpoint `POST /discharge/extract-bill` (base64 upload,
+  `CLAIM_DRAFT`-gated) → `{ status, engine, lines: [{description,
+  amountPaise}], error? }`. No Document row, nothing persisted.
+- New contracts `BillOcrExtractRequest/Response` (`bill-ocr.schema.ts`),
+  reusing `BillLineSchema`.
+- Web: `NonMedicalStripCalculator` gains an upload button that reads the
+  file, calls extract-bill, and seeds the textarea; paste stays as the
+  fallback for off / low-confidence / failed.
+- OCR machine (`eob-ocr-machine`): new `/extract-bill` route + Ollama
+  bill-line prompt/schema, reusing the PDF rasterisation layer.
+
+### PMJAY package-driven costing — Phase 1 (D-023)
+
+Starts making PMJAY claims package-driven (the way the scheme actually
+works) instead of free-typed amounts. Phase 1 is pure-additive: no FHIR
+bundle shape changes, so the locked snapshot/contract tests stay green.
+
+- New `claim_line_item` table (migration
+  `20260611000000_claim_line_item_package`) — the costing spine. Each
+  `package` line is an HBP package at its fixed rate; `implant`/`addon`
+  lines arrive with the Phase 3 multi-line UI. `unitAmount`/`display`
+  are snapshotted at add-time. Tenant-scoped via RLS-FORCE, same pattern
+  as `bill_line_item`.
+- New denormalised `claim.packageCode` (the primary package) and
+  `preauth_draft.packageCode` — closes a spec↔code drift: `packageCode`
+  was specced on the Claim in `docs/03` from the start but never built.
+- Preauth save path: choosing a package snapshots it as the primary
+  claim line (sequence 1) and auto-fills `requestedAmount` from the
+  package's fixed rate — overridable, not hard-locked, so enhancement /
+  implant cases still work. The draft, the line, and `claim.packageCode`
+  are written in one tenant transaction.
+- Master-data `GET /packages` gains a `q` typeahead over code + name.
+- Preauth UI gains an HBP package picker (PMJAY rail only in Phase 1,
+  per D-008) that searches packages and auto-fills the amount.
+- New contracts: `ClaimLineItem`, `ClaimLineType`, `ClaimLineStatus`,
+  `SaveClaimLineItem*`; `packageCode` added to `PreauthDraftSchema`.
+
+Phase 2 (deferred): emit `Claim.item[]` from the line items gated on
+`rail === 'pmjay'`, regenerate the reference bundles + snapshots, and
+land per-line payer adjudication on the inbound parse path.
+
 ### Co-pay floor-vs-cap modelling on payer commercial terms
 
 Fixes a correctness gap in the out-of-pocket co-pay math. Previously,

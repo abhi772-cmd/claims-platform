@@ -348,6 +348,14 @@ export const ErrorPresentations: Record<ErrorCode, ErrorPresentation> = {
     secondaryAction: 'Cancel',
   },
 
+  PREAUTH_DOCUMENTS_INCOMPLETE: {
+    title: 'Documents missing',
+    body: 'Some documents this payer requires for pre-authorisation are missing. Upload them to submit. The specific list is shown below.',
+    severity: 'warning',
+    primaryAction: 'Upload documents',
+    secondaryAction: 'Cancel',
+  },
+
   VALIDATION_FAILED: {
     title: 'Check the details',
     body: 'Some fields need attention before you can continue.',

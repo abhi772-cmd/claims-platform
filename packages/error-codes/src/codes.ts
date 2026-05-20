@@ -87,6 +87,14 @@ export const ErrorCodes = {
   // so the form can pre-populate.
   CONSENT_REQUIRED: 'CONSENT_REQUIRED',
 
+  // PREAUTH (T1.1 — checklist enforcement gate)
+  // Server-side gate: pre-auth submit blocked because one or more
+  // documents the resolved checklist marks `required: true` for this
+  // (phase=preauth, rail, payer, package, admissionType) have not been
+  // uploaded. The frontend lists the missing types and routes the
+  // operator to the document uploader, then retries the submit.
+  PREAUTH_DOCUMENTS_INCOMPLETE: 'PREAUTH_DOCUMENTS_INCOMPLETE',
+
   // VALIDATION & GENERIC
   VALIDATION_FAILED: 'VALIDATION_FAILED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
@@ -140,6 +148,11 @@ export const ErrorHttpStatus: Record<ErrorCode, number> = {
   // pre-condition (active consent) is missing; the frontend
   // captures it, then retries.
   CONSENT_REQUIRED: 412,
+
+  // 412 — a precondition (required documents) is missing; the
+  // frontend gathers them, then retries the submit. Mirrors the
+  // biometric / consent precondition shape.
+  PREAUTH_DOCUMENTS_INCOMPLETE: 412,
 
   ONBOARDING_STEP_INCOMPLETE: 412,
   ONBOARDING_OUT_OF_ORDER: 412,

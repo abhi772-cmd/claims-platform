@@ -154,6 +154,11 @@ model Claim {
   // subsequent FHIR R4 outbound (preauth, discharge, claim, communication)
   // so we don't re-pass the payer code on every request.
   payerCode       String?
+  // D-023 — denormalised PRIMARY package (the first `package` line in
+  // claimLineItems). Kept for list views and denial analytics so we
+  // don't join ClaimLineItem on hot reads. Full costing lives in
+  // claimLineItems; for PMJAY this is the HBP code.
+  packageCode     String?
   assignedToUserId String?  @db.Uuid
   initiatedAt     DateTime  @default(now())
   submittedAt     DateTime?
@@ -164,12 +169,54 @@ model Claim {
   case           Case            @relation(fields: [caseId], references: [id], onDelete: Cascade)
   events         ClaimEvent[]
   billLineItems  BillLineItem[]
+  claimLineItems ClaimLineItem[]
   eobLineMatches EobLineMatch[]
 
   @@index([tenantId, status])
   @@index([tenantId, assignedToUserId, status])
   @@index([caseId])
   @@map("claim")
+}
+
+// D-023 — the costing spine of a claim. For PMJAY each `package` line
+// is an HBP package at its fixed rate; `implant`/`addon` lines carry
+// the rest. `unitAmount` + `display` are snapshotted at add-time so a
+// claim stays linked to the package version it was filed under (see
+// the master-data versioning pattern in docs/03). Claim.preauthAmount
+// / claimAmount / approvedAmount are materialised SUMS over these
+// rows. Tenant-scoped via RLS-FORCE, same pattern as bill_line_item.
+model ClaimLineItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @db.Uuid
+  claimId         String   @db.Uuid
+  // 'package' | 'implant' | 'addon' (ClaimLineTypeSchema in contracts).
+  lineType        String
+  // HBP package code for pmjay package lines; internal code otherwise.
+  code            String
+  // Human-readable name, denormalised at add-time.
+  display         String
+  // 'nhcx' | 'pmjay' — selects the FHIR coding system in the builder.
+  rail            String
+  // Paise. For a package line = the HBP fixed rate at add-time.
+  unitAmount      Int
+  quantity        Int      @default(1)
+  // Paise. Defaults to unitAmount * quantity; overridable for
+  // enhancement / implant lines (D-023: auto-fill, do NOT hard-lock).
+  requestedAmount Int
+  // Paise, nullable — set from the payer's per-line adjudication.
+  approvedAmount  Int?
+  // 'requested' | 'approved' | 'rejected' | 'partial'.
+  lineStatus      String   @default("requested")
+  // Stable ordering → FHIR Claim.item[].sequence (1-based).
+  sequence        Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  claim Claim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+
+  @@unique([claimId, sequence])
+  @@index([tenantId, claimId])
+  @@map("claim_line_item")
 }
 
 // T2-13 follow-up — persisted bill line items captured at discharge
@@ -816,6 +863,9 @@ model PreauthDraft {
   diagnosisDescription      String?
   plannedProcedure          String?
   procedureCode             String?
+  // D-023 — HBP package code chosen by the operator. The save path
+  // mirrors this to claim.packageCode and the primary ClaimLineItem.
+  packageCode               String?
   estimatedLengthOfStayDays Int?
   requestedAmount           Int?
   clinicalJustification     String?
