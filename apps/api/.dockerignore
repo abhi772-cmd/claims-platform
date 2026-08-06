@@ -1,0 +1,60 @@
+# Keep the build context small — every file under the build context
+# is sent to the Docker daemon at build time, so excluding everything
+# we don't need cuts build time + image size.
+
+# Build outputs
+**/dist
+**/.next
+**/.turbo
+
+# Dependencies (re-installed inside the image)
+**/node_modules
+
+# Test + dev artefacts
+**/coverage
+**/.nyc_output
+**/.jest-cache
+
+# Local env files — secrets must come from the deploy environment,
+# never from the build context. Include the example so devs can see
+# the expected shape.
+.env
+.env.*
+!.env.example
+!apps/api/.env.example
+
+# IDE / OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+
+# Git internals — Dockerfile can capture build SHA via build args
+.git
+.gitignore
+.github
+
+# Logs
+*.log
+**/*.log
+
+# Local dev infrastructure (Postgres data, Mailhog state, etc.)
+infra/docker-compose/data
+
+# Repo-level docs not needed in the image
+docs
+reference
+README.md
+CHANGELOG.md
+SMOKE_TEST.md
+SESSION_HANDOFF.md
+PRODUCTION_HANDOVER.md
+
+# Web app — not part of the API image
+apps/web
+
+# Test files — not shipped to production
+**/*.spec.ts
+**/*.e2e-spec.ts
+**/test
+**/__tests__
